@@ -16,6 +16,7 @@ samulibre-shield = { path = "../samulibre-shield" }
 samulibre-scanner = { path = "../samulibre-scanner" }
 samulibre-vpn = { path = "../samulibre-vpn" }
 samulibre-core = { path = "../samulibre-core" }
+samulibre-watcher = { path = "../samulibre-watcher" }
 clap = { workspace = true }
 colored = { workspace = true }
 tokio = { workspace = true }

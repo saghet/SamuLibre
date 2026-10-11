@@ -1,0 +1,9 @@
+{
+  "id": "bd85930e-ab2a-4dba-9630-7a2530a6963e",
+  "original_path": "data/test_samples/threat_test.ps1",
+  "threat_name": "Heuristic.Script.ObfuscatedPowerShellDropper",
+  "engine": "YARA-X/Heuristics",
+  "sha256": "b9f34a9219acc2224ebf8b1b1eeb881098b57d34bbb56b6821f87428c3007aa5",
+  "quarantined_at": "2026-10-11T01:56:41.106667800Z",
+  "isolated_file_path": "data\\quarantine\\bd85930e-ab2a-4dba-9630-7a2530a6963e.quarantine"
+}

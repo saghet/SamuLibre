@@ -5,6 +5,7 @@ use samulibre_scanner::MultiEngineScanner;
 use samulibre_shield::EndpointShield;
 use samulibre_types::{SuiteStatus, ThreatAlert};
 use samulibre_vpn::VpnManager;
+use samulibre_watcher::RealTimeWatcher;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use tracing::{info, warn};
@@ -14,6 +15,7 @@ pub struct SamuLibreCore {
     pub shield: Arc<Mutex<EndpointShield>>,
     pub scanner: Arc<MultiEngineScanner>,
     pub vpn: Arc<Mutex<VpnManager>>,
+    pub watcher: Arc<Mutex<RealTimeWatcher>>,
     alerts_history: Arc<Mutex<Vec<ThreatAlert>>>,
 }
 
@@ -23,12 +25,14 @@ impl SamuLibreCore {
         let shield = Arc::new(Mutex::new(EndpointShield::new(canary_dir)));
         let scanner = Arc::new(MultiEngineScanner::new());
         let vpn = Arc::new(Mutex::new(VpnManager::new(vpn_dir)));
+        let watcher = Arc::new(Mutex::new(RealTimeWatcher::new(Arc::clone(&scanner), Path::new("data").join("quarantine"))));
 
         Self {
             patcher,
             shield,
             scanner,
             vpn,
+            watcher,
             alerts_history: Arc::new(Mutex::new(Vec::new())),
         }
     }
