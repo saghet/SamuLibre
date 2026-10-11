@@ -79,6 +79,8 @@ pub struct VirtualPatchRule {
     pub detected_at: Option<DateTime<Utc>>,
     pub patched_at: Option<DateTime<Utc>>,
     pub unpatched_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub status_reason: Option<String>,
 }
 
 /// Alerta de seguridad generada por el sistema

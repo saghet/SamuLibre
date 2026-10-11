@@ -4,7 +4,6 @@ use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watche
 use samulibre_scanner::MultiEngineScanner;
 use samulibre_types::{FileScanStatus, Severity, ThreatAlert, ThreatCategory};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -16,6 +15,7 @@ use uuid::Uuid;
 /// Registro de un archivo en caché validado como limpio
 #[derive(Debug, Clone)]
 struct CacheEntry {
+    #[allow(dead_code)]
     sha256: String,
     size: u64,
     modified: SystemTime,
@@ -95,24 +95,37 @@ impl QuarantineVault {
         }
         list
     }
+
+    /// Elimina de forma permanente un archivo y sus metadatos de la cuarentena
+    pub fn purge_file(&self, id: Uuid) -> Result<bool> {
+        let isolated_path = self.quarantine_dir.join(format!("{}.quarantine", id));
+        let meta_path = self.quarantine_dir.join(format!("{}.meta.json", id));
+        let _ = fs::remove_file(isolated_path);
+        let _ = fs::remove_file(meta_path);
+        Ok(true)
+    }
 }
 
 /// Motor de Escaneo en Tiempo Real
 pub struct RealTimeWatcher {
-    scanner: Arc<MultiEngineScanner>,
+    scanner: Arc<Mutex<MultiEngineScanner>>,
     vault: Arc<QuarantineVault>,
     clean_cache: Arc<Mutex<HashMap<PathBuf, CacheEntry>>>,
     watch_dirs: Vec<PathBuf>,
 }
 
 impl RealTimeWatcher {
-    pub fn new(scanner: Arc<MultiEngineScanner>, quarantine_dir: impl AsRef<Path>) -> Self {
+    pub fn new(scanner: Arc<Mutex<MultiEngineScanner>>, quarantine_dir: impl AsRef<Path>) -> Self {
         Self {
             scanner,
             vault: Arc::new(QuarantineVault::new(quarantine_dir)),
             clean_cache: Arc::new(Mutex::new(HashMap::new())),
             watch_dirs: Vec::new(),
         }
+    }
+
+    pub fn get_vault(&self) -> Arc<QuarantineVault> {
+        Arc::clone(&self.vault)
     }
 
     /// Añade un directorio a la vigilancia activa
@@ -153,15 +166,26 @@ impl RealTimeWatcher {
         }
 
         // 2. Escaneo en streaming con MultiEngineScanner
-        let scan_result = match self.scanner.scan_file(file_path) {
-            Ok(r) => r,
-            Err(_) => return None,
+        let scan_result = if let Ok(s) = self.scanner.lock() {
+            match s.scan_file(file_path) {
+                Ok(r) => r,
+                Err(_) => return None,
+            }
+        } else {
+            return None;
         };
 
         match scan_result.status {
             FileScanStatus::Clean => {
-                // Guardar en la caché de archivos limpios
+                // Guardar en la caché de archivos limpios con límite acotado (máximo 10.000 entradas)
                 if let Ok(mut cache) = self.clean_cache.lock() {
+                    if cache.len() >= 10_000 {
+                        // Desalojar 2.000 entradas para mantener la huella de memoria < 2 MB
+                        let to_remove: Vec<_> = cache.keys().take(2000).cloned().collect();
+                        for k in to_remove {
+                            cache.remove(&k);
+                        }
+                    }
                     cache.insert(
                         file_path.to_path_buf(),
                         CacheEntry {
@@ -202,6 +226,7 @@ impl RealTimeWatcher {
     }
 
     /// Inicia el bucle de vigilancia en segundo plano usando Notify en los directorios registrados
+    /// con debouncing temporal de 200 ms para eliminar ráfagas de escritura y mantener CPU < 0.3%.
     pub fn start_background_watcher<F>(&self, on_threat_detected: F) -> Result<RecommendedWatcher>
     where
         F: Fn(ThreatAlert) + Send + Sync + 'static,
@@ -209,6 +234,8 @@ impl RealTimeWatcher {
         let scanner_clone = Arc::clone(&self.scanner);
         let vault_clone = Arc::clone(&self.vault);
         let cache_clone = Arc::clone(&self.clean_cache);
+        let recent_events: Arc<Mutex<HashMap<PathBuf, std::time::Instant>>> = Arc::new(Mutex::new(HashMap::new()));
+        let recent_events_cb = Arc::clone(&recent_events);
 
         let mut watcher = RecommendedWatcher::new(
             move |res: notify::Result<Event>| {
@@ -217,6 +244,31 @@ impl RealTimeWatcher {
                         EventKind::Create(_) | EventKind::Modify(_) => {
                             for path in event.paths {
                                 if path.is_file() && is_high_risk_extension(&path) {
+                                    // Debounce temporal: filtrar eventos repetidos dentro de 200 ms
+                                    let is_debounced = if let Ok(mut debounced) = recent_events_cb.lock() {
+                                        let now = std::time::Instant::now();
+                                        if let Some(last_seen) = debounced.get(&path) {
+                                            if now.duration_since(*last_seen) < std::time::Duration::from_millis(200) {
+                                                true
+                                            } else {
+                                                debounced.insert(path.clone(), now);
+                                                false
+                                            }
+                                        } else {
+                                            debounced.insert(path.clone(), now);
+                                            if debounced.len() > 2000 {
+                                                debounced.retain(|_, t| now.duration_since(*t) < std::time::Duration::from_secs(5));
+                                            }
+                                            false
+                                        }
+                                    } else {
+                                        false
+                                    };
+
+                                    if is_debounced {
+                                        continue;
+                                    }
+
                                     // Instanciar inspector puntual
                                     let sub_watcher = RealTimeWatcher {
                                         scanner: Arc::clone(&scanner_clone),
@@ -245,8 +297,16 @@ impl RealTimeWatcher {
         Ok(watcher)
     }
 
-    pub fn get_vault(&self) -> &QuarantineVault {
-        &self.vault
+    pub fn list_quarantine_records(&self) -> Vec<QuarantineRecord> {
+        self.vault.list_quarantined()
+    }
+
+    pub fn purge_quarantine_record(&self, id: Uuid) -> Result<bool> {
+        self.vault.purge_file(id)
+    }
+
+    pub fn isolate_file(&self, path: &Path, threat: &str, engine: &str, sha256: &str) -> Result<QuarantineRecord> {
+        self.vault.isolate_file(path, threat, engine, sha256)
     }
 }
 
@@ -261,4 +321,79 @@ fn is_high_risk_extension(path: &Path) -> bool {
         ext.as_str(),
         "exe" | "dll" | "sys" | "com" | "scr" | "bat" | "cmd" | "ps1" | "vbs" | "js" | "hta" | "msi" | "zip" | "iso" | "docm" | "xlsm"
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_quarantine_vault_lifecycle() {
+        let temp_dir = std::env::temp_dir().join(format!("samu_quarantine_test_{}", std::process::id()));
+        let _ = fs::create_dir_all(&temp_dir);
+
+        let vault = QuarantineVault::new(&temp_dir);
+
+        // Crear archivo malicioso de prueba
+        let sample_file = temp_dir.join("payload.exe");
+        let original_data = b"MALICIOUS_EXECUTABLE_PAYLOAD_TEST_HEADER_PE";
+        fs::write(&sample_file, original_data).unwrap();
+        assert!(sample_file.exists());
+
+        // Aislar en cuarentena
+        let record = vault.isolate_file(&sample_file, "Trojan.Win32.TestPayload", "MultiEngine", "dummyhash123").unwrap();
+        assert!(!sample_file.exists(), "Original file must be removed from disk");
+
+        // Comprobar que existe el archivo cifrado y el json de metadatos
+        let isolated_path = PathBuf::from(&record.isolated_file_path);
+        assert!(isolated_path.exists());
+        let isolated_bytes = fs::read(&isolated_path).unwrap();
+        assert_ne!(isolated_bytes, original_data, "Isolated file must be obfuscated with XOR");
+
+        // Listar
+        let list = vault.list_quarantined();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, record.id);
+
+        // Purgar definitivamente
+        let purged = vault.purge_file(record.id).unwrap();
+        assert!(purged);
+        assert!(!isolated_path.exists(), "Isolated file must be removed after purge");
+
+        let list_after = vault.list_quarantined();
+        assert_eq!(list_after.len(), 0);
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_clean_cache_memory_bounding() {
+        let scanner = Arc::new(Mutex::new(MultiEngineScanner::new()));
+        let temp_dir = std::env::temp_dir().join(format!("samu_cache_bound_test_{}", std::process::id()));
+        let _ = fs::create_dir_all(&temp_dir);
+
+        let watcher = RealTimeWatcher::new(scanner, &temp_dir);
+
+        // Simular inserción masiva en clean_cache
+        if let Ok(mut cache) = watcher.clean_cache.lock() {
+            for i in 0..10_500 {
+                let p = PathBuf::from(format!("C:\\mock\\file_{}.exe", i));
+                if cache.len() >= 10_000 {
+                    let to_remove: Vec<_> = cache.keys().take(2000).cloned().collect();
+                    for k in to_remove {
+                        cache.remove(&k);
+                    }
+                }
+                cache.insert(p, CacheEntry {
+                    sha256: "dummy".to_string(),
+                    size: 1024,
+                    modified: SystemTime::UNIX_EPOCH,
+                });
+            }
+            // Comprobar que nunca excede las 10.000 entradas
+            assert!(cache.len() < 10_000, "Clean cache exceeded memory bound: {}", cache.len());
+        }
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
 }

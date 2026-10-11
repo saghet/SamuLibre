@@ -112,6 +112,20 @@ enum ShieldCommands {
 
 #[derive(Subcommand)]
 enum VpnCommands {
+    /// Conecta la VPN enrutando el tráfico del sistema operativo por el país seleccionado
+    Connect {
+        /// Código de país: CH (Suiza), IS (Islandia), NL (Países Bajos), SE (Suecia), PA (Panamá), CA (Canadá)
+        #[arg(short, long, default_value = "CH")]
+        country: String,
+
+        /// Activar Kill-Switch de firewall contra fugas sin cifrar
+        #[arg(short, long)]
+        kill_switch: bool,
+    },
+    /// Desconecta la VPN y restaura la configuración de red y proxy del sistema
+    Disconnect,
+    /// Muestra el estado actual de la VPN y del proxy del sistema
+    Status,
     /// Genera un perfil WireGuard compatible con clientes libres
     ExportConfig {
         #[arg(short, long, default_value = "samulibre_vpn.conf")]
@@ -167,7 +181,7 @@ async fn main() -> Result<()> {
 
         Commands::Watcher { sub } => {
             let quarantine_dir = Path::new("data").join("quarantine");
-            let scanner = std::sync::Arc::new(MultiEngineScanner::new());
+            let scanner = std::sync::Arc::new(std::sync::Mutex::new(MultiEngineScanner::new()));
             let watcher = RealTimeWatcher::new(scanner, &quarantine_dir);
 
             match sub {
@@ -345,6 +359,39 @@ async fn main() -> Result<()> {
         Commands::Vpn { sub } => {
             let mut vpn = VpnManager::new(&vpn_dir);
             match sub {
+                VpnCommands::Connect { country, kill_switch } => {
+                    println!("Iniciando conexión VPN segura a {}...", country.bold().cyan());
+                    let state = vpn.connect_country(&country, kill_switch)?;
+                    println!("{} VPN conectada exitosamente", "✔".green());
+                    println!("País: {} {}", state.country_flag.unwrap_or_default(), state.country_name.unwrap_or_default());
+                    println!("IP Pública Verificada: {}", state.assigned_ip.unwrap_or_default().bold().green());
+                    println!("Protocolo: {}", state.protocol);
+                    println!("DNS Activo: {}", state.dns_active);
+                    println!("Proxy del sistema operativo (WinINet) configurado para todos los navegadores.");
+                    println!("\nPresiona Ctrl+C para desconectar y restaurar la configuración original.");
+                    tokio::signal::ctrl_c().await.ok();
+                    println!("\nRestaurando proxy y desconectando túnel...");
+                    let _ = vpn.disconnect();
+                    println!("{} Desconexión completa. Tráfico original restaurado.", "✔".green());
+                }
+
+                VpnCommands::Disconnect => {
+                    println!("Desconectando VPN y restaurando proxy...");
+                    let _ = vpn.disconnect()?;
+                    println!("{} VPN desconectada. Tráfico directo restaurado.", "✔".green());
+                }
+
+                VpnCommands::Status => {
+                    let state = vpn.get_state();
+                    if state.is_connected {
+                        println!("Estado: {} CONECTADA", "●".green());
+                        println!("País: {} {}", state.country_flag.unwrap_or_default(), state.country_name.unwrap_or_default());
+                        println!("IP Asignada: {}", state.assigned_ip.unwrap_or_default().cyan());
+                    } else {
+                        println!("Estado: {} DESCONECTADA (Tráfico directo)", "○".yellow());
+                    }
+                }
+
                 VpnCommands::ExportConfig { output } => {
                     let config = WireGuardConfig {
                         interface_name: "samulibre-wg0".to_string(),

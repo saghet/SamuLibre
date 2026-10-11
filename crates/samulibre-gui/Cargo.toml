@@ -26,3 +26,7 @@ tokio = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+tray-icon = "0.26"
+image = { version = "0.25.10", default-features = false, features = ["png"] }
+chrono = { workspace = true }
+uuid = { workspace = true }

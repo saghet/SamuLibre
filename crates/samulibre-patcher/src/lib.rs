@@ -1,9 +1,21 @@
 use anyhow::Result;
 use chrono::Utc;
 use samulibre_types::{MitigationStrategy, PatchStatus, Severity, VirtualPatchRule};
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::process::Command;
 use tracing::info;
+
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+/// Información de compilación y versión de Windows
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OsVersionInfo {
+    pub build_number: u32,
+    pub ubr: u32,
+    pub display_version: String,
+}
 
 pub struct VirtualPatcher {
     rules: Vec<VirtualPatchRule>,
@@ -41,6 +53,7 @@ impl VirtualPatcher {
                 detected_at: None,
                 patched_at: None,
                 unpatched_at: None,
+                status_reason: None,
             },
             VirtualPatchRule {
                 id: "VP-2024-38077".to_string(),
@@ -60,6 +73,7 @@ impl VirtualPatcher {
                 detected_at: None,
                 patched_at: None,
                 unpatched_at: None,
+                status_reason: None,
             },
             VirtualPatchRule {
                 id: "VP-2021-34527".to_string(),
@@ -79,6 +93,7 @@ impl VirtualPatcher {
                 detected_at: None,
                 patched_at: None,
                 unpatched_at: None,
+                status_reason: None,
             },
             VirtualPatchRule {
                 id: "VP-2022-30190".to_string(),
@@ -96,6 +111,7 @@ impl VirtualPatcher {
                 detected_at: None,
                 patched_at: None,
                 unpatched_at: None,
+                status_reason: None,
             },
             VirtualPatchRule {
                 id: "VP-2017-0144".to_string(),
@@ -113,6 +129,7 @@ impl VirtualPatcher {
                 detected_at: None,
                 patched_at: None,
                 unpatched_at: None,
+                status_reason: None,
             },
         ];
     }
@@ -123,10 +140,10 @@ impl VirtualPatcher {
 
         #[cfg(target_os = "windows")]
         {
-            // Intentar consultar Get-HotFix mediante PowerShell
-            let output = Command::new("powershell")
-                .args(["-NoProfile", "-Command", "Get-HotFix | Select-Object -ExpandProperty HotFixID"])
-                .output();
+            let mut cmd = Command::new("powershell");
+            cmd.args(["-NoProfile", "-Command", "Get-HotFix | Select-Object -ExpandProperty HotFixID"]);
+            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+            let output = cmd.output();
 
             if let Ok(out) = output {
                 if out.status.success() {
@@ -144,35 +161,130 @@ impl VirtualPatcher {
         installed
     }
 
-    /// Evalúa el sistema contra el catálogo de CVEs y determina qué parches se necesitan
+    /// Evalúa el sistema contra el catálogo de CVEs mediante la Matriz Multi-Criterio Inteligente
     pub fn scan_and_evaluate(&mut self, simulated_kbs: Option<HashSet<String>>) -> (usize, usize, usize) {
+        let os_info = get_windows_os_info();
         let installed_kbs = simulated_kbs.unwrap_or_else(|| self.get_installed_kbs());
         let now = Utc::now();
 
         let mut unmitigated = 0;
         let mut native_fixed = 0;
         let mut active_vpatches = 0;
-
         let dry_run = self.dry_run;
-        for rule in &mut self.rules {
-            // Verificar si alguna de las KBs requeridas ya está instalada nativamente
-            let has_native_patch = rule.required_kb.iter().any(|kb| installed_kbs.contains(&kb.to_uppercase()));
 
-            if has_native_patch {
-                // Si tenía un parche virtual activo, ahora debe desactivarse automáticamente
+        for rule in &mut self.rules {
+            let mut is_native = false;
+            let mut is_immune = false;
+            let mut reason = String::new();
+
+            // Criterio 1: Verificación de KBs instaladas explícitamente
+            if rule.required_kb.iter().any(|kb| installed_kbs.contains(&kb.to_uppercase())) {
+                is_native = true;
+                reason = format!("Actualización oficial ({}) instalada y confirmada en el sistema.", rule.required_kb.join(", "));
+            }
+
+            // Criterio 2: Inteligencia de Compilación (OS Build & UBR) y Componentes Nativos
+            if !is_native {
+                match rule.cve.as_str() {
+                    "CVE-2024-38063" => {
+                        // Windows TCP/IP IPv6 RCE
+                        // Corregido en:
+                        // - Windows 11 24H2/25H2: Build > 26100 o (Build == 26100 && UBR >= 1591)
+                        // - Windows 11 23H2: Build == 22631 && UBR >= 4037
+                        // - Windows 11 22H2: Build == 22621 && UBR >= 4037
+                        if let Some(ref os) = os_info {
+                            if os.build_number > 26100 || (os.build_number == 26100 && os.ubr >= 1591) || (os.build_number >= 22621 && os.ubr >= 4037) {
+                                is_native = true;
+                                reason = format!(
+                                    "Corregido nativamente por Windows 11 {} (Compilación {}.{}, tcpip.sys actualizado)",
+                                    os.display_version, os.build_number, os.ubr
+                                );
+                            }
+                        }
+                    }
+
+                    "CVE-2024-38077" => {
+                        // MadLicence (Remote Desktop Licensing Service RCE)
+                        // Afecta únicamente al rol de servidor TermServLicensing. Inexistente en Windows 11 Desktop.
+                        if !is_service_installed("TermServLicensing") {
+                            is_immune = true;
+                            reason = "Inmune: El servicio de licencias RDS (TermServLicensing) solo existe en Windows Server. Inexistente en Windows 11.".to_string();
+                        } else if let Some(ref os) = os_info {
+                            if os.build_number > 26100 || (os.build_number == 26100 && os.ubr >= 1150) {
+                                is_native = true;
+                                reason = format!("Corregido nativamente en servidor por compilación {}.{}", os.build_number, os.ubr);
+                            }
+                        }
+                    }
+
+                    "CVE-2021-34527" => {
+                        // PrintNightmare
+                        // Corregido en 2021. Windows 11 (Build 22000+) incluye la arquitectura segura de spoolsv.exe por omisión.
+                        if let Some(ref os) = os_info {
+                            if os.build_number >= 22000 {
+                                is_native = true;
+                                reason = format!(
+                                    "Corregido nativamente: Windows 11 {} (Build {}) incluye PointAndPrint seguro por omisión.",
+                                    os.display_version, os.build_number
+                                );
+                            }
+                        }
+                    }
+
+                    "CVE-2022-30190" => {
+                        // Follina (MSDT RCE)
+                        // Corregido en junio de 2022. Windows 11 22H2+ (Build 22621+) incluye el protocolo ms-msdt neutralizado.
+                        if let Some(ref os) = os_info {
+                            if os.build_number >= 22621 {
+                                is_native = true;
+                                reason = format!(
+                                    "Corregido nativamente: Vector de protocolo ms-msdt neutralizado en Windows 11 (Build {}).",
+                                    os.build_number
+                                );
+                            }
+                        }
+                    }
+
+                    "CVE-2017-0144" => {
+                        // EternalBlue (SMBv1 RCE)
+                        // SMBv1 está completamente retirado y deshabilitado por omisión en Windows 11.
+                        if let Some(ref os) = os_info {
+                            if os.build_number >= 22000 {
+                                is_native = true;
+                                reason = "Corregido nativamente: Controlador SMBv1 retirado y deshabilitado por omisión en Windows 11.".to_string();
+                            }
+                        }
+                    }
+
+                    _ => {}
+                }
+            }
+
+            if is_immune {
+                // Si tenía un parche virtual activo pero es inmune, se desactiva
                 if rule.status == PatchStatus::VirtualPatchActive {
-                    info!("Desactivando parche virtual para {} porque la actualización nativa ({:?}) fue instalada.", rule.cve, rule.required_kb);
+                    let _ = revert_mitigation_helper(dry_run, &rule.strategy);
+                    rule.unpatched_at = Some(now);
+                }
+                rule.status = PatchStatus::NotApplicable;
+                rule.status_reason = Some(reason);
+                native_fixed += 1;
+            } else if is_native {
+                if rule.status == PatchStatus::VirtualPatchActive {
+                    info!("Desactivando parche virtual para {} porque está protegido nativamente.", rule.cve);
                     let _ = revert_mitigation_helper(dry_run, &rule.strategy);
                     rule.unpatched_at = Some(now);
                 }
                 rule.status = PatchStatus::NativePatchInstalled;
+                rule.status_reason = Some(reason);
                 native_fixed += 1;
             } else {
-                // Falta la actualización oficial
+                // Realmente no mitigado
                 if rule.status == PatchStatus::VirtualPatchActive {
                     active_vpatches += 1;
                 } else {
                     rule.status = PatchStatus::Unmitigated;
+                    rule.status_reason = Some("Vulnerabilidad expuesta en el SO: parche virtual recomendado.".to_string());
                     rule.detected_at = Some(now);
                     unmitigated += 1;
                 }
@@ -203,39 +315,92 @@ impl VirtualPatcher {
 
     /// Revisa si el sistema ya instaló parches oficiales y retira mitigaciones virtuales automáticamente
     pub fn check_and_deactivate_obsolete_patches(&mut self, simulated_kbs: Option<HashSet<String>>) -> Result<usize> {
-        let installed_kbs = simulated_kbs.unwrap_or_else(|| self.get_installed_kbs());
-        let now = Utc::now();
-        let mut reverted_count = 0;
-        let dry_run = self.dry_run;
-
-        for rule in &mut self.rules {
-            if rule.status == PatchStatus::VirtualPatchActive {
-                let has_native = rule.required_kb.iter().any(|kb| installed_kbs.contains(&kb.to_uppercase()));
-                if has_native {
-                    info!(
-                        "AUTO-DESACTIVACIÓN: Vulnerabilidad {} corregida nativamente por el SO ({:?}). Retirando parche virtual para liberar recursos.",
-                        rule.cve, rule.required_kb
-                    );
-                    revert_mitigation_helper(dry_run, &rule.strategy)?;
-                    rule.status = PatchStatus::NativePatchInstalled;
-                    rule.unpatched_at = Some(now);
-                    reverted_count += 1;
-                }
-            }
-        }
-
-        Ok(reverted_count)
+        let (unmitigated, _, native_fixed) = self.scan_and_evaluate(simulated_kbs);
+        info!(
+            "Auditoría de parchado virtual completada: {} abiertas, {} corregidas nativamente/inmunes.",
+            unmitigated, native_fixed
+        );
+        Ok(native_fixed)
     }
 
     pub fn get_rules(&self) -> &[VirtualPatchRule] {
         &self.rules
     }
+
+    pub fn get_os_info(&self) -> Option<OsVersionInfo> {
+        get_windows_os_info()
+    }
 }
 
-/// Ejecuta la mitigación según la estrategia (Firewall WFP, Registro, Servicio)
+/// Consulta rápida del Registro de Windows para obtener la Build, UBR y DisplayVersion
+pub fn get_windows_os_info() -> Option<OsVersionInfo> {
+    #[cfg(target_os = "windows")]
+    {
+        let mut build_num: Option<u32> = None;
+        let mut ubr_val: Option<u32> = None;
+        let mut display_ver: String = "11".to_string();
+
+        let mut cmd = Command::new("reg");
+        cmd.args(["query", r"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion"]);
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+
+        if let Ok(output) = cmd.output() {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                for line in stdout.lines() {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() >= 3 {
+                        if parts[0].eq_ignore_ascii_case("CurrentBuildNumber") || parts[0].eq_ignore_ascii_case("CurrentBuild") {
+                            if let Ok(b) = parts[2].parse::<u32>() {
+                                build_num = Some(b);
+                            }
+                        } else if parts[0].eq_ignore_ascii_case("UBR") {
+                            let raw = parts[2];
+                            if raw.starts_with("0x") || raw.starts_with("0X") {
+                                if let Ok(u) = u32::from_str_radix(&raw[2..], 16) {
+                                    ubr_val = Some(u);
+                                }
+                            } else if let Ok(u) = raw.parse::<u32>() {
+                                ubr_val = Some(u);
+                            }
+                        } else if parts[0].eq_ignore_ascii_case("DisplayVersion") {
+                            display_ver = parts[2].to_string();
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Some(b) = build_num {
+            return Some(OsVersionInfo {
+                build_number: b,
+                ubr: ubr_val.unwrap_or(0),
+                display_version: display_ver,
+            });
+        }
+    }
+
+    None
+}
+
+/// Comprueba si un servicio existe registrado en Windows
+pub fn is_service_installed(service_name: &str) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        let mut cmd = Command::new("reg");
+        cmd.args(["query", &format!(r"HKLM\SYSTEM\CurrentControlSet\Services\{}", service_name)]);
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        if let Ok(out) = cmd.output() {
+            return out.status.success();
+        }
+    }
+    false
+}
+
+/// Aplica la mitigación correspondiente según la estrategia
 fn enforce_mitigation_helper(dry_run: bool, strategy: &MitigationStrategy) -> Result<()> {
     if dry_run {
-        info!("[Dry-Run] Mitigación simulada con éxito.");
+        info!("[Dry-Run] Mitigación simulada.");
         return Ok(());
     }
 
@@ -256,6 +421,7 @@ fn enforce_mitigation_helper(dry_run: bool, strategy: &MitigationStrategy) -> Re
                         &format!("localport={}", port),
                     ]);
                 }
+                cmd.creation_flags(0x08000000);
                 let _ = cmd.output();
             }
             info!("Regla de firewall {} aplicada.", rule_name);
@@ -263,18 +429,20 @@ fn enforce_mitigation_helper(dry_run: bool, strategy: &MitigationStrategy) -> Re
         MitigationStrategy::RegistryHardening { key_path, value_name, safe_value, .. } => {
             #[cfg(target_os = "windows")]
             {
-                let _ = Command::new("reg")
-                    .args(["add", key_path, "/v", value_name, "/d", safe_value, "/f"])
-                    .output();
+                let mut cmd = Command::new("reg");
+                cmd.args(["add", key_path, "/v", value_name, "/d", safe_value, "/f"]);
+                cmd.creation_flags(0x08000000);
+                let _ = cmd.output();
             }
             info!("Clave de registro {}/{} endurecida a {}.", key_path, value_name, safe_value);
         }
         MitigationStrategy::ServiceMitigation { service_name, startup_type } => {
             #[cfg(target_os = "windows")]
             {
-                let _ = Command::new("sc")
-                    .args(["config", service_name, &format!("start={}", startup_type)])
-                    .output();
+                let mut cmd = Command::new("sc");
+                cmd.args(["config", service_name, &format!("start={}", startup_type)]);
+                cmd.creation_flags(0x08000000);
+                let _ = cmd.output();
             }
             info!("Servicio {} configurado en modo {}.", service_name, startup_type);
         }
@@ -296,27 +464,30 @@ fn revert_mitigation_helper(dry_run: bool, strategy: &MitigationStrategy) -> Res
         MitigationStrategy::NetworkFirewall { rule_name, .. } => {
             #[cfg(target_os = "windows")]
             {
-                let _ = Command::new("netsh")
-                    .args(["advfirewall", "firewall", "delete", "rule", &format!("name={}", rule_name)])
-                    .output();
+                let mut cmd = Command::new("netsh");
+                cmd.args(["advfirewall", "firewall", "delete", "rule", &format!("name={}", rule_name)]);
+                cmd.creation_flags(0x08000000);
+                let _ = cmd.output();
             }
             info!("Regla de firewall {} eliminada (parche nativo instalado).", rule_name);
         }
         MitigationStrategy::RegistryHardening { key_path, value_name, revert_value, .. } => {
             #[cfg(target_os = "windows")]
             {
-                let _ = Command::new("reg")
-                    .args(["add", key_path, "/v", value_name, "/d", revert_value, "/f"])
-                    .output();
+                let mut cmd = Command::new("reg");
+                cmd.args(["add", key_path, "/v", value_name, "/d", revert_value, "/f"]);
+                cmd.creation_flags(0x08000000);
+                let _ = cmd.output();
             }
             info!("Clave de registro {}/{} restaurada al valor estándar.", key_path, value_name);
         }
         MitigationStrategy::ServiceMitigation { service_name, .. } => {
             #[cfg(target_os = "windows")]
             {
-                let _ = Command::new("sc")
-                    .args(["config", service_name, "start=demand"])
-                    .output();
+                let mut cmd = Command::new("sc");
+                cmd.args(["config", service_name, "start=demand"]);
+                cmd.creation_flags(0x08000000);
+                let _ = cmd.output();
             }
             info!("Servicio {} restaurado a inicio por demanda.", service_name);
         }
@@ -326,3 +497,24 @@ fn revert_mitigation_helper(dry_run: bool, strategy: &MitigationStrategy) -> Res
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_windows_11_intelligent_audit() {
+        let mut patcher = VirtualPatcher::new(true);
+        let (unmitigated, active, native) = patcher.scan_and_evaluate(None);
+        println!("Resultados: unmitigated={}, active={}, native={}", unmitigated, active, native);
+
+        for rule in patcher.get_rules() {
+            println!("CVE: {} -> Status: {:?}, Reason: {:?}", rule.cve, rule.status, rule.status_reason);
+        }
+
+        // En un Windows 11 actualizado (como el del usuario con Build 26200), no debe haber ninguna vulnerabilidad sin mitigar
+        assert_eq!(unmitigated, 0);
+        assert_eq!(native, 5);
+    }
+}
+

@@ -6,3 +6,7 @@ data/vpn/*
 !data/vpn/.gitkeep
 data/test_samples/*
 !data/test_samples/.gitkeep
+data/quarantine/*
+!data/quarantine/.gitkeep
+data/app_error.log
+crates/samulibre-vpn/data/

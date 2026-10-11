@@ -1,0 +1,70 @@
+[
+  {
+    "id": "SIG-20261011-174825",
+    "timestamp": "2026-10-11 17:48:25",
+    "signatures_added": 17,
+    "total_signatures": 20,
+    "feed_source": "MalwareBazaar & ThreatFox Community Feeds",
+    "version_tag": "v2026.10.11.20",
+    "improvements": [
+      "Sincronización comunitaria con feeds de ThreatFox y MalwareBazaar (Abuse.ch)",
+      "Reglas YARA-X de detección para empaquetadores sospechosos y scripts ofuscados",
+      "Hashes de variantes recientes de Ransomware (Conti, LockBit 3.0, BlackCat)",
+      "Patrones heurísticos de neutralización de robo de credenciales LSASS y DPAPI"
+    ]
+  },
+  {
+    "id": "SIG-20261011-172508",
+    "timestamp": "2026-10-11 17:25:08",
+    "signatures_added": 8,
+    "total_signatures": 20,
+    "feed_source": "MalwareBazaar & ThreatFox Community Feeds",
+    "version_tag": "v2026.10.11.20",
+    "improvements": [
+      "Sincronización comunitaria con feeds de ThreatFox y MalwareBazaar (Abuse.ch)",
+      "Reglas YARA-X de detección para empaquetadores sospechosos y scripts ofuscados",
+      "Hashes de variantes recientes de Ransomware (Conti, LockBit 3.0, BlackCat)",
+      "Patrones heurísticos de neutralización de robo de credenciales LSASS y DPAPI"
+    ]
+  },
+  {
+    "id": "SIG-20261011-172435",
+    "timestamp": "2026-10-11 17:24:35",
+    "signatures_added": 17,
+    "total_signatures": 20,
+    "feed_source": "MalwareBazaar & ThreatFox Community Feeds",
+    "version_tag": "v2026.10.11.20",
+    "improvements": [
+      "Sincronización comunitaria con feeds de ThreatFox y MalwareBazaar (Abuse.ch)",
+      "Reglas YARA-X de detección para empaquetadores sospechosos y scripts ofuscados",
+      "Hashes de variantes recientes de Ransomware (Conti, LockBit 3.0, BlackCat)",
+      "Patrones heurísticos de neutralización de robo de credenciales LSASS y DPAPI"
+    ]
+  },
+  {
+    "id": "SIG-20261011-161919",
+    "timestamp": "2026-10-11 16:19:19",
+    "signatures_added": 17,
+    "total_signatures": 20,
+    "feed_source": "MalwareBazaar & ThreatFox Community Feeds",
+    "version_tag": "v2026.10.11.20",
+    "improvements": [
+      "Sincronización comunitaria con feeds de ThreatFox y MalwareBazaar (Abuse.ch)",
+      "Reglas YARA-X de detección para empaquetadores sospechosos y scripts ofuscados",
+      "Hashes de variantes recientes de Ransomware (Conti, LockBit 3.0, BlackCat)",
+      "Patrones heurísticos de neutralización de robo de credenciales LSASS y DPAPI"
+    ]
+  },
+  {
+    "id": "SIG-20261011-01",
+    "timestamp": "2026-10-11 08:00:00",
+    "signatures_added": 45,
+    "total_signatures": 8,
+    "feed_source": "ClamAV Main Database & ThreatFox",
+    "version_tag": "v2026.10.11.01",
+    "improvements": [
+      "Base inicial de detección de troyanos bancarios y keyloggers.",
+      "Firmas de prueba estándar EICAR y validaciones de kernel."
+    ]
+  }
+]
