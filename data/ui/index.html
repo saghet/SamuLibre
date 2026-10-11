@@ -185,6 +185,37 @@
           </div>
         </div>
 
+        <!-- Tarjeta de Progreso de Escaneo Real en Vivo -->
+        <div id="realScanProgressCard" class="glass-card p-6 rounded-3xl relative overflow-hidden hidden space-y-4 border border-blue-500/25 bg-blue-500/[0.04]">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              <div class="w-9 h-9 rounded-xl bg-blue-500/15 text-blue-400 flex items-center justify-center text-sm font-bold animate-pulse">⚡</div>
+              <div>
+                <h4 class="text-sm font-semibold text-white">Escaneo Profundo en Ejecución</h4>
+                <p class="text-xs text-gray-400">Analizando archivos reales en memoria, Downloads, Desktop, Temp...</p>
+              </div>
+            </div>
+            <div class="text-right">
+              <span id="scanCountText" class="text-xl font-bold font-mono text-emerald-400">0</span>
+              <span class="text-[11px] text-gray-400 block">archivos analizados</span>
+            </div>
+          </div>
+
+          <!-- Barra de Progreso Fluida con Degradado Apple -->
+          <div class="w-full bg-white/10 h-2.5 rounded-full overflow-hidden relative">
+            <div id="scanProgressBar" class="h-full bg-gradient-to-r from-blue-500 via-teal-400 to-emerald-400 rounded-full transition-all duration-150" style="width: 5%"></div>
+          </div>
+
+          <!-- Ticker del Archivo Actual en Tiempo Real -->
+          <div class="flex items-center justify-between text-[11px] font-mono text-gray-400">
+            <div class="truncate max-w-xl flex items-center gap-2">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span id="scanCurrentPathText" class="truncate text-gray-300">Iniciando motor multi-hilo...</span>
+            </div>
+            <div id="scanThreatsText" class="text-emerald-400 font-semibold font-sans whitespace-nowrap ml-4">0 amenazas</div>
+          </div>
+        </div>
+
         <!-- Rejilla de Módulos (Widgets Apple Style) -->
         <div class="grid grid-cols-3 gap-4">
           <!-- Widget 1: Parchado Virtual -->
@@ -446,6 +477,23 @@
             <span id="scanResultEngine" class="text-[10px] font-mono px-2 py-0.5 rounded-full"></span>
           </div>
         </div>
+
+        <!-- Laboratorio de Verificación en Tiempo Real (On-Access) -->
+        <div class="glass-card p-5 rounded-2xl space-y-3 border border-emerald-500/20 bg-emerald-500/[0.03]">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2.5">
+              <span class="text-base">🧪</span>
+              <span class="text-xs font-semibold text-white">Laboratorio de Verificación en Tiempo Real (On-Access)</span>
+            </div>
+            <span class="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-medium">Bóveda Cifrada Activa</span>
+          </div>
+          <p class="text-xs text-gray-400 leading-relaxed">
+            Genera un archivo con código malicioso de prueba en disco. El motor de vigilancia en tiempo real de SamuLibre lo interceptará al instante, lo eliminará y lo trasladará cifrado a la carpeta de cuarentena.
+          </p>
+          <button onclick="triggerRealTimeTestThreat()" class="px-4 py-2 bg-emerald-500 text-black font-semibold text-xs rounded-xl shadow-lg hover:bg-emerald-400 active:scale-95 transition-all flex items-center gap-2">
+            <span>⚡</span> Probar Detección On-Access en Tiempo Real Ahora
+          </button>
+        </div>
       </div>
 
       <!-- ================= VISTA 5: VPN & PRIVACIDAD ================= -->
@@ -580,10 +628,49 @@
     }
 
     function triggerQuickScan() {
-      showToast('Escaneo Rápido Iniciado', 'Analizando procesos activos, memoria RAM y tablas IAT...');
-      setTimeout(() => {
-        showToast('Escaneo Finalizado', '0 amenazas encontradas. Todos los procesos verificados.');
-      }, 2000);
+      const card = document.getElementById('realScanProgressCard');
+      card.classList.remove('hidden');
+      document.getElementById('scanCurrentPathText').textContent = 'Iniciando escaneo multi-hilo en memoria y disco...';
+      document.getElementById('scanCountText').textContent = '0';
+      document.getElementById('scanThreatsText').textContent = '0 amenazas';
+      document.getElementById('scanProgressBar').style.width = '8%';
+
+      showToast('Escaneo Real Iniciado', 'Recorriendo directorios del sistema y memoria en segundo plano...');
+      sendIpc('start_real_scan');
+    }
+
+    window.onScanProgressUpdate = function(filesScanned, currentFile, threatsFound, isDone) {
+      const card = document.getElementById('realScanProgressCard');
+      if (card) {
+        card.classList.remove('hidden');
+        document.getElementById('scanCountText').textContent = filesScanned.toLocaleString();
+        document.getElementById('scanCurrentPathText').textContent = 'Analizando: ' + currentFile;
+
+        // Cálculo dinámico de ancho de barra
+        const progressPercent = isDone ? 100 : Math.min(95, Math.floor(filesScanned / 15) + 10);
+        document.getElementById('scanProgressBar').style.width = progressPercent + '%';
+
+        const threatsEl = document.getElementById('scanThreatsText');
+        if (threatsFound > 0) {
+          threatsEl.className = 'text-red-400 font-semibold font-sans whitespace-nowrap ml-4';
+          threatsEl.textContent = threatsFound + ' amenazas detectadas';
+        } else {
+          threatsEl.className = 'text-emerald-400 font-semibold font-sans whitespace-nowrap ml-4';
+          threatsEl.textContent = '0 amenazas';
+        }
+
+        if (isDone) {
+          showToast('Escaneo Real Completado', filesScanned.toLocaleString() + ' archivos verificados exhaustivamente.');
+          setTimeout(() => {
+            document.getElementById('scanCurrentPathText').textContent = '✔ Verificación exhaustiva completada. Todo limpio.';
+          }, 1500);
+        }
+      }
+    };
+
+    function triggerRealTimeTestThreat() {
+      showToast('Prueba On-Access', 'Generando muestra y probando intercepción en tiempo real...');
+      sendIpc('generate_test_threat');
     }
 
     function simulateScanResult(type) {

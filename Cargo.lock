@@ -2135,12 +2135,14 @@ dependencies = [
  "samulibre-shield",
  "samulibre-types",
  "samulibre-vpn",
+ "samulibre-watcher",
  "serde",
  "serde_json",
  "tao",
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "walkdir",
  "wry",
 ]
 
