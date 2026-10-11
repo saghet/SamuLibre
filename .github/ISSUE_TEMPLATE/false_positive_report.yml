@@ -1,0 +1,27 @@
+name: "⚠️ Report False Positive / Negative"
+description: "Report a clean file incorrectly flagged or malware missed by SamuLibre"
+labels: ["scanner-feed", "investigation"]
+body:
+  - type: dropdown
+    id: issue_type
+    attributes:
+      label: "Detection Issue Type"
+      options:
+        - "False Positive (Clean file wrongly detected)"
+        - "False Negative (Malicious sample undetected)"
+    validations:
+      required: true
+  - type: input
+    id: sample_sha256
+    attributes:
+      label: "SHA-256 Hash of Sample"
+      placeholder: "e.g., 275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f"
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: "Detection Details"
+      description: "Name of the rule triggered, source software, or VirusTotal link."
+    validations:
+      required: true

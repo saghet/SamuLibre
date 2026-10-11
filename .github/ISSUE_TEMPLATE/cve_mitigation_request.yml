@@ -1,0 +1,26 @@
+name: "🩹 Request 0-Day / CVE Virtual Patch Rule"
+description: "Suggest a new unpatched vulnerability mitigation rule for samulibre-patcher"
+labels: ["cve-rule", "enhancement"]
+body:
+  - type: input
+    id: cve_id
+    attributes:
+      label: "CVE Identifier"
+      description: "e.g., CVE-2026-XXXX"
+      placeholder: "CVE-2026-..."
+    validations:
+      required: true
+  - type: textarea
+    id: affected_component
+    attributes:
+      label: "Affected Windows Component / Service"
+      description: "e.g., tcpip.sys, spoolsv.exe, termsrv.dll"
+    validations:
+      required: true
+  - type: textarea
+    id: proposed_mitigation
+    attributes:
+      label: "Proposed Mitigation Vector"
+      description: "e.g., WFP port block, registry restriction, GPO policy disablement"
+    validations:
+      required: true
