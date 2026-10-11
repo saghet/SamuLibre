@@ -1,0 +1,26 @@
+[package]
+name = "samulibre-gui"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "samulibre-gui"
+path = "src/main.rs"
+
+[dependencies]
+samulibre-types = { path = "../samulibre-types" }
+samulibre-core = { path = "../samulibre-core" }
+samulibre-patcher = { path = "../samulibre-patcher" }
+samulibre-shield = { path = "../samulibre-shield" }
+samulibre-scanner = { path = "../samulibre-scanner" }
+samulibre-vpn = { path = "../samulibre-vpn" }
+wry = "0.57"
+tao = "0.37"
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

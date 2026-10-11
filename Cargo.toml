@@ -7,6 +7,7 @@ members = [
     "crates/samulibre-vpn",
     "crates/samulibre-core",
     "crates/samulibre-cli",
+    "crates/samulibre-gui",
 ]
 resolver = "2"
 
