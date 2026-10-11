@@ -1,0 +1,18 @@
+[package]
+name = "samulibre-scanner"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+samulibre-types = { path = "../samulibre-types" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+md5 = { workspace = true }
+hex = { workspace = true }
+regex = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }

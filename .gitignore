@@ -1,0 +1,8 @@
+/target
+**/*.rs.bk
+data/canaries/*
+!data/canaries/.gitkeep
+data/vpn/*
+!data/vpn/.gitkeep
+data/test_samples/*
+!data/test_samples/.gitkeep
