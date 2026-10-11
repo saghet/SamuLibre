@@ -55,9 +55,15 @@ Antivitus-SamuLibre/
 
 ---
 
-## 💻 Guía de Uso del CLI
+## 💻 Guía de Uso del CLI y GUI
 
-### Estado Global
+### Iniciar la Interfaz Gráfica Nativa (Estilo Apple)
+```bash
+cargo run -p samulibre-gui
+```
+*(O ejecuta directamente el binario compilado: `target/debug/samulibre-gui.exe`)*
+
+### Estado Global (Línea de Comandos)
 ```bash
 cargo run -p samulibre-cli -- status
 ```
