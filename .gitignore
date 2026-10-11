@@ -10,3 +10,4 @@ data/quarantine/*
 !data/quarantine/.gitkeep
 data/app_error.log
 crates/samulibre-vpn/data/
+*.zip
