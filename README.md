@@ -12,6 +12,13 @@
 [![RAM](https://img.shields.io/badge/Resting_RAM-5.45_MB-success.svg?style=for-the-badge)](https://github.com/saghet/SamuLibre)
 [![Zero Telemetry](https://img.shields.io/badge/Telemetry-0%25_Verified-blueviolet.svg?style=for-the-badge)](https://github.com/saghet/SamuLibre)
 
+<br/>
+
+[![Download Executable](https://img.shields.io/badge/📥_Download_Standalone_EXE-samulibre.exe-2ea44f?style=for-the-badge&logo=windows)](https://github.com/saghet/SamuLibre/releases/latest)
+[![Download Portable Package](https://img.shields.io/badge/📦_Download_Portable_ZIP-samulibre--windows--x64.zip-0078D6?style=for-the-badge&logo=archive)](https://github.com/saghet/SamuLibre/releases/latest)
+
+<br/>
+
 [English](README.md) • [Español](#-resumen-en-español) • [Architecture](#-architecture) • [Comparison](#-head-to-head-comparison) • [Quickstart](#-quickstart)
 
 </div>

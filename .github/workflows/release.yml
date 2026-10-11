@@ -31,6 +31,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path package
           Copy-Item target/release/samulibre-gui.exe package/samulibre.exe
+          Copy-Item target/release/samulibre-gui.exe samulibre.exe
           Copy-Item -Recurse -Force data package/data
           Copy-Item README.md package/
           Compress-Archive -Path package/* -DestinationPath samulibre-windows-x64.zip
@@ -38,7 +39,9 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: samulibre-windows-x64.zip
+          files: |
+            samulibre-windows-x64.zip
+            samulibre.exe
           name: "SamuLibre ${{ github.ref_name }} - Native Security Suite"
           body: |
             ## 🛡️ SamuLibre Release ${{ github.ref_name }}
