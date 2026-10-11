@@ -114,7 +114,7 @@ enum ShieldCommands {
 enum VpnCommands {
     /// Conecta la VPN enrutando el tráfico del sistema operativo por el país seleccionado
     Connect {
-        /// Código de país: CH (Suiza), IS (Islandia), NL (Países Bajos), SE (Suecia), PA (Panamá), CA (Canadá)
+        /// Código de país: CH (Suiza), IS (Islandia), NL (Países Bajos), SE (Suecia), PA (Panamá), CA (Canadá), CO (Colombia), BR (Brasil)
         #[arg(short, long, default_value = "CH")]
         country: String,
 

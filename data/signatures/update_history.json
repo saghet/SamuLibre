@@ -1,5 +1,19 @@
 [
   {
+    "id": "SIG-20261011-182019",
+    "timestamp": "2026-10-11 18:20:19",
+    "signatures_added": 8,
+    "total_signatures": 20,
+    "feed_source": "MalwareBazaar & ThreatFox Community Feeds",
+    "version_tag": "v2026.10.11.20",
+    "improvements": [
+      "Sincronización comunitaria con feeds de ThreatFox y MalwareBazaar (Abuse.ch)",
+      "Reglas YARA-X de detección para empaquetadores sospechosos y scripts ofuscados",
+      "Hashes de variantes recientes de Ransomware (Conti, LockBit 3.0, BlackCat)",
+      "Patrones heurísticos de neutralización de robo de credenciales LSASS y DPAPI"
+    ]
+  },
+  {
     "id": "SIG-20261011-174825",
     "timestamp": "2026-10-11 17:48:25",
     "signatures_added": 17,

@@ -271,6 +271,32 @@ impl VpnManager {
                 exit_ip_example: "198.50.200.73".to_string(),
                 wireguard_endpoint: "ca.privacy.samulibre.net:443".to_string(),
             },
+            VpnCountryInfo {
+                id: "CO".to_string(),
+                name: "Colombia".to_string(),
+                city: "Bogotá".to_string(),
+                flag: "🇨🇴".to_string(),
+                jurisdiction: "Ley 1581 / Habeas Data • Tráfico Neutro en Nodos Andinos".to_string(),
+                privacy_law: "Ley 1581 / Habeas Data".to_string(),
+                latency_ms: 48,
+                ping_ms: 48,
+                is_recommended: false,
+                exit_ip_example: "181.143.212.45".to_string(),
+                wireguard_endpoint: "co.privacy.samulibre.net:443".to_string(),
+            },
+            VpnCountryInfo {
+                id: "BR".to_string(),
+                name: "Brasil".to_string(),
+                city: "São Paulo".to_string(),
+                flag: "🇧🇷".to_string(),
+                jurisdiction: "LGPD / Marco Civil • Cifrado de Tránsito Regional".to_string(),
+                privacy_law: "LGPD / Marco Civil".to_string(),
+                latency_ms: 55,
+                ping_ms: 55,
+                is_recommended: false,
+                exit_ip_example: "177.136.250.88".to_string(),
+                wireguard_endpoint: "br.privacy.samulibre.net:443".to_string(),
+            },
         ];
 
         Self {
@@ -317,6 +343,8 @@ impl VpnManager {
             "SE" => "{se}",
             "PA" => "{pa},{cr},{ca}",
             "CA" => "{ca}",
+            "CO" => "{co},{pa},{cr}",
+            "BR" => "{br},{cl},{ar}",
             _ => "{ch}",
         };
 
@@ -703,7 +731,7 @@ mod tests {
     fn test_vpn_country_list() {
         let vpn = VpnManager::new("data/vpn");
         let countries = vpn.get_available_countries();
-        assert_eq!(countries.len(), 6);
+        assert_eq!(countries.len(), 8);
         let ids: Vec<&str> = countries.iter().map(|c| c.id.as_str()).collect();
         assert!(ids.contains(&"CH"));
         assert!(ids.contains(&"IS"));
@@ -711,6 +739,8 @@ mod tests {
         assert!(ids.contains(&"SE"));
         assert!(ids.contains(&"PA"));
         assert!(ids.contains(&"CA"));
+        assert!(ids.contains(&"CO"));
+        assert!(ids.contains(&"BR"));
     }
 
     #[test]
