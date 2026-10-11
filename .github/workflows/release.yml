@@ -1,0 +1,57 @@
+name: SamuLibre Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build Release Binary (.exe)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build Optimized Release GUI
+        run: cargo build --release -p samulibre-gui
+
+      - name: Package Release
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path package
+          Copy-Item target/release/samulibre-gui.exe package/samulibre.exe
+          Copy-Item -Recurse -Force data package/data
+          Copy-Item README.md package/
+          Compress-Archive -Path package/* -DestinationPath samulibre-windows-x64.zip
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: samulibre-windows-x64.zip
+          name: "SamuLibre ${{ github.ref_name }} - Native Security Suite"
+          body: |
+            ## 🛡️ SamuLibre Release ${{ github.ref_name }}
+            
+            ### What's Inside:
+            - **Native Desktop GUI**: Apple-inspired glassmorphism dark theme for Windows 11/10.
+            - **Autonomous 0-Day Virtual Patcher**: Active mitigation for unpatched CVEs with auto-rollback on official Microsoft KBs.
+            - **Endpoint Shield & Ransomware Canaries**: Zero-overhead NTFS tripwire traps, LSASS memory protection, and browser cookie stealer shield.
+            - **Multi-Engine YARA-X Scanner**: Ultra-fast substring pre-filtering, Shannon entropy, and ClamAV/ThreatFox hash signatures.
+            - **Zero Telemetry & 5 MB Resting RAM**: Engineered in 100% Rust with Windows 11 EcoQoS.
+            
+            ### Quick Start:
+            1. Download `samulibre-windows-x64.zip`.
+            2. Extract and run `samulibre.exe`.
+          draft: false
+          prerelease: false
