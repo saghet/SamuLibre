@@ -116,7 +116,7 @@ jobs:
             
             ### Installation:
             - **Windows**: Download `samulibre-windows-x64.zip`, extract, and launch `samulibre.exe`.
-            - **Ubuntu / Debian**: Download and install `samulibre_0.1.0_amd64.deb` with `sudo dpkg -i samulibre_0.1.0_amd64.deb`.
-            - **Red Hat / Fedora / Garuda / Arch / Other Linux**: Download `samulibre-0.1.0-linux-x86_64.tar.gz`, extract, and run `sudo ./install.sh`.
+            - **Ubuntu / Debian**: Download and install `samulibre_0.2.0_amd64.deb` with `sudo dpkg -i samulibre_0.2.0_amd64.deb`.
+            - **Red Hat / Fedora / Garuda / Arch / Other Linux**: Download `samulibre-0.2.0-linux-x86_64.tar.gz`, extract, and run `sudo ./install.sh`.
           draft: false
           prerelease: false

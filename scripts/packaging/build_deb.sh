@@ -6,7 +6,7 @@ set -euo pipefail
 # Soporta Ubuntu 22.04 LTS, 24.04 LTS y Debian 12
 # ==============================================================================
 
-VERSION="0.1.0"
+VERSION="0.2.0"
 ARCH="amd64"
 PKG_DIR="target/debian/samulibre_${VERSION}_${ARCH}"
 
@@ -38,9 +38,9 @@ if [ -d "data/signatures" ]; then
 fi
 
 echo "==> [Ubuntu/Debian] Generando DEBIAN/control..."
-cat << 'EOF' > "${PKG_DIR}/DEBIAN/control"
+cat << EOF > "${PKG_DIR}/DEBIAN/control"
 Package: samulibre
-Version: 0.1.0
+Version: ${VERSION}
 Section: utils
 Priority: optional
 Architecture: amd64

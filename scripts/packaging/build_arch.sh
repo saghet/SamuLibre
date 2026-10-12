@@ -5,7 +5,7 @@ set -euo pipefail
 # SamuLibre - Generador de Paquete Pacman para Garuda Linux / Arch Linux
 # ==============================================================================
 
-VERSION="0.1.0"
+VERSION="0.2.0"
 WORK_DIR="target/archpkg"
 
 echo "==> [Garuda/Arch] Compilando binarios de SamuLibre en release..."

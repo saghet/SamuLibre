@@ -1,6 +1,6 @@
 # Maintainer: SamuLibre Security Team <security@samulibre.org>
 pkgname=samulibre
-pkgver=0.1.0
+pkgver=0.2.0
 pkgrel=1
 pkgdesc="Suite de Seguridad, EDR y Antivirus Open Source con VPN Tor integrada"
 arch=('x86_64')

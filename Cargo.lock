@@ -2262,7 +2262,7 @@ dependencies = [
 
 [[package]]
 name = "samulibre-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -2281,7 +2281,7 @@ dependencies = [
 
 [[package]]
 name = "samulibre-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2300,7 +2300,7 @@ dependencies = [
 
 [[package]]
 name = "samulibre-gui"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2326,7 +2326,7 @@ dependencies = [
 
 [[package]]
 name = "samulibre-patcher"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2339,7 +2339,7 @@ dependencies = [
 
 [[package]]
 name = "samulibre-scanner"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2355,7 +2355,7 @@ dependencies = [
 
 [[package]]
 name = "samulibre-shield"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2372,7 +2372,7 @@ dependencies = [
 
 [[package]]
 name = "samulibre-types"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "serde",
@@ -2382,7 +2382,7 @@ dependencies = [
 
 [[package]]
 name = "samulibre-vpn"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2394,7 +2394,7 @@ dependencies = [
 
 [[package]]
 name = "samulibre-watcher"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "chrono",

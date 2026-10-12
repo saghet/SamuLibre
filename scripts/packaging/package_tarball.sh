@@ -3,10 +3,10 @@ set -euo pipefail
 
 # ==============================================================================
 # SamuLibre - Empaquetador de Tarball Universal Autónomo para Linux
-# Genera: target/samulibre-0.1.0-linux-x86_64.tar.gz
+# Genera: target/samulibre-0.2.0-linux-x86_64.tar.gz
 # ==============================================================================
 
-VERSION="0.1.0"
+VERSION="0.2.0"
 BUNDLE_DIR="target/bundle/samulibre-${VERSION}-linux-x86_64"
 
 echo "==> Compilando binarios de SamuLibre en modo release..."

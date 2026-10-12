@@ -6,7 +6,7 @@ set -euo pipefail
 # Compatible con RHEL 9, Rocky Linux, AlmaLinux y Fedora 39/40+
 # ==============================================================================
 
-VERSION="0.1.0"
+VERSION="0.2.0"
 BUILD_DIR="target/rpmbuild"
 
 echo "==> [Red Hat/Fedora] Compilando binarios de SamuLibre en release..."

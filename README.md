@@ -178,7 +178,7 @@ SamuLibre natively supports **Debian/Ubuntu**, **Red Hat (RHEL/Fedora)**, and **
 sudo apt update && sudo apt install -y libwebkit2gtk-4.1-0 libgtk-3-0 tor iptables zenity
 
 # Download and install package
-sudo dpkg -i samulibre_0.1.0_amd64.deb
+sudo dpkg -i samulibre_0.2.0_amd64.deb
 samulibre-gui
 ```
 
@@ -188,8 +188,8 @@ samulibre-gui
 sudo dnf install -y webkit2gtk4.1 gtk3 tor iptables zenity
 
 # Install via universal script or RPM
-tar -xzf samulibre-0.1.0-linux-x86_64.tar.gz
-cd samulibre-0.1.0-linux-x86_64
+tar -xzf samulibre-0.2.0-linux-x86_64.tar.gz
+cd samulibre-0.2.0-linux-x86_64
 sudo ./install.sh
 ```
 
@@ -201,7 +201,7 @@ sudo pacman -S --needed webkit2gtk-4.1 gtk3 tor iptables kdialog zenity
 # Build and install package
 cd scripts/packaging
 ./build_arch.sh
-sudo pacman -U target/samulibre-0.1.0-1-x86_64.pkg.tar.zst
+sudo pacman -U target/samulibre-0.2.0-1-x86_64.pkg.tar.zst
 ```
 
 ---
