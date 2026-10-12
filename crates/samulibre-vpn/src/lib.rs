@@ -99,6 +99,47 @@ pub fn set_windows_system_proxy(enable: bool, proxy_server: &str) -> Result<()> 
     Ok(())
 }
 
+/// Modifica el proxy del sistema operativo de forma multiplataforma (Windows y Linux)
+pub fn set_system_proxy(enable: bool, proxy_server: &str) -> Result<()> {
+    #[cfg(target_os = "windows")]
+    {
+        set_windows_system_proxy(enable, proxy_server)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = proxy_server;
+        set_linux_system_proxy(enable, "127.0.0.1", 49723, 49722)
+    }
+}
+
+/// Modifica la configuración de proxy en distribuciones Linux (GNOME/Ubuntu/RHEL y KDE/Garuda)
+pub fn set_linux_system_proxy(enable: bool, host: &str, http_port: u16, socks_port: u16) -> Result<()> {
+    // 1. En entornos GNOME (Ubuntu, Red Hat):
+    let mode = if enable { "manual" } else { "none" };
+    let _ = Command::new("gsettings").args(["set", "org.gnome.system.proxy", "mode", mode]).output();
+    if enable {
+        let _ = Command::new("gsettings").args(["set", "org.gnome.system.proxy.http", "host", host]).output();
+        let _ = Command::new("gsettings").args(["set", "org.gnome.system.proxy.http", "port", &http_port.to_string()]).output();
+        let _ = Command::new("gsettings").args(["set", "org.gnome.system.proxy.https", "host", host]).output();
+        let _ = Command::new("gsettings").args(["set", "org.gnome.system.proxy.https", "port", &http_port.to_string()]).output();
+        let _ = Command::new("gsettings").args(["set", "org.gnome.system.proxy.socks", "host", host]).output();
+        let _ = Command::new("gsettings").args(["set", "org.gnome.system.proxy.socks", "port", &socks_port.to_string()]).output();
+    }
+
+    // 2. En entornos KDE Plasma (Garuda Linux):
+    let kde_mode = if enable { "1" } else { "0" };
+    let _ = Command::new("kwriteconfig5").args(["--file", "kioslaverc", "--group", "Proxy Settings", "--key", "ProxyType", kde_mode]).output();
+    let _ = Command::new("kwriteconfig6").args(["--file", "kioslaverc", "--group", "Proxy Settings", "--key", "ProxyType", kde_mode]).output();
+    if enable {
+        let http_proxy_url = format!("http://{}:{}", host, http_port);
+        let _ = Command::new("kwriteconfig5").args(["--file", "kioslaverc", "--group", "Proxy Settings", "--key", "httpProxy", &http_proxy_url]).output();
+        let _ = Command::new("kwriteconfig6").args(["--file", "kioslaverc", "--group", "Proxy Settings", "--key", "httpProxy", &http_proxy_url]).output();
+    }
+
+    info!("Proxy del sistema Linux actualizado con éxito: enable={}", enable);
+    Ok(())
+}
+
 /// Perfil de país con jurisdicción estricta de privacidad
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VpnCountryInfo {
@@ -485,7 +526,7 @@ impl VpnManager {
         fs::write(&torrc_path, torrc_content.as_bytes())?;
         info!("Archivo torrc generado en {:?}", torrc_path);
 
-        // 4. Lanzar proceso Tor de fondo de forma completamente silenciosa (sin ventana de consola)
+        // 4. Lanzar proceso Tor de fondo de forma completamente silenciosa
         #[cfg(target_os = "windows")]
         {
             let mut cmd = Command::new(&tor_bin);
@@ -493,7 +534,15 @@ impl VpnManager {
             cmd.creation_flags(CREATE_NO_WINDOW);
             let child = cmd.spawn()?;
             self.tor_process = Some(child);
-            info!("Proceso Tor lanzado en segundo plano.");
+            info!("Proceso Tor lanzado en segundo plano en Windows.");
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            let mut cmd = Command::new(&tor_bin);
+            cmd.args(["-f", &torrc_path.to_string_lossy()]);
+            let child = cmd.spawn()?;
+            self.tor_process = Some(child);
+            info!("Proceso Tor lanzado en segundo plano en Linux.");
         }
 
         // 5. Esperar a que el túnel esté listo (polling al puerto HTTP 127.0.0.1:49723)
@@ -527,9 +576,9 @@ impl VpnManager {
         };
         self.assigned_ip = Some(final_ip);
 
-        // 7. Enrutar tráfico del sistema operativo (Chrome, Edge, Windows) mediante el proxy del sistema
+        // 7. Enrutar tráfico del sistema operativo mediante el proxy del sistema
         let proxy_str = "http=127.0.0.1:49723;https=127.0.0.1:49723;socks=127.0.0.1:49722";
-        let _ = set_windows_system_proxy(true, proxy_str);
+        let _ = set_system_proxy(true, proxy_str);
 
         // 8. Aplicar DNS seguro Quad9
         let _ = self.apply_secure_dns(self.selected_dns.clone());
@@ -557,7 +606,7 @@ impl VpnManager {
 
     fn disconnect_internal(&mut self) {
         // 1. Desactivar proxy del sistema inmediatamente
-        let _ = set_windows_system_proxy(false, "");
+        let _ = set_system_proxy(false, "");
 
         // 2. Terminar proceso hijo de Tor
         if let Some(mut child) = self.tor_process.take() {
@@ -565,12 +614,18 @@ impl VpnManager {
             let _ = child.wait();
         }
 
-        // 3. Asegurar que no quede ningún tor.exe huérfano en el sistema
+        // 3. Asegurar que no quede ningún tor huérfano en el sistema
         #[cfg(target_os = "windows")]
         {
             let mut cmd = Command::new("taskkill");
             cmd.args(["/F", "/IM", "tor.exe"]);
             cmd.creation_flags(CREATE_NO_WINDOW);
+            let _ = cmd.output();
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            let mut cmd = Command::new("pkill");
+            cmd.args(["-f", "active_torrc"]);
             let _ = cmd.output();
         }
 
@@ -690,8 +745,15 @@ impl VpnManager {
             let _ = cmd.output();
         }
 
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = Command::new("iptables")
+                .args(["-A", "OUTPUT", "-p", "tcp", "-m", "multiport", "--dports", "80,443", "-m", "owner", "!", "--uid-owner", "debian-tor", "-j", "DROP"])
+                .output();
+        }
+
         self.kill_switch_enabled = true;
-        info!("Kill-Switch WFP activado: Bloqueando posibles fugas sin cifrar.");
+        info!("Kill-Switch activado: Bloqueando posibles fugas sin cifrar.");
         Ok(())
     }
 
@@ -705,6 +767,13 @@ impl VpnManager {
             ]);
             cmd.creation_flags(CREATE_NO_WINDOW);
             let _ = cmd.output();
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = Command::new("iptables")
+                .args(["-D", "OUTPUT", "-p", "tcp", "-m", "multiport", "--dports", "80,443", "-m", "owner", "!", "--uid-owner", "debian-tor", "-j", "DROP"])
+                .output();
         }
 
         self.kill_switch_enabled = false;
@@ -734,6 +803,15 @@ impl VpnManager {
             }
         }
 
+        #[cfg(not(target_os = "windows"))]
+        {
+            if let Some(primary) = ips.first() {
+                let _ = Command::new("resolvectl")
+                    .args(["dns", "default", primary])
+                    .output();
+            }
+        }
+
         Ok(())
     }
 
@@ -746,6 +824,13 @@ impl VpnManager {
                 cmd.creation_flags(CREATE_NO_WINDOW);
                 let _ = cmd.output();
             }
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = Command::new("resolvectl")
+                .args(["revert", "default"])
+                .output();
         }
 
         info!("DNS restaurado a DHCP en adaptadores de red.");
@@ -764,8 +849,13 @@ impl Drop for VpnManager {
     }
 }
 
-/// Resuelve dinámicamente las rutas absolutas de `tor.exe`, `geoip` y `geoip6`.
+/// Resuelve dinámicamente las rutas absolutas de `tor` / `tor.exe`, `geoip` y `geoip6`.
 fn resolve_tor_assets() -> Result<(PathBuf, PathBuf, PathBuf)> {
+    #[cfg(target_os = "windows")]
+    let tor_binary_name = "tor.exe";
+    #[cfg(not(target_os = "windows"))]
+    let tor_binary_name = "tor";
+
     let candidate_dirs = [
         PathBuf::from("data/bin"),
         PathBuf::from("../data/bin"),
@@ -774,7 +864,7 @@ fn resolve_tor_assets() -> Result<(PathBuf, PathBuf, PathBuf)> {
 
     let mut base_bin_dir = None;
     for cand in &candidate_dirs {
-        if cand.join("tor/tor.exe").exists() {
+        if cand.join("tor").join(tor_binary_name).exists() {
             base_bin_dir = Some(cand.clone());
             break;
         }
@@ -783,10 +873,10 @@ fn resolve_tor_assets() -> Result<(PathBuf, PathBuf, PathBuf)> {
     if base_bin_dir.is_none() {
         if let Ok(exe_path) = std::env::current_exe() {
             if let Some(parent) = exe_path.parent() {
-                if parent.join("data/bin/tor/tor.exe").exists() {
+                if parent.join("data/bin/tor").join(tor_binary_name).exists() {
                     base_bin_dir = Some(parent.join("data/bin"));
                 } else if let Some(up2) = parent.parent().and_then(|p| p.parent()) {
-                    if up2.join("data/bin/tor/tor.exe").exists() {
+                    if up2.join("data/bin/tor").join(tor_binary_name).exists() {
                         base_bin_dir = Some(up2.join("data/bin"));
                     }
                 }
@@ -794,6 +884,31 @@ fn resolve_tor_assets() -> Result<(PathBuf, PathBuf, PathBuf)> {
         }
     }
 
+    #[cfg(not(target_os = "windows"))]
+    if base_bin_dir.is_none() {
+        for sys_tor in &["/usr/bin/tor", "/usr/local/bin/tor", "/bin/tor"] {
+            let p = PathBuf::from(sys_tor);
+            if p.exists() {
+                let geoip_cands = [
+                    PathBuf::from("/usr/share/tor/geoip"),
+                    PathBuf::from("/var/lib/tor/geoip"),
+                    PathBuf::from("/usr/local/share/tor/geoip"),
+                    PathBuf::from("data/bin/data/geoip"),
+                ];
+                let geoip6_cands = [
+                    PathBuf::from("/usr/share/tor/geoip6"),
+                    PathBuf::from("/var/lib/tor/geoip6"),
+                    PathBuf::from("/usr/local/share/tor/geoip6"),
+                    PathBuf::from("data/bin/data/geoip6"),
+                ];
+                let geoip = geoip_cands.iter().find(|p| p.exists()).cloned().unwrap_or_else(|| PathBuf::from("/usr/share/tor/geoip"));
+                let geoip6 = geoip6_cands.iter().find(|p| p.exists()).cloned().unwrap_or_else(|| PathBuf::from("/usr/share/tor/geoip6"));
+                return Ok((p, geoip, geoip6));
+            }
+        }
+    }
+
+    #[cfg(target_os = "windows")]
     if base_bin_dir.is_none() {
         let hardcoded = PathBuf::from(r"C:\Users\saghe\Documents\Antivitus-SamuLibre\data\bin");
         if hardcoded.join("tor/tor.exe").exists() {
@@ -801,64 +916,69 @@ fn resolve_tor_assets() -> Result<(PathBuf, PathBuf, PathBuf)> {
         }
     }
 
-    let base = base_bin_dir.ok_or_else(|| anyhow::anyhow!("No se encontró el binario tor.exe en data/bin/tor"))?;
-    let tor_exe = fs::canonicalize(base.join("tor/tor.exe")).unwrap_or_else(|_| base.join("tor/tor.exe"));
+    let base = base_bin_dir.ok_or_else(|| anyhow::anyhow!("No se encontró el binario tor en data/bin/tor ni en el sistema"))?;
+    let tor_exe = fs::canonicalize(base.join("tor").join(tor_binary_name)).unwrap_or_else(|_| base.join("tor").join(tor_binary_name));
     let geoip = fs::canonicalize(base.join("data/geoip")).unwrap_or_else(|_| base.join("data/geoip"));
     let geoip6 = fs::canonicalize(base.join("data/geoip6")).unwrap_or_else(|_| base.join("data/geoip6"));
 
     Ok((tor_exe, geoip, geoip6))
 }
 
-/// Consulta la IP externa mediante curl.exe a través del túnel local
+/// Consulta la IP externa mediante curl a través del túnel local
 fn verify_tunnel_ip(proxy_url: &str) -> Option<String> {
     #[cfg(target_os = "windows")]
-    {
-        // Intento 1: ip-api.com
-        let mut cmd1 = Command::new("curl.exe");
-        cmd1.args(["-s", "--max-time", "5", "-x", proxy_url, "http://ip-api.com/json/"]);
-        cmd1.creation_flags(CREATE_NO_WINDOW);
-        if let Ok(output) = cmd1.output() {
-            if output.status.success() {
-                if let Ok(text) = String::from_utf8(output.stdout) {
-                    if let Ok(val) = serde_json::from_str::<serde_json::Value>(&text) {
-                        if let Some(ip) = val.get("query").and_then(|v| v.as_str()) {
-                            info!("verify_tunnel_ip: IP obtenida vía ip-api: {}", ip);
-                            return Some(ip.to_string());
-                        }
+    let curl_bin = "curl.exe";
+    #[cfg(not(target_os = "windows"))]
+    let curl_bin = "curl";
+
+    // Intento 1: ip-api.com
+    let mut cmd1 = Command::new(curl_bin);
+    cmd1.args(["-s", "--max-time", "5", "-x", proxy_url, "http://ip-api.com/json/"]);
+    #[cfg(target_os = "windows")]
+    cmd1.creation_flags(CREATE_NO_WINDOW);
+    if let Ok(output) = cmd1.output() {
+        if output.status.success() {
+            if let Ok(text) = String::from_utf8(output.stdout) {
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(&text) {
+                    if let Some(ip) = val.get("query").and_then(|v| v.as_str()) {
+                        info!("verify_tunnel_ip: IP obtenida vía ip-api: {}", ip);
+                        return Some(ip.to_string());
                     }
                 }
             }
         }
+    }
 
-        // Intento 2: api.ipify.org
-        let mut cmd2 = Command::new("curl.exe");
-        cmd2.args(["-s", "--max-time", "5", "-x", proxy_url, "https://api.ipify.org?format=json"]);
-        cmd2.creation_flags(CREATE_NO_WINDOW);
-        if let Ok(output) = cmd2.output() {
-            if output.status.success() {
-                if let Ok(text) = String::from_utf8(output.stdout) {
-                    if let Ok(val) = serde_json::from_str::<serde_json::Value>(&text) {
-                        if let Some(ip) = val.get("ip").and_then(|v| v.as_str()) {
-                            info!("verify_tunnel_ip: IP obtenida vía ipify: {}", ip);
-                            return Some(ip.to_string());
-                        }
+    // Intento 2: api.ipify.org
+    let mut cmd2 = Command::new(curl_bin);
+    cmd2.args(["-s", "--max-time", "5", "-x", proxy_url, "https://api.ipify.org?format=json"]);
+    #[cfg(target_os = "windows")]
+    cmd2.creation_flags(CREATE_NO_WINDOW);
+    if let Ok(output) = cmd2.output() {
+        if output.status.success() {
+            if let Ok(text) = String::from_utf8(output.stdout) {
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(&text) {
+                    if let Some(ip) = val.get("ip").and_then(|v| v.as_str()) {
+                        info!("verify_tunnel_ip: IP obtenida vía ipify: {}", ip);
+                        return Some(ip.to_string());
                     }
                 }
             }
         }
+    }
 
-        // Intento 3: icanhazip.com
-        let mut cmd3 = Command::new("curl.exe");
-        cmd3.args(["-s", "--max-time", "4", "-x", proxy_url, "https://icanhazip.com"]);
-        cmd3.creation_flags(CREATE_NO_WINDOW);
-        if let Ok(output) = cmd3.output() {
-            if output.status.success() {
-                if let Ok(text) = String::from_utf8(output.stdout) {
-                    let trimmed = text.trim();
-                    if !trimmed.is_empty() && trimmed.chars().all(|c| c.is_ascii_digit() || c == '.' || c == ':') {
-                        info!("verify_tunnel_ip: IP obtenida vía icanhazip: {}", trimmed);
-                        return Some(trimmed.to_string());
-                    }
+    // Intento 3: icanhazip.com
+    let mut cmd3 = Command::new(curl_bin);
+    cmd3.args(["-s", "--max-time", "4", "-x", proxy_url, "https://icanhazip.com"]);
+    #[cfg(target_os = "windows")]
+    cmd3.creation_flags(CREATE_NO_WINDOW);
+    if let Ok(output) = cmd3.output() {
+        if output.status.success() {
+            if let Ok(text) = String::from_utf8(output.stdout) {
+                let trimmed = text.trim();
+                if !trimmed.is_empty() && trimmed.chars().all(|c| c.is_ascii_digit() || c == '.' || c == ':') {
+                    info!("verify_tunnel_ip: IP obtenida vía icanhazip: {}", trimmed);
+                    return Some(trimmed.to_string());
                 }
             }
         }

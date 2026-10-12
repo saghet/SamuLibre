@@ -1,0 +1,26 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=SamuLibre
+GenericName=Suite de Seguridad y Antivirus Open Source
+Comment=Antivirus Open Source con EDR, Parches Virtuales y VPN de Doble Cifrado
+Exec=/usr/bin/samulibre-gui %u
+Icon=samulibre
+Terminal=false
+Categories=Utility;Security;System;
+Keywords=antivirus;security;vpn;edr;malware;privacy;
+StartupNotify=true
+StartupWMClass=samulibre-gui
+Actions=QuickScan;UpdateSignatures;ShowStatus;
+
+[Desktop Action QuickScan]
+Name=Ejecutar Escaneo Rápido
+Exec=/usr/bin/samulibre-gui --quick-scan
+
+[Desktop Action UpdateSignatures]
+Name=Actualizar Base de Firmas
+Exec=/usr/bin/samulibre-gui --update-signatures
+
+[Desktop Action ShowStatus]
+Name=Abrir Panel de Control
+Exec=/usr/bin/samulibre-gui

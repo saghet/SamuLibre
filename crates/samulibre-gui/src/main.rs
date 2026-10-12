@@ -50,7 +50,31 @@ mod win_eco {
     }
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "linux")]
+mod win_eco {
+    extern "C" {
+        fn setpriority(which: i32, who: u32, prio: i32) -> i32;
+        fn malloc_trim(pad: usize) -> i32;
+    }
+
+    const PRIO_PROCESS: i32 = 0;
+
+    pub fn set_current_thread_eco_qos() {
+        unsafe {
+            // Asigna la prioridad más baja (nice 19) en el planificador de Linux
+            let _ = setpriority(PRIO_PROCESS, 0, 19);
+        }
+    }
+
+    pub fn trim_process_working_set() {
+        unsafe {
+            // Devuelve la memoria heap no utilizada al kernel (glibc)
+            let _ = malloc_trim(0);
+        }
+    }
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux")))]
 mod win_eco {
     pub fn set_current_thread_eco_qos() {}
     pub fn trim_process_working_set() {}
@@ -144,9 +168,29 @@ fn get_project_root() -> PathBuf {
             }
         }
     }
-    let hardcoded = PathBuf::from(r"C:\Users\saghe\Documents\Antivitus-SamuLibre");
-    if hardcoded.join("data").exists() {
-        return hardcoded;
+    #[cfg(target_os = "windows")]
+    {
+        let hardcoded = PathBuf::from(r"C:\Users\saghe\Documents\Antivitus-SamuLibre");
+        if hardcoded.join("data").exists() {
+            return hardcoded;
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        if let Ok(home) = std::env::var("HOME") {
+            let user_data = PathBuf::from(&home).join(".local/share/samulibre");
+            if user_data.join("data").exists() {
+                return user_data;
+            }
+        }
+        let sys_opt = PathBuf::from("/opt/samulibre");
+        if sys_opt.join("data").exists() {
+            return sys_opt;
+        }
+        let usr_share = PathBuf::from("/usr/share/samulibre");
+        if usr_share.join("data").exists() {
+            return usr_share;
+        }
     }
     std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
 }
@@ -161,62 +205,142 @@ fn log_step(msg: &str) {
 }
 
 fn open_native_file_dialog() -> Vec<PathBuf> {
-    let script = r#"
-        Add-Type -AssemblyName System.Windows.Forms
-        $d = New-Object System.Windows.Forms.OpenFileDialog
-        $d.Multiselect = $true
-        $d.Title = 'Seleccionar Archivos para Escanear - SamuLibre'
-        $d.Filter = 'Todos los archivos (*.*)|*.*|Ejecutables y Scripts (*.exe;*.dll;*.ps1;*.bat;*.cmd)|*.exe;*.dll;*.ps1;*.bat;*.cmd|Documentos (*.docx;*.pdf;*.xlsx;*.txt)|*.docx;*.pdf;*.xlsx;*.txt'
-        if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-            $d.FileNames -join "`n"
-        }
-    "#;
-    let mut cmd = std::process::Command::new("powershell");
-    cmd.args(["-NoProfile", "-NonInteractive", "-Command", script]);
     #[cfg(target_os = "windows")]
     {
+        let script = r#"
+            Add-Type -AssemblyName System.Windows.Forms
+            $d = New-Object System.Windows.Forms.OpenFileDialog
+            $d.Multiselect = $true
+            $d.Title = 'Seleccionar Archivos para Escanear - SamuLibre'
+            $d.Filter = 'Todos los archivos (*.*)|*.*|Ejecutables y Scripts (*.exe;*.dll;*.ps1;*.bat;*.cmd)|*.exe;*.dll;*.ps1;*.bat;*.cmd|Documentos (*.docx;*.pdf;*.xlsx;*.txt)|*.docx;*.pdf;*.xlsx;*.txt'
+            if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+                $d.FileNames -join "`n"
+            }
+        "#;
+        let mut cmd = std::process::Command::new("powershell");
+        cmd.args(["-NoProfile", "-NonInteractive", "-Command", script]);
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        if let Ok(output) = cmd.output() {
+            let text = String::from_utf8_lossy(&output.stdout);
+            text.lines()
+                .map(|l| l.trim())
+                .filter(|l| !l.is_empty())
+                .map(PathBuf::from)
+                .filter(|p| p.exists())
+                .collect()
+        } else {
+            Vec::new()
+        }
     }
-    if let Ok(output) = cmd.output() {
-        let text = String::from_utf8_lossy(&output.stdout);
-        text.lines()
-            .map(|l| l.trim())
-            .filter(|l| !l.is_empty())
-            .map(PathBuf::from)
-            .filter(|p| p.exists())
-            .collect()
-    } else {
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        // 1. Intentar con zenity (GNOME / Ubuntu / RHEL)
+        if let Ok(output) = std::process::Command::new("zenity")
+            .args(["--file-selection", "--multiple", "--separator=\n", "--title=Seleccionar Archivos para Escanear - SamuLibre"])
+            .output()
+        {
+            if output.status.success() {
+                let text = String::from_utf8_lossy(&output.stdout);
+                let files: Vec<PathBuf> = text.lines()
+                    .map(|l| l.trim())
+                    .filter(|l| !l.is_empty())
+                    .map(PathBuf::from)
+                    .filter(|p| p.exists())
+                    .collect();
+                if !files.is_empty() {
+                    return files;
+                }
+            }
+        }
+
+        // 2. Intentar con kdialog (KDE Plasma 6 / Garuda Linux)
+        if let Ok(output) = std::process::Command::new("kdialog")
+            .args(["--getopenfilename", "--multiple", "--separate-output", ".", "Todos los archivos (*)"])
+            .output()
+        {
+            if output.status.success() {
+                let text = String::from_utf8_lossy(&output.stdout);
+                let files: Vec<PathBuf> = text.lines()
+                    .map(|l| l.trim())
+                    .filter(|l| !l.is_empty())
+                    .map(PathBuf::from)
+                    .filter(|p| p.exists())
+                    .collect();
+                if !files.is_empty() {
+                    return files;
+                }
+            }
+        }
+
         Vec::new()
     }
 }
 
 fn open_native_folder_dialog() -> Option<PathBuf> {
-    let script = r#"
-        Add-Type -AssemblyName System.Windows.Forms
-        $d = New-Object System.Windows.Forms.FolderBrowserDialog
-        $d.Description = 'Seleccionar Carpeta para Escaneo Exhaustivo - SamuLibre'
-        if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-            $d.SelectedPath
-        }
-    "#;
-    let mut cmd = std::process::Command::new("powershell");
-    cmd.args(["-NoProfile", "-NonInteractive", "-Command", script]);
     #[cfg(target_os = "windows")]
     {
+        let script = r#"
+            Add-Type -AssemblyName System.Windows.Forms
+            $d = New-Object System.Windows.Forms.FolderBrowserDialog
+            $d.Description = 'Seleccionar Carpeta para Escaneo Exhaustivo - SamuLibre'
+            if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+                $d.SelectedPath
+            }
+        "#;
+        let mut cmd = std::process::Command::new("powershell");
+        cmd.args(["-NoProfile", "-NonInteractive", "-Command", script]);
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-    }
-    if let Ok(output) = cmd.output() {
-        let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if !text.is_empty() {
-            let p = PathBuf::from(text);
-            if p.is_dir() {
-                return Some(p);
+        if let Ok(output) = cmd.output() {
+            let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !text.is_empty() {
+                let p = PathBuf::from(text);
+                if p.is_dir() {
+                    return Some(p);
+                }
             }
         }
+        None
     }
-    None
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        // 1. Intentar con zenity (GNOME / Ubuntu / RHEL)
+        if let Ok(output) = std::process::Command::new("zenity")
+            .args(["--file-selection", "--directory", "--title=Seleccionar Carpeta para Escaneo Exhaustivo - SamuLibre"])
+            .output()
+        {
+            if output.status.success() {
+                let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !text.is_empty() {
+                    let p = PathBuf::from(text);
+                    if p.is_dir() {
+                        return Some(p);
+                    }
+                }
+            }
+        }
+
+        // 2. Intentar con kdialog (KDE Plasma 6 / Garuda Linux)
+        if let Ok(output) = std::process::Command::new("kdialog")
+            .args(["--getexistingdirectory", "."])
+            .output()
+        {
+            if output.status.success() {
+                let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !text.is_empty() {
+                    let p = PathBuf::from(text);
+                    if p.is_dir() {
+                        return Some(p);
+                    }
+                }
+            }
+        }
+
+        None
+    }
 }
 
 fn main() {
@@ -1112,12 +1236,26 @@ fn execute_scan_loop(
     scanner_mutex: Arc<Mutex<samulibre_scanner::MultiEngineScanner>>,
 ) {
     let mut dirs = Vec::new();
+    #[cfg(target_os = "windows")]
     if let Ok(profile) = std::env::var("USERPROFILE") {
         let p = PathBuf::from(profile);
         dirs.push(p.join("Downloads"));
         dirs.push(p.join("Desktop"));
         dirs.push(p.join("Documents"));
         dirs.push(p.join("AppData").join("Local").join("Temp"));
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        if let Ok(home) = std::env::var("HOME") {
+            let p = PathBuf::from(home);
+            dirs.push(p.join("Downloads"));
+            dirs.push(p.join("Desktop"));
+            dirs.push(p.join("Documents"));
+            dirs.push(p.join(".local/share"));
+        }
+        dirs.push(PathBuf::from("/tmp"));
+        dirs.push(PathBuf::from("/var/tmp"));
+        dirs.push(PathBuf::from("/dev/shm"));
     }
     if let Ok(cwd) = std::env::current_dir() {
         dirs.push(cwd);

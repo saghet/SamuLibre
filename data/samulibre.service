@@ -1,0 +1,16 @@
+[Unit]
+Description=SamuLibre Security Suite User Daemon
+Documentation=https://github.com/samulibre/samulibre
+After=graphical-session.target network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/samulibre-gui
+Restart=on-failure
+RestartSec=5s
+Environment=RUST_LOG=info
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

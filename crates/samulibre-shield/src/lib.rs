@@ -178,17 +178,19 @@ impl EndpointShield {
         let mut alerts = Vec::new();
 
         let suspicious_tools = [
-            "mimikatz", "procdump", "nanodump", "dumpert", "pwdump", "pypykatz", "lazagne", "safetykatz"
+            "mimikatz", "procdump", "nanodump", "dumpert", "pwdump", "pypykatz", "lazagne", "safetykatz",
+            "mimipenguin", "linpeas", "chrootkit", "rkhunter", "gcore"
         ];
         let stealer_keywords = [
-            "login data", "cookies.sqlite", "discord\\tokens", "wallet.dat", "web data", "exodus", "atomic"
+            "login data", "cookies.sqlite", "discord\\tokens", "wallet.dat", "web data", "exodus", "atomic",
+            "id_rsa", "id_ed25519", "/etc/shadow", ".config/discord"
         ];
 
         for (pid, process) in self.system.processes() {
             let proc_name = process.name().to_string_lossy().to_lowercase();
             let pid_u32 = pid.as_u32();
 
-            // 1. Detección LSASS (si está habilitada la protección)
+            // 1. Detección LSASS / Volcado de memoria en Linux (si está habilitada la protección)
             if self.lsass_protection_enabled {
                 let cmd_line: String = process
                     .cmd()
@@ -201,29 +203,42 @@ impl EndpointShield {
                 let matches_tool = suspicious_tools.iter().any(|tool| proc_name.contains(tool));
                 let is_comsvcs_minidump = cmd_line.contains("comsvcs.dll") && (cmd_line.contains("minidump") || cmd_line.contains("#24"));
                 let is_lsass_dump_cmd = cmd_line.contains("lsass") && (cmd_line.contains("dump") || cmd_line.contains("-ma"));
+                let is_linux_mem_dump = (cmd_line.contains("/proc/") && cmd_line.contains("/mem"))
+                    || cmd_line.contains("/dev/mem")
+                    || cmd_line.contains("gcore ");
 
-                if matches_tool || is_comsvcs_minidump || is_lsass_dump_cmd {
-                    warn!("Detectado intento de robo de credenciales LSASS: PID {} ({}). Ejecutando terminación inmediata EDR.", pid_u32, proc_name);
+                if matches_tool || is_comsvcs_minidump || is_lsass_dump_cmd || is_linux_mem_dump {
+                    warn!("Detectado intento de volcado de credenciales/memoria: PID {} ({}). Ejecutando terminación inmediata EDR.", pid_u32, proc_name);
                     let _ = process.kill();
+                    let target_path = if is_linux_mem_dump {
+                        Some("/proc/[pid]/mem".to_string())
+                    } else {
+                        Some("C:\\Windows\\System32\\lsass.exe".to_string())
+                    };
                     alerts.push(ThreatAlert {
                         id: Uuid::new_v4(),
                         timestamp: Utc::now(),
                         severity: Severity::Critical,
-                        category: ThreatCategory::LsassMemoryAccess,
-                        title: "Intento de volcado de credenciales LSASS neutralizado".to_string(),
+                        category: if is_linux_mem_dump { ThreatCategory::LinuxPrivilegeEscalation } else { ThreatCategory::LsassMemoryAccess },
+                        title: "Intento de volcado de credenciales y memoria neutralizado".to_string(),
                         details: format!("Proceso atacante '{}' (PID {}) fue terminado de inmediato por EDR al intentar volcar memoria sensible: '{}'", proc_name, pid_u32, cmd_line),
                         process_id: Some(pid_u32),
                         process_name: Some(proc_name.clone()),
-                        target_path: Some("C:\\Windows\\System32\\lsass.exe".to_string()),
+                        target_path,
                         action_taken: "Proceso terminado inmediatamente por EDR Sentinel (Zero-Tolerance Response)".to_string(),
                     });
                 }
             }
 
-            // 2. Detección InfoStealer (si está habilitado el escudo de cookies)
+            // 2. Detección InfoStealer (si está habilitado el escudo de cookies y credenciales)
             if self.cookie_shield_enabled {
-                // Ignorar navegadores oficiales legítimos
-                if proc_name != "chrome.exe" && proc_name != "msedge.exe" && proc_name != "firefox.exe" && proc_name != "brave.exe" {
+                // Ignorar navegadores oficiales legítimos (Windows y Linux)
+                let is_legit_browser = proc_name == "chrome.exe" || proc_name == "chrome" || proc_name == "google-chrome"
+                    || proc_name == "msedge.exe" || proc_name == "firefox.exe" || proc_name == "firefox"
+                    || proc_name == "brave.exe" || proc_name == "brave" || proc_name == "chromium"
+                    || proc_name == "chromium-browser";
+
+                if !is_legit_browser {
                     let cmd_line: String = process
                         .cmd()
                         .iter()
@@ -241,11 +256,11 @@ impl EndpointShield {
                             timestamp: Utc::now(),
                             severity: Severity::High,
                             category: ThreatCategory::BrowserCredentialTheft,
-                            title: "Detección de InfoStealer (Robo de Cookies / Tokens Web)".to_string(),
+                            title: "Detección de InfoStealer (Robo de Cookies / Llaves / Tokens)".to_string(),
                             details: format!("Proceso no autorizado '{}' (PID {}) fue terminado de inmediato por EDR al intentar sustraer credenciales: '{}'", proc_name, pid_u32, cmd_line),
                             process_id: Some(pid_u32),
                             process_name: Some(proc_name),
-                            target_path: Some("%LOCALAPPDATA%\\Google\\Chrome\\User Data\\...".to_string()),
+                            target_path: Some("Browser / SSH / Shadow Credential Vault".to_string()),
                             action_taken: "Proceso terminado inmediatamente por SamuLibre Browser Shield (EDR Kill)".to_string(),
                         });
                     }

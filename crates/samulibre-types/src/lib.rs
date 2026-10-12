@@ -62,6 +62,12 @@ pub enum MitigationStrategy {
         target_process: String,
         forbidden_call: String,
     },
+    /// Endurecimiento de parámetros de kernel (sysctl en Linux)
+    KernelSysctlHardening {
+        parameter: String,
+        safe_value: String,
+        revert_value: String,
+    },
 }
 
 /// Definición de una regla de parchado virtual
@@ -108,6 +114,18 @@ pub enum ThreatCategory {
     VirtualPatchReverted,
     VpnKillswitchEngaged,
     SuspiciousScript,
+    LinuxPrivilegeEscalation,
+    LinuxRootkitInjection,
+}
+
+/// Información multiplataforma del sistema operativo
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlatformInfo {
+    pub os_family: String,
+    pub distro_id: String,
+    pub distro_name: String,
+    pub kernel_version: String,
+    pub desktop_env: String,
 }
 
 /// Resultado de escaneo de un archivo

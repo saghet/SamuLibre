@@ -3,23 +3,27 @@
 # 🛡️ SamuLibre
 
 ### The Open-Source Antivirus, EDR & Autonomous 0-Day Virtual Patcher in 100% Rust
-**Native Windows 11 Glassmorphism UI • Ransomware Tripwires • Multi-Engine YARA-X • Privacy VPN • 5 MB Resting RAM**
+**Native Windows 11 & Linux Desktop (Ubuntu • Red Hat • Garuda) • Ransomware Tripwires • Multi-Engine YARA-X • Privacy VPN • < 40 MB Resting RAM**
 
 [![Rust](https://img.shields.io/badge/Language-Rust_1.80+-orange.svg?style=for-the-badge&logo=rust)](https://www.rust-lang.org/)
-[![Platform](https://img.shields.io/badge/Platform-Windows_11_%2F_10-0078D6.svg?style=for-the-badge&logo=windows)](https://microsoft.com/windows)
+[![Platform](https://img.shields.io/badge/Platform-Windows_11_%2F_10_%7C_Linux-0078D6.svg?style=for-the-badge&logo=linux)](https://github.com/saghet/SamuLibre)
+[![Ubuntu](https://img.shields.io/badge/Ubuntu-22.04_%7C_24.04-E95420.svg?style=for-the-badge&logo=ubuntu)](https://ubuntu.com)
+[![Red Hat](https://img.shields.io/badge/Red_Hat-RHEL_9_%7C_Fedora-EE0000.svg?style=for-the-badge&logo=redhat)](https://redhat.com)
+[![Garuda](https://img.shields.io/badge/Garuda_Linux-Arch_%7C_KDE-00A98F.svg?style=for-the-badge&logo=archlinux)](https://garudalinux.org)
 [![License](https://img.shields.io/badge/License-GPL--3.0-blue.svg?style=for-the-badge)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-13%2F13_Passing-brightgreen.svg?style=for-the-badge)](https://github.com/saghet/SamuLibre/actions)
-[![RAM](https://img.shields.io/badge/Resting_RAM-5.45_MB-success.svg?style=for-the-badge)](https://github.com/saghet/SamuLibre)
+[![Tests](https://img.shields.io/badge/Tests-All_Passing-brightgreen.svg?style=for-the-badge)](https://github.com/saghet/SamuLibre/actions)
+[![RAM](https://img.shields.io/badge/Resting_RAM-<40_MB-success.svg?style=for-the-badge)](https://github.com/saghet/SamuLibre)
 [![Zero Telemetry](https://img.shields.io/badge/Telemetry-0%25_Verified-blueviolet.svg?style=for-the-badge)](https://github.com/saghet/SamuLibre)
 
 <br/>
 
-[![Download Executable](https://img.shields.io/badge/📥_Download_Standalone_EXE-samulibre.exe-2ea44f?style=for-the-badge&logo=windows)](https://github.com/saghet/SamuLibre/releases/latest)
-[![Download Portable Package](https://img.shields.io/badge/📦_Download_Portable_ZIP-samulibre--windows--x64.zip-0078D6?style=for-the-badge&logo=archive)](https://github.com/saghet/SamuLibre/releases/latest)
+[![Download Windows EXE](https://img.shields.io/badge/📥_Windows_EXE-samulibre.exe-2ea44f?style=for-the-badge&logo=windows)](https://github.com/saghet/SamuLibre/releases/latest)
+[![Download Ubuntu DEB](https://img.shields.io/badge/📦_Ubuntu%2FDebian_DEB-.deb-E95420?style=for-the-badge&logo=ubuntu)](https://github.com/saghet/SamuLibre/releases/latest)
+[![Download Linux Tarball](https://img.shields.io/badge/📦_Universal_Linux-.tar.gz-black?style=for-the-badge&logo=linux)](https://github.com/saghet/SamuLibre/releases/latest)
 
 <br/>
 
-[English](README.md) • [Español](#-resumen-en-español) • [Architecture](#-architecture) • [Comparison](#-head-to-head-comparison) • [Quickstart](#-quickstart)
+[English](README.md) • [Español](#-resumen-en-español) • [Architecture](#-architecture) • [Linux Setup](#-linux-installation-ubuntu-red-hat-garuda) • [Quickstart](#-quickstart)
 
 </div>
 
@@ -154,12 +158,50 @@ cargo run --release -p samulibre-cli -- status
 # Run full interactive security demo
 cargo run --release -p samulibre-cli -- demo
 
-# Scan and apply virtual patches for unpatched Windows CVEs
+# Scan and apply virtual patches for unpatched Windows / Linux CVEs & sysctl hardening
 cargo run --release -p samulibre-cli -- patcher scan
 cargo run --release -p samulibre-cli -- patcher apply
 
 # Deploy decoy canary tripwires
 cargo run --release -p samulibre-cli -- shield deploy-canaries
+```
+
+---
+
+## 🐧 Linux Installation (Ubuntu, Red Hat & Garuda)
+
+SamuLibre natively supports **Debian/Ubuntu**, **Red Hat (RHEL/Fedora)**, and **Arch/Garuda Linux** with native desktop integration, system tray, and kernel `sysctl` hardening:
+
+### 1. Ubuntu / Debian (`.deb`)
+```bash
+# Install runtime dependencies
+sudo apt update && sudo apt install -y libwebkit2gtk-4.1-0 libgtk-3-0 tor iptables zenity
+
+# Download and install package
+sudo dpkg -i samulibre_0.1.0_amd64.deb
+samulibre-gui
+```
+
+### 2. Red Hat Enterprise Linux / Fedora (`.rpm` / Tarball)
+```bash
+# Install runtime dependencies
+sudo dnf install -y webkit2gtk4.1 gtk3 tor iptables zenity
+
+# Install via universal script or RPM
+tar -xzf samulibre-0.1.0-linux-x86_64.tar.gz
+cd samulibre-0.1.0-linux-x86_64
+sudo ./install.sh
+```
+
+### 3. Garuda Linux / Arch Linux (`makepkg` / PKGBUILD)
+```bash
+# Install runtime dependencies (Garuda KDE Plasma 6 Wayland ready)
+sudo pacman -S --needed webkit2gtk-4.1 gtk3 tor iptables kdialog zenity
+
+# Build and install package
+cd scripts/packaging
+./build_arch.sh
+sudo pacman -U target/samulibre-0.1.0-1-x86_64.pkg.tar.zst
 ```
 
 ---
@@ -176,11 +218,12 @@ cargo test --workspace
 
 ## 🇪🇸 Resumen en Español
 
-**SamuLibre** es una suite de ciberseguridad, EDR y parchado virtual de código abierto (GPLv3) desarrollada íntegramente en **Rust**.
-- **Parchado Virtual Autónomo:** Protege contra vulnerabilidades de día cero (*0-days*) antes de que Microsoft publique el parche oficial, y revoca automáticamente la mitigación en cuanto detecta que el sistema se ha actualizado.
-- **Canarios Señuelo Anti-Ransomware:** Trampas en disco verificadas por metadatos NTFS en microsegundos (sin lecturas constantes a disco).
-- **Protección de Credenciales:** Bloqueo contra volcados de memoria LSASS (Mimikatz) y robo de cookies/sesiones web por InfoStealers.
-- **Rendimiento de Ultra-Bajo Consumo:** Consume entre **5.45 MB y 38 MB de memoria RAM** en reposo mediante el modo **EcoQoS** de Windows 11 en núcleos de eficiencia (E-Cores).
+**SamuLibre** es una suite de ciberseguridad, EDR y parchado virtual de código abierto (GPLv3) desarrollada íntegramente en **Rust**, nativa para **Windows 11/10** y **Linux (Ubuntu, Red Hat y Garuda Linux)**.
+- **Parchado Virtual Autónomo:** Protege contra vulnerabilidades de día cero (*0-days*) en Windows y endurece el kernel de Linux (`sysctl` contra Dirty Pipe, PwnKit, Looney Tunables y namespaces no privilegiados), revocando automáticamente mitigaciones cuando el SO se actualiza.
+- **Canarios Señuelo Anti-Ransomware:** Trampas en disco verificadas en microsegundos sin sobrecarga de E/S.
+- **Protección de Credenciales:** Bloqueo contra volcados de memoria (LSASS en Windows, `/proc/*/mem` y `gcore` en Linux) y robo de cookies/sesiones web.
+- **VPN Tor de Doble Cifrado:** Túneles en cascada con 8 jurisdicciones y Kill-Switch para WFP e IPTables.
+- **Rendimiento de Ultra-Bajo Consumo:** Consume menos de **40 MB de memoria RAM** en reposo mediante **EcoQoS** en Windows y `malloc_trim(0)` en Linux.
 - **Cero Telemetría:** 100% privado, local e independiente.
 
 ---

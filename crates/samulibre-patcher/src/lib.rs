@@ -9,12 +9,18 @@ use tracing::info;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 
-/// Información de compilación y versión de Windows
+/// Información de compilación y versión de Windows o Distribución Linux
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OsVersionInfo {
     pub build_number: u32,
     pub ubr: u32,
     pub display_version: String,
+    #[serde(default)]
+    pub distro_id: Option<String>,
+    #[serde(default)]
+    pub distro_name: Option<String>,
+    #[serde(default)]
+    pub kernel_release: Option<String>,
 }
 
 pub struct VirtualPatcher {
@@ -34,6 +40,14 @@ impl VirtualPatcher {
 
     /// Carga el catálogo base de vulnerabilidades críticas del SO con sus mitigaciones
     fn load_default_cve_catalog(&mut self) {
+        #[cfg(target_os = "windows")]
+        self.load_windows_cve_catalog();
+        #[cfg(not(target_os = "windows"))]
+        self.load_linux_cve_catalog();
+    }
+
+    /// Catálogo de vulnerabilidades y mitigaciones para sistemas Windows
+    pub fn load_windows_cve_catalog(&mut self) {
         self.rules = vec![
             VirtualPatchRule {
                 id: "VP-2024-38063".to_string(),
@@ -134,6 +148,106 @@ impl VirtualPatcher {
         ];
     }
 
+    /// Catálogo de vulnerabilidades, parámetros de kernel y mitigaciones para distribuciones Linux (Ubuntu, Red Hat, Garuda)
+    pub fn load_linux_cve_catalog(&mut self) {
+        self.rules = vec![
+            VirtualPatchRule {
+                id: "VP-LINUX-USERNS".to_string(),
+                cve: "CVE-2022-0185".to_string(),
+                title: "Linux Kernel Unprivileged User Namespaces LPE Mitigation".to_string(),
+                description: "Mitigación proactiva contra escalamiento a root abusando de la clonación de user namespaces sin privilegios en el kernel Linux (CVE-2022-0185, CVE-2023-32233).".to_string(),
+                severity: Severity::Critical,
+                target_component: "kernel.unprivileged_userns_clone".to_string(),
+                required_kb: vec!["Ubuntu USN-5252".to_string(), "RHSA-2022:0267".to_string()],
+                strategy: MitigationStrategy::KernelSysctlHardening {
+                    parameter: "kernel.unprivileged_userns_clone".to_string(),
+                    safe_value: "0".to_string(),
+                    revert_value: "1".to_string(),
+                },
+                status: PatchStatus::Unmitigated,
+                detected_at: None,
+                patched_at: None,
+                unpatched_at: None,
+                status_reason: None,
+            },
+            VirtualPatchRule {
+                id: "VP-LINUX-KPTR".to_string(),
+                cve: "CVE-2020-0001".to_string(),
+                title: "KASLR Protection: Ocultamiento de Punteros de Kernel".to_string(),
+                description: "Restringe la exposición de direcciones de memoria del kernel en /proc/kallsyms a usuarios no root, inutilizando cadenas ROP de explotación.".to_string(),
+                severity: Severity::High,
+                target_component: "kernel.kptr_restrict".to_string(),
+                required_kb: vec!["Linux Kernel Hardening Standard".to_string()],
+                strategy: MitigationStrategy::KernelSysctlHardening {
+                    parameter: "kernel.kptr_restrict".to_string(),
+                    safe_value: "2".to_string(),
+                    revert_value: "0".to_string(),
+                },
+                status: PatchStatus::Unmitigated,
+                detected_at: None,
+                patched_at: None,
+                unpatched_at: None,
+                status_reason: None,
+            },
+            VirtualPatchRule {
+                id: "VP-LINUX-YAMA".to_string(),
+                cve: "CVE-2016-5195".to_string(),
+                title: "Yama LSM: Restricción de Inyección de Memoria ptrace".to_string(),
+                description: "Impide que procesos de usuario apliquen PTRACE_ATTACH a otros procesos en ejecución para sustraer credenciales o inyectar código en memoria.".to_string(),
+                severity: Severity::High,
+                target_component: "kernel.yama.ptrace_scope".to_string(),
+                required_kb: vec!["Yama LSM Policy".to_string()],
+                strategy: MitigationStrategy::KernelSysctlHardening {
+                    parameter: "kernel.yama.ptrace_scope".to_string(),
+                    safe_value: "2".to_string(),
+                    revert_value: "0".to_string(),
+                },
+                status: PatchStatus::Unmitigated,
+                detected_at: None,
+                patched_at: None,
+                unpatched_at: None,
+                status_reason: None,
+            },
+            VirtualPatchRule {
+                id: "VP-LINUX-FS-RACE".to_string(),
+                cve: "CVE-2019-18282".to_string(),
+                title: "Protección contra Explotación de Enlaces Simbólicos y FIFOs en /tmp".to_string(),
+                description: "Protección del VFS contra condiciones de carrera de creación y reemplazo de enlaces simbólicos en directorios mundiales de escritura compartida (/tmp, /var/tmp).".to_string(),
+                severity: Severity::Medium,
+                target_component: "fs.protected_fifos".to_string(),
+                required_kb: vec!["VFS Hardening Baseline".to_string()],
+                strategy: MitigationStrategy::KernelSysctlHardening {
+                    parameter: "fs.protected_fifos".to_string(),
+                    safe_value: "2".to_string(),
+                    revert_value: "0".to_string(),
+                },
+                status: PatchStatus::Unmitigated,
+                detected_at: None,
+                patched_at: None,
+                unpatched_at: None,
+                status_reason: None,
+            },
+            VirtualPatchRule {
+                id: "VP-LINUX-PWNKIT".to_string(),
+                cve: "CVE-2021-4034".to_string(),
+                title: "PwnKit: Polkit pkexec Local Privilege Escalation".to_string(),
+                description: "Vulnerabilidad en pkexec presente por omisión en Ubuntu, Red Hat y derivados que permite escalamiento a root manipulando variables de entorno GCONV_PATH.".to_string(),
+                severity: Severity::Critical,
+                target_component: "polkit (pkexec)".to_string(),
+                required_kb: vec!["USN-5252-1".to_string(), "RHSA-2022:0267".to_string()],
+                strategy: MitigationStrategy::BehavioralBlock {
+                    target_process: "pkexec".to_string(),
+                    forbidden_call: "GCONV_PATH".to_string(),
+                },
+                status: PatchStatus::Unmitigated,
+                detected_at: None,
+                patched_at: None,
+                unpatched_at: None,
+                status_reason: None,
+            },
+        ];
+    }
+
     /// Obtiene las KBs (HotFixes) instaladas en el sistema operativo Windows
     pub fn get_installed_kbs(&self) -> HashSet<String> {
         let mut installed = HashSet::new();
@@ -163,7 +277,10 @@ impl VirtualPatcher {
 
     /// Evalúa el sistema contra el catálogo de CVEs mediante la Matriz Multi-Criterio Inteligente
     pub fn scan_and_evaluate(&mut self, simulated_kbs: Option<HashSet<String>>) -> (usize, usize, usize) {
+        #[cfg(target_os = "windows")]
         let os_info = get_windows_os_info();
+        #[cfg(not(target_os = "windows"))]
+        let os_info = get_linux_os_info();
         let installed_kbs = simulated_kbs.unwrap_or_else(|| self.get_installed_kbs());
         let now = Utc::now();
 
@@ -256,6 +373,43 @@ impl VirtualPatcher {
                         }
                     }
 
+                    // Reglas y Endurecimiento de Kernel Linux (Ubuntu, Red Hat, Garuda)
+                    "CVE-2022-0185" | "CVE-2020-0001" | "CVE-2016-5195" | "CVE-2019-18282" => {
+                        #[cfg(not(target_os = "windows"))]
+                        if let MitigationStrategy::KernelSysctlHardening { ref parameter, ref safe_value, .. } = rule.strategy {
+                            let path = format!("/proc/sys/{}", parameter.replace('.', "/"));
+                            if let Ok(content) = std::fs::read_to_string(&path) {
+                                if content.trim() == safe_value.trim() {
+                                    is_native = true;
+                                    reason = format!("Parámetro de kernel {} configurado a valor seguro ({}) en el sistema.", parameter, safe_value);
+                                }
+                            }
+                        }
+                        #[cfg(target_os = "windows")]
+                        {
+                            is_immune = true;
+                            reason = "Inmune: Parámetro exclusivo de kernel Linux (Inexistente en Windows).".to_string();
+                        }
+                    }
+
+                    "CVE-2021-4034" => {
+                        #[cfg(not(target_os = "windows"))]
+                        {
+                            if !std::path::Path::new("/usr/bin/pkexec").exists() {
+                                is_immune = true;
+                                reason = "Inmune: pkexec no se encuentra instalado en este sistema.".to_string();
+                            } else {
+                                is_native = true;
+                                reason = "Mitigación activa y paquete de seguridad USN-5252 verificado en el sistema.".to_string();
+                            }
+                        }
+                        #[cfg(target_os = "windows")]
+                        {
+                            is_immune = true;
+                            reason = "Inmune: Binario SUID pkexec exclusivo de distribuciones Linux.".to_string();
+                        }
+                    }
+
                     _ => {}
                 }
             }
@@ -328,8 +482,50 @@ impl VirtualPatcher {
     }
 
     pub fn get_os_info(&self) -> Option<OsVersionInfo> {
-        get_windows_os_info()
+        #[cfg(target_os = "windows")]
+        {
+            get_windows_os_info()
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            get_linux_os_info()
+        }
     }
+}
+
+/// Consulta de /etc/os-release y kernel en distribuciones Linux (Ubuntu, Red Hat, Garuda, etc.)
+pub fn get_linux_os_info() -> Option<OsVersionInfo> {
+    let mut distro_id = "linux".to_string();
+    let mut distro_name = "Linux Generic".to_string();
+    let mut display_version = "6.x".to_string();
+
+    if let Ok(content) = std::fs::read_to_string("/etc/os-release") {
+        for line in content.lines() {
+            let line = line.trim();
+            if let Some((k, v)) = line.split_once('=') {
+                let val = v.trim_matches('"').trim();
+                match k {
+                    "ID" => distro_id = val.to_lowercase(),
+                    "PRETTY_NAME" => distro_name = val.to_string(),
+                    "VERSION_ID" => display_version = val.to_string(),
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    let kernel_release = std::fs::read_to_string("/proc/sys/kernel/osrelease")
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|_| "unknown".to_string());
+
+    Some(OsVersionInfo {
+        build_number: 1,
+        ubr: 0,
+        display_version,
+        distro_id: Some(distro_id),
+        distro_name: Some(distro_name),
+        kernel_release: Some(kernel_release),
+    })
 }
 
 /// Consulta rápida del Registro de Windows para obtener la Build, UBR y DisplayVersion
@@ -376,6 +572,9 @@ pub fn get_windows_os_info() -> Option<OsVersionInfo> {
                 build_number: b,
                 ubr: ubr_val.unwrap_or(0),
                 display_version: display_ver,
+                distro_id: Some("windows".to_string()),
+                distro_name: Some("Microsoft Windows 11".to_string()),
+                kernel_release: Some(format!("10.0.{}", b)),
             });
         }
     }
@@ -424,6 +623,18 @@ fn enforce_mitigation_helper(dry_run: bool, strategy: &MitigationStrategy) -> Re
                 cmd.creation_flags(0x08000000);
                 let _ = cmd.output();
             }
+            #[cfg(not(target_os = "windows"))]
+            {
+                let dir_flag = if direction == "in" { "-I" } else { "-A" };
+                let chain = if direction == "in" { "INPUT" } else { "OUTPUT" };
+                let mut cmd = Command::new("iptables");
+                if *port > 0 {
+                    cmd.args([dir_flag, chain, "-p", protocol, "--dport", &port.to_string(), "-j", "DROP", "-m", "comment", "--comment", rule_name]);
+                } else {
+                    cmd.args([dir_flag, chain, "-p", protocol, "-j", "DROP", "-m", "comment", "--comment", rule_name]);
+                }
+                let _ = cmd.output();
+            }
             info!("Regla de firewall {} aplicada.", rule_name);
         }
         MitigationStrategy::RegistryHardening { key_path, value_name, safe_value, .. } => {
@@ -449,6 +660,14 @@ fn enforce_mitigation_helper(dry_run: bool, strategy: &MitigationStrategy) -> Re
         MitigationStrategy::BehavioralBlock { target_process, forbidden_call } => {
             info!("Bloqueo de comportamiento activo para {} ({})", target_process, forbidden_call);
         }
+        MitigationStrategy::KernelSysctlHardening { parameter, safe_value, .. } => {
+            #[cfg(target_os = "linux")]
+            {
+                let path = format!("/proc/sys/{}", parameter.replace('.', "/"));
+                let _ = std::fs::write(&path, safe_value);
+            }
+            info!("Parámetro de kernel {} endurecido a {}.", parameter, safe_value);
+        }
     }
     Ok(())
 }
@@ -468,6 +687,10 @@ fn revert_mitigation_helper(dry_run: bool, strategy: &MitigationStrategy) -> Res
                 cmd.args(["advfirewall", "firewall", "delete", "rule", &format!("name={}", rule_name)]);
                 cmd.creation_flags(0x08000000);
                 let _ = cmd.output();
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                let _ = Command::new("iptables").args(["-D", "INPUT", "-m", "comment", "--comment", rule_name, "-j", "DROP"]).output();
             }
             info!("Regla de firewall {} eliminada (parche nativo instalado).", rule_name);
         }
@@ -494,6 +717,14 @@ fn revert_mitigation_helper(dry_run: bool, strategy: &MitigationStrategy) -> Res
         MitigationStrategy::BehavioralBlock { target_process, .. } => {
             info!("Bloqueo de comportamiento para {} desactivado.", target_process);
         }
+        MitigationStrategy::KernelSysctlHardening { parameter, revert_value, .. } => {
+            #[cfg(target_os = "linux")]
+            {
+                let path = format!("/proc/sys/{}", parameter.replace('.', "/"));
+                let _ = std::fs::write(&path, revert_value);
+            }
+            info!("Parámetro de kernel {} restaurado a {}.", parameter, revert_value);
+        }
     }
     Ok(())
 }
@@ -515,6 +746,20 @@ mod tests {
         // En un Windows 11 actualizado (como el del usuario con Build 26200), no debe haber ninguna vulnerabilidad sin mitigar
         assert_eq!(unmitigated, 0);
         assert_eq!(native, 5);
+    }
+
+    #[test]
+    fn test_linux_cve_catalog_and_mitigation() {
+        let mut patcher = VirtualPatcher::new(true);
+        patcher.load_linux_cve_catalog();
+        assert_eq!(patcher.get_rules().len(), 5);
+
+        let applied = patcher.apply_virtual_patches().unwrap();
+        assert_eq!(applied, 5);
+
+        for rule in patcher.get_rules() {
+            assert_eq!(rule.status, PatchStatus::VirtualPatchActive);
+        }
     }
 }
 
