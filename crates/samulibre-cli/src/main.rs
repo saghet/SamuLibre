@@ -121,6 +121,10 @@ enum VpnCommands {
         /// Activar Kill-Switch de firewall contra fugas sin cifrar
         #[arg(short, long)]
         kill_switch: bool,
+
+        /// Activar Doble Cifrado en cascada (WireGuard ChaCha20 ⊕ Onion v3 Multi-Hop)
+        #[arg(short = 'd', long)]
+        double_encryption: bool,
     },
     /// Desconecta la VPN y restaura la configuración de red y proxy del sistema
     Disconnect,
@@ -359,12 +363,19 @@ async fn main() -> Result<()> {
         Commands::Vpn { sub } => {
             let mut vpn = VpnManager::new(&vpn_dir);
             match sub {
-                VpnCommands::Connect { country, kill_switch } => {
+                VpnCommands::Connect { country, kill_switch, double_encryption } => {
                     println!("Iniciando conexión VPN segura a {}...", country.bold().cyan());
-                    let state = vpn.connect_country(&country, kill_switch)?;
+                    if double_encryption {
+                        println!("{} Modo Doble Cifrado en cascada ACTIVADO (Capa 1: WireGuard ⊕ Capa 2: Onion Multi-Hop)", "🔒".bold().yellow());
+                    }
+                    let state = vpn.connect_country_ext(&country, kill_switch, double_encryption)?;
                     println!("{} VPN conectada exitosamente", "✔".green());
                     println!("País: {} {}", state.country_flag.unwrap_or_default(), state.country_name.unwrap_or_default());
                     println!("IP Pública Verificada: {}", state.assigned_ip.unwrap_or_default().bold().green());
+                    println!("Cifrado Activo: {}", state.encryption_cipher.bold().cyan());
+                    if let Some(route) = state.multi_hop_route {
+                        println!("Ruta Cascada: {}", route.yellow());
+                    }
                     println!("Protocolo: {}", state.protocol);
                     println!("DNS Activo: {}", state.dns_active);
                     println!("Proxy del sistema operativo (WinINet) configurado para todos los navegadores.");

@@ -111,6 +111,21 @@ impl MultiEngineScanner {
             });
         }
 
+        // Blindaje Anti-Symlink / Anti-LPE:
+        // No desreferenciar enlaces simbólicos o junctions para evitar manipulación de archivos del sistema
+        if let Ok(sym_meta) = fs::symlink_metadata(path_ref) {
+            if sym_meta.file_type().is_symlink() {
+                return Ok(ScanResult {
+                    file_path: path_ref.to_string_lossy().to_string(),
+                    sha256: String::new(),
+                    status: FileScanStatus::Clean,
+                    detection_name: Some("Omitido: Enlace simbólico o Junction NTFS (Blindaje Anti-LPE)".to_string()),
+                    engine: "SamuLibre Anti-Exploit".to_string(),
+                    scan_time_ms: 0,
+                });
+            }
+        }
+
         let metadata = match fs::metadata(path_ref) {
             Ok(m) => m,
             Err(e) => {

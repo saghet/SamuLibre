@@ -195,8 +195,12 @@ impl SamuLibreCore {
     }
 
     pub fn connect_vpn(&self, country_id: &str, kill_switch: bool) -> Result<samulibre_vpn::VpnConnectionState> {
+        self.connect_vpn_ext(country_id, kill_switch, false)
+    }
+
+    pub fn connect_vpn_ext(&self, country_id: &str, kill_switch: bool, double_encryption: bool) -> Result<samulibre_vpn::VpnConnectionState> {
         if let Ok(mut vpn) = self.vpn.lock() {
-            vpn.connect_country(country_id, kill_switch)
+            vpn.connect_country_ext(country_id, kill_switch, double_encryption)
         } else {
             anyhow::bail!("Error bloqueando gestor VPN")
         }
@@ -223,6 +227,9 @@ impl SamuLibreCore {
                 protocol: "WireGuard".to_string(),
                 dns_active: "ISP".to_string(),
                 kill_switch_active: false,
+                is_double_encryption: false,
+                encryption_cipher: "Ninguno (Inactivo)".to_string(),
+                multi_hop_route: None,
                 connected_at: None,
                 bytes_sent_mb: 0.0,
                 bytes_received_mb: 0.0,
@@ -307,7 +314,7 @@ impl SamuLibreCore {
             if state.is_connected {
                 format!("Conectado ({:?}, DNS Quad9 antifiltrado)", state.country_name)
             } else {
-                "Listo (6 países con leyes de privacidad estricta disponibles)".to_string()
+                "Listo (8 países con leyes de privacidad estricta disponibles)".to_string()
             }
         } else {
             "Inaccesible".to_string()

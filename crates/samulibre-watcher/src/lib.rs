@@ -47,6 +47,13 @@ impl QuarantineVault {
 
     /// Aísla y cifra un archivo malicioso para que no pueda ejecutarse en el SO
     pub fn isolate_file(&self, source_path: &Path, threat: &str, engine: &str, sha256: &str) -> Result<QuarantineRecord> {
+        // Blindaje Anti-Symlink / Anti-LPE: Verificar que el archivo no sea un junction o symlink
+        if let Ok(sym_meta) = fs::symlink_metadata(source_path) {
+            if sym_meta.file_type().is_symlink() {
+                anyhow::bail!("Intento de manipulación LPE detectado: '{}' es un enlace simbólico / junction. Operación cancelada.", source_path.display());
+            }
+        }
+
         let id = Uuid::new_v4();
         let isolated_name = format!("{}.quarantine", id);
         let isolated_path = self.quarantine_dir.join(&isolated_name);
@@ -140,6 +147,14 @@ impl RealTimeWatcher {
     pub fn inspect_on_access(&self, file_path: &Path) -> Option<ThreatAlert> {
         if !file_path.is_file() {
             return None;
+        }
+
+        // Blindaje Anti-Symlink / Anti-LPE: Omitir enlaces simbólicos o junctions para evitar manipulaciones de ruta
+        if let Ok(sym_meta) = fs::symlink_metadata(file_path) {
+            if sym_meta.file_type().is_symlink() {
+                warn!("Omitiendo archivo sospechoso por ser enlace simbólico / junction (Anti-LPE): {:?}", file_path);
+                return None;
+            }
         }
 
         // Filtro de extensiones críticas para evitar sobrecarga en archivos de texto plano o multimedia

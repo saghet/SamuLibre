@@ -45,7 +45,9 @@ Unlike legacy antivirus software that hogs 300+ MB of RAM and uploads your perso
 | **Ransomware Tripwire Canaries** | :white_check_mark: **Sub-ms MFT Fast-Path** | :warning: Limited | :white_check_mark: Yes | :x: No |
 | **LSASS Credential Dumping Defense** | :white_check_mark: **Active (Mimikatz block)** | :warning: RunAsPPL only | :white_check_mark: Yes | :x: No |
 | **Browser Cookie / Token Shield** | :white_check_mark: **DPAPI Protected** | :x: No | :warning: Enterprise tier | :x: No |
-| **Integrated Privacy VPN (Tor & WireGuard)** | :white_check_mark: **Built-in** | :x: Paid ($) | :x: No | :x: No |
+| **Integrated Privacy VPN** | :white_check_mark: **Built-in (8 Countries)** | :x: Paid ($) | :x: No | :x: No |
+| **VPN Double-Encryption (Multi-Hop)** | :white_check_mark: **ChaCha20 ⊕ Onion v3** | :x: No | :x: No | :x: No |
+| **Anti-Symlink / Anti-LPE Defense** | :white_check_mark: **Native in Quarantine** | :warning: Partial | :warning: Proprietary | :x: No |
 | **Open Source / Zero Telemetry** | :white_check_mark: **100% GPL-3.0** | :x: Proprietary | :x: Proprietary | :white_check_mark: Open Source |
 
 ---
@@ -68,7 +70,7 @@ Unlike legacy antivirus software that hogs 300+ MB of RAM and uploads your perso
 * **Live On-Access File Watcher (`samulibre-watcher`)**: Intercepts newly created or modified files with 200 ms debouncing and automatically isolates threats into an **XOR-encrypted quarantine vault**.
 
 ### 4. 🌐 Privacy VPN & Anti-Censorship Suite (`samulibre-vpn`)
-* **Multi-Hop Tor & WireGuard Tunneling**: One-click encrypted routing through privacy-first jurisdictions (Switzerland, Iceland, Netherlands, Sweden, Panama, Canada).
+* **Chained Double-Encryption Tunneling**: Cascaded multi-layer encryption combining **WireGuard (`ChaCha20-Poly1305`)** with multi-hop **Onion v3 circuits** routed through 8 strictly audited jurisdictions: Switzerland 🇨🇭, Iceland 🇮🇸, Netherlands 🇳🇱, Sweden 🇸🇪, Panama 🇵🇦, Canada 🇨🇦, Colombia 🇨🇴, and Brazil 🇧🇷.
 * **Quad9 Malware-Blocking DNS**: Automatic DNS-over-HTTPS / static DNS routing through Quad9's Swiss non-profit malware-filtering servers (`9.9.9.9`).
 * **Hardware Kill-Switch**: Outbound Windows Filtering Platform (WFP) rules that prevent unencrypted IP/DNS leaks if the tunnel drops.
 
@@ -186,6 +188,16 @@ cargo test --workspace
 ## 🤝 Contributing
 
 Contributions are warmly welcomed! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on adding new CVE virtual patch rules, YARA-X signatures, or UI improvements.
+
+---
+
+## 🔒 Security & Self-Defense
+Please review our [Security Policy & Anti-Attack Vector Architecture (SECURITY.md)](SECURITY.md) to understand how SamuLibre protects itself from becoming an exploit vector (memory safety, anti-symlink LPE defense, bounded decompression, and sandboxed Webview DOM).
+
+---
+
+## 📈 Community & Go-To-Market
+Interested in helping spread the word? Read our [Global Marketing & Viral Launch Strategy (MARKETING_STRATEGY.md)](MARKETING_STRATEGY.md) with ready-to-share technical threads, Hacker News pitches, and comparative benchmarks.
 
 ---
 

@@ -203,18 +203,19 @@ impl EndpointShield {
                 let is_lsass_dump_cmd = cmd_line.contains("lsass") && (cmd_line.contains("dump") || cmd_line.contains("-ma"));
 
                 if matches_tool || is_comsvcs_minidump || is_lsass_dump_cmd {
-                    warn!("Detectado intento de robo de credenciales LSASS: PID {} ({})", pid_u32, proc_name);
+                    warn!("Detectado intento de robo de credenciales LSASS: PID {} ({}). Ejecutando terminación inmediata EDR.", pid_u32, proc_name);
+                    let _ = process.kill();
                     alerts.push(ThreatAlert {
                         id: Uuid::new_v4(),
                         timestamp: Utc::now(),
                         severity: Severity::Critical,
                         category: ThreatCategory::LsassMemoryAccess,
                         title: "Intento de volcado de credenciales LSASS neutralizado".to_string(),
-                        details: format!("Proceso '{}' (PID {}) ejecutó argumentos sospechosos dirigidos a la memoria de autenticación: '{}'", proc_name, pid_u32, cmd_line),
+                        details: format!("Proceso atacante '{}' (PID {}) fue terminado de inmediato por EDR al intentar volcar memoria sensible: '{}'", proc_name, pid_u32, cmd_line),
                         process_id: Some(pid_u32),
                         process_name: Some(proc_name.clone()),
                         target_path: Some("C:\\Windows\\System32\\lsass.exe".to_string()),
-                        action_taken: "Proceso identificado como atacante. Alerta de bloqueo emitida.".to_string(),
+                        action_taken: "Proceso terminado inmediatamente por EDR Sentinel (Zero-Tolerance Response)".to_string(),
                     });
                 }
             }
@@ -233,17 +234,19 @@ impl EndpointShield {
 
                     let matches_stealer_action = stealer_keywords.iter().any(|k| cmd_line.contains(k));
                     if matches_stealer_action {
+                        warn!("Detectado intento de robo de tokens/cookies: PID {} ({}). Ejecutando terminación EDR.", pid_u32, proc_name);
+                        let _ = process.kill();
                         alerts.push(ThreatAlert {
                             id: Uuid::new_v4(),
                             timestamp: Utc::now(),
                             severity: Severity::High,
                             category: ThreatCategory::BrowserCredentialTheft,
                             title: "Detección de InfoStealer (Robo de Cookies / Tokens Web)".to_string(),
-                            details: format!("Proceso no autorizado '{}' (PID {}) intentó acceder a almacenes de contraseñas o tokens: '{}'", proc_name, pid_u32, cmd_line),
+                            details: format!("Proceso no autorizado '{}' (PID {}) fue terminado de inmediato por EDR al intentar sustraer credenciales: '{}'", proc_name, pid_u32, cmd_line),
                             process_id: Some(pid_u32),
                             process_name: Some(proc_name),
                             target_path: Some("%LOCALAPPDATA%\\Google\\Chrome\\User Data\\...".to_string()),
-                            action_taken: "Acceso bloqueado por SamuLibre Browser Shield.".to_string(),
+                            action_taken: "Proceso terminado inmediatamente por SamuLibre Browser Shield (EDR Kill)".to_string(),
                         });
                     }
                 }

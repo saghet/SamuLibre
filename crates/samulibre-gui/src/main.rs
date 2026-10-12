@@ -652,13 +652,19 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                     }
 
                     "connect_vpn" => {
-                        let country_code = msg.payload.unwrap_or_else(|| "CH".to_string());
-                        log_step(&format!("IPC: connect_vpn recibido para país: {}", country_code));
+                        let raw_payload = msg.payload.unwrap_or_else(|| "CH".to_string());
+                        let (country_code, double_encryption) = if raw_payload.contains('|') {
+                            let parts: Vec<&str> = raw_payload.split('|').collect();
+                            (parts[0].to_string(), parts.get(1) == Some(&"double"))
+                        } else {
+                            (raw_payload, false)
+                        };
+                        log_step(&format!("IPC: connect_vpn recibido para país: {} (Doble Cifrado: {})", country_code, double_encryption));
                         let core_cloned = Arc::clone(&core_for_ipc);
                         let proxy_cloned = proxy_for_ipc.clone();
                         std::thread::spawn(move || {
                             if let Ok(c) = core_cloned.lock() {
-                                match c.connect_vpn(&country_code, true) {
+                                match c.connect_vpn_ext(&country_code, true, double_encryption) {
                                     Ok(res_state) => {
                                         log_step(&format!("connect_vpn completado OK. IP: {:?}", res_state.assigned_ip));
                                     }

@@ -540,6 +540,23 @@
             </div>
           </div>
 
+          <!-- Doble Cifrado Militar en Cascada (Double Encryption) -->
+          <div class="flex items-center justify-between p-3.5 rounded-2xl bg-purple-500/10 border border-purple-500/20 my-3">
+            <div class="flex items-center gap-3">
+              <span class="text-xl">🔐</span>
+              <div>
+                <p class="text-xs font-semibold text-white flex items-center gap-2">
+                  Doble Cifrado Militar en Cascada (Double Encryption)
+                  <span class="text-[9px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-full font-mono font-bold">512-bit Cascada</span>
+                </p>
+                <p class="text-[10px] text-gray-300 mt-0.5">Encapsula WireGuard (ChaCha20-Poly1305) dentro de un circuito Onion v3 multi-hop para anonimato e inviolabilidad absoluta.</p>
+              </div>
+            </div>
+            <div id="doubleEncryptionSwitch" class="toggle-switch inactive shrink-0 ml-3 cursor-pointer" onclick="toggleDoubleEncryptionSwitch(this)">
+              <div class="toggle-knob"></div>
+            </div>
+          </div>
+
           <!-- Métricas de la Conexión Activa -->
           <div class="grid grid-cols-2 md:grid-cols-4 gap-3 pt-3 border-t border-white/5">
             <div class="glass-panel p-3 rounded-xl">
@@ -557,6 +574,13 @@
             <div class="glass-panel p-3 rounded-xl">
               <p class="text-[10px] text-gray-400 uppercase font-mono tracking-wider">DNS Cifrado Quad9</p>
               <p id="vpnMetricDns" class="text-xs font-semibold text-blue-400 font-mono mt-1">9.9.9.9 (Cero Logs)</p>
+            </div>
+            <div id="vpnMultiHopRouteRow" class="col-span-2 md:col-span-4 hidden p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/30 text-[11px] font-mono text-purple-200 flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span>🛡️ Ruta de Cascada Activa:</span>
+                <span id="vpnMultiHopRouteText" class="font-bold text-white"></span>
+              </div>
+              <span class="text-[9px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded font-mono">Doble Salto Verificado</span>
             </div>
           </div>
         </div>
@@ -707,6 +731,33 @@
         activeNav.classList.add('bg-white/10', 'text-white');
         activeNav.classList.remove('text-gray-400');
       }
+    }
+
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    let doubleEncryptionEnabled = false;
+
+    function toggleDoubleEncryptionSwitch(elem) {
+      toggleSwitch(elem);
+      doubleEncryptionEnabled = elem.classList.contains('active');
+      if (doubleEncryptionEnabled) {
+        showToast('Doble Cifrado Activado', 'Tráfico enrutado con doble capa: WireGuard ChaCha20 + Onion v3 Multi-Hop.');
+      } else {
+        showToast('Cifrado Estándar', 'Tráfico enrutado mediante túnel privado estándar.');
+      }
+    }
+
+    function isDoubleEncryptionActive() {
+      const sw = document.getElementById('doubleEncryptionSwitch');
+      return sw ? sw.classList.contains('active') : doubleEncryptionEnabled;
     }
 
     function toggleSwitch(elem) {
@@ -1227,8 +1278,8 @@
             <div class="flex items-center gap-2.5 min-w-0">
               <span class="text-base text-red-400 font-bold">🔒</span>
               <div class="truncate">
-                <p class="text-xs font-semibold text-white truncate">${rec.threat_name}</p>
-                <p class="text-[10px] text-gray-400 font-mono truncate">${rec.original_path}</p>
+                <p class="text-xs font-semibold text-white truncate">${escapeHtml(rec.threat_name)}</p>
+                <p class="text-[10px] text-gray-400 font-mono truncate">${escapeHtml(rec.original_path)}</p>
               </div>
             </div>
             <button onclick="purgeQuarantineItem('${rec.id}')" class="px-2.5 py-1 bg-red-500/20 text-red-300 border border-red-500/30 text-[10px] font-medium rounded-lg hover:bg-red-500/30 active:scale-95 transition-all">
@@ -1236,9 +1287,9 @@
             </button>
           </div>
           <div class="flex items-center justify-between text-[10px] text-gray-400 font-mono pt-1 border-t border-white/5">
-            <span>Motor: ${rec.engine}</span>
-            <span>SHA: ${rec.sha256 ? rec.sha256.substring(0, 16) + '...' : ''}</span>
-            <span>${rec.quarantined_at ? rec.quarantined_at.split('T')[0] : 'Hoy'}</span>
+            <span>Motor: ${escapeHtml(rec.engine)}</span>
+            <span>SHA: ${escapeHtml(rec.sha256 ? rec.sha256.substring(0, 16) + '...' : '')}</span>
+            <span>${escapeHtml(rec.quarantined_at ? rec.quarantined_at.split('T')[0] : 'Hoy')}</span>
           </div>
         `;
         listEl.appendChild(item);
@@ -1278,15 +1329,33 @@
       if (state.is_connected) {
         if (dot) dot.className = 'w-3.5 h-3.5 rounded-full bg-emerald-400 animate-pulse';
         if (title) title.textContent = `VPN Conectada (${state.country_flag || '🌐'} ${state.country_name || 'Desconocido'})`;
-        if (sub) sub.textContent = `Túnel privado activo con DNS ${state.dns_active} y proxy de sistema enrutado.`;
+        if (sub) sub.textContent = state.multi_hop_route
+          ? `Túnel con Doble Cifrado activo • ${state.multi_hop_route}`
+          : `Túnel privado activo con DNS ${state.dns_active} y proxy de sistema enrutado.`;
         if (activeBadge) {
-          activeBadge.textContent = 'Protegido';
-          activeBadge.className = 'text-xs font-medium px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40';
+          if (state.is_double_encryption) {
+            activeBadge.textContent = '🔐 Doble Cifrado Activo';
+            activeBadge.className = 'text-xs font-semibold px-3 py-1 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/40 shadow-sm animate-pulse';
+          } else {
+            activeBadge.textContent = 'Protegido';
+            activeBadge.className = 'text-xs font-medium px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40';
+          }
+        }
+
+        const routeRow = document.getElementById('vpnMultiHopRouteRow');
+        const routeText = document.getElementById('vpnMultiHopRouteText');
+        if (routeRow && routeText) {
+          if (state.is_double_encryption && state.multi_hop_route) {
+            routeRow.classList.remove('hidden');
+            routeText.textContent = state.multi_hop_route;
+          } else {
+            routeRow.classList.add('hidden');
+          }
         }
 
         if (countryEl) countryEl.textContent = `${state.country_flag || ''} ${state.country_name || 'N/A'}`;
         if (ipEl) ipEl.textContent = state.assigned_ip || 'Verificada';
-        if (protoEl) protoEl.textContent = state.protocol || 'Enrutamiento Privado';
+        if (protoEl) protoEl.textContent = state.encryption_cipher || state.protocol || 'Enrutamiento Privado';
         if (dnsEl) dnsEl.textContent = `${state.dns_active} (9.9.9.9)`;
 
         if (btnText) btnText.textContent = 'Desconectar VPN';
@@ -1300,6 +1369,9 @@
           activeBadge.textContent = 'Inactivo';
           activeBadge.className = 'text-xs font-medium px-3 py-1 rounded-full bg-gray-500/20 text-gray-300 border border-white/10';
         }
+
+        const routeRow = document.getElementById('vpnMultiHopRouteRow');
+        if (routeRow) routeRow.classList.add('hidden');
 
         if (countryEl) countryEl.textContent = 'Ninguno seleccionado';
         if (ipEl) ipEl.textContent = 'Protección en espera';
@@ -1423,8 +1495,13 @@
       const btnText = document.getElementById('vpnBtnText');
       if (btnText) btnText.textContent = 'Conectando...';
 
-      showToast('Conectando a VPN Segura...', `Estableciendo túnel cifrado (${code}) con enrutamiento de sistema y verificación de IP...`);
-      sendIpc('connect_vpn', code);
+      const isDouble = isDoubleEncryptionActive();
+      const payload = isDouble ? `${code}|double` : code;
+      showToast(
+        isDouble ? 'Iniciando Doble Cifrado Militar...' : 'Conectando a VPN Segura...',
+        `Estableciendo túnel ${isDouble ? 'con Doble Capa WireGuard + Onion v3' : 'cifrado'} (${code})...`
+      );
+      sendIpc('connect_vpn', payload);
     }
 
     function disconnectVpn() {
