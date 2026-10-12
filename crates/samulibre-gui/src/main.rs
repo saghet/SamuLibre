@@ -15,7 +15,7 @@ use tao::{
     window::WindowBuilder,
 };
 use tracing::info;
-use tray_icon::{Icon, TrayIconBuilder, TrayIconEvent};
+use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use walkdir::WalkDir;
 use wry::WebViewBuilder;
 
@@ -293,7 +293,7 @@ fn run_app(app_root: PathBuf) -> Result<()> {
         }
     });
 
-    log_step("run_app: Cargando icon.png...");
+    log_step("run_app: Cargando icon.png y tray_icon.png...");
     let icon_bytes = include_bytes!("../../../assets/icon.png");
     let img = match image::load_from_memory(icon_bytes) {
         Ok(i) => i.into_rgba8(),
@@ -304,7 +304,17 @@ fn run_app(app_root: PathBuf) -> Result<()> {
     };
     let (icon_w, icon_h) = img.dimensions();
     log_step(&format!("run_app: Icon decodificado: {}x{}", icon_w, icon_h));
-    let tray_icon_data = match Icon::from_rgba(img.clone().into_raw(), icon_w, icon_h) {
+
+    let tray_bytes = include_bytes!("../../../assets/tray_icon.png");
+    let tray_img = match image::load_from_memory(tray_bytes) {
+        Ok(i) => i.into_rgba8(),
+        Err(e) => {
+            log_step(&format!("run_app: Error cargando tray_bytes: {:?}", e));
+            img.clone()
+        }
+    };
+    let (tray_w, tray_h) = tray_img.dimensions();
+    let tray_icon_data = match Icon::from_rgba(tray_img.into_raw(), tray_w, tray_h) {
         Ok(t) => t,
         Err(e) => {
             log_step(&format!("run_app: Error en Icon::from_rgba: {:?}", e));
@@ -380,10 +390,18 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                 }
             }
 
-            // Eventos de interacción directa con el icono (Clic / Doble Clic)
+            // Eventos de interacción directa con el icono (Solo Clic Izquierdo abre ventana; Clic Derecho mantiene el menú abierto)
             if let Ok(event) = tray_channel.try_recv() {
                 match event {
-                    TrayIconEvent::Click { .. } | TrayIconEvent::DoubleClick { .. } => {
+                    TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    }
+                    | TrayIconEvent::DoubleClick {
+                        button: MouseButton::Left,
+                        ..
+                    } => {
                         let _ = proxy_tray.send_event(CustomUserEvent::ShowWindow);
                     }
                     _ => (),
