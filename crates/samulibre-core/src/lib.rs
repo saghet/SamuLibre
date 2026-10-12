@@ -215,8 +215,16 @@ impl SamuLibreCore {
         }
     }
 
+    pub fn reset_vpn_network(&self) -> Result<()> {
+        if let Ok(mut vpn) = self.vpn.lock() {
+            vpn.reset_system_network()?;
+        }
+        Ok(())
+    }
+
     pub fn get_vpn_state(&self) -> samulibre_vpn::VpnConnectionState {
-        if let Ok(vpn) = self.vpn.lock() {
+        if let Ok(mut vpn) = self.vpn.lock() {
+            vpn.verify_tunnel_health();
             vpn.get_state()
         } else {
             samulibre_vpn::VpnConnectionState {

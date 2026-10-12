@@ -128,6 +128,8 @@ enum VpnCommands {
     },
     /// Desconecta la VPN y restaura la configuración de red y proxy del sistema
     Disconnect,
+    /// Restablece de emergencia la red del sistema: desactiva proxy huérfano, restaura DNS DHCP y limpia firewall
+    ResetNetwork,
     /// Muestra el estado actual de la VPN y del proxy del sistema
     Status,
     /// Genera un perfil WireGuard compatible con clientes libres
@@ -390,6 +392,12 @@ async fn main() -> Result<()> {
                     println!("Desconectando VPN y restaurando proxy...");
                     let _ = vpn.disconnect()?;
                     println!("{} VPN desconectada. Tráfico directo restaurado.", "✔".green());
+                }
+
+                VpnCommands::ResetNetwork => {
+                    println!("Restableciendo configuración de red del sistema...");
+                    vpn.reset_system_network()?;
+                    println!("{} Red normalizada: Proxy de Windows/Linux desactivado, DNS restaurado y firewall limpio.", "✔".green());
                 }
 
                 VpnCommands::Status => {

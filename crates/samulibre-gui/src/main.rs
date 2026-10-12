@@ -348,8 +348,17 @@ fn main() {
     let _ = std::env::set_current_dir(&app_root);
     let _ = fs::create_dir_all(app_root.join("data"));
     std::panic::set_hook(Box::new(|info| {
+        let _ = samulibre_vpn::reset_system_network_proxy();
         log_step(&format!("PANIC: {}", info));
     }));
+
+    // Startup Self-Healing: Si el proxy de Windows/Linux quedó activo por un corte o cierre anterior,
+    // restaurar la conectividad normal de forma inmediata e incondicional.
+    if samulibre_vpn::is_system_proxy_enabled() {
+        log_step("Startup Self-Healing: Proxy del sistema huérfano detectado. Restaurando conexión normal...");
+        let _ = samulibre_vpn::reset_system_network_proxy();
+    }
+
     log_step(&format!("Iniciando SamuLibre GUI en raíz: {:?}", app_root));
     if let Err(e) = run_app(app_root) {
         log_step(&format!("Error fatal: {:?}", e));
@@ -537,13 +546,23 @@ fn run_app(app_root: PathBuf) -> Result<()> {
     });
     log_step("run_app: Hilo de tray spawneado OK");
 
-    let html_content = include_str!("../../../data/ui/index.html");
-    log_step("run_app: HTML template leido OK");
+    let raw_html = include_str!("../../../data/ui/index.html");
+    const TAILWIND_JS: &str = include_str!("../../../data/ui/tailwindcss.min.js");
+    let html_content = raw_html
+        .replace(
+            r#"<script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>"#,
+            &format!("<script>{}</script>", TAILWIND_JS),
+        )
+        .replace(
+            r#"<script src="tailwindcss.min.js"></script>"#,
+            &format!("<script>{}</script>", TAILWIND_JS),
+        );
+    log_step("run_app: HTML template y Tailwind CSS offline embebidos OK");
 
     log_step("run_app: Creando WebViewBuilder...");
     let proxy_for_ipc = proxy.clone();
     let builder = WebViewBuilder::new()
-        .with_html(html_content)
+        .with_html(&html_content)
         .with_ipc_handler(move |request| {
             let body = request.body();
             if let Ok(msg) = serde_json::from_str::<IpcMessage>(body) {
@@ -846,6 +865,26 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                         });
                     }
 
+                    "reset_network" => {
+                        log_step("IPC: reset_network recibido");
+                        let core_cloned = Arc::clone(&core_for_ipc);
+                        let proxy_cloned = proxy_for_ipc.clone();
+                        std::thread::spawn(move || {
+                            if let Ok(c) = core_cloned.lock() {
+                                match c.reset_vpn_network() {
+                                    Ok(_) => log_step("reset_vpn_network completado OK"),
+                                    Err(e) => log_step(&format!("reset_vpn_network FALLÓ: {:?}", e)),
+                                }
+                                let state = c.get_vpn_state();
+                                let countries = c.get_vpn_countries();
+                                let _ = proxy_cloned.send_event(CustomUserEvent::VpnStateUpdated { state, countries });
+                            } else {
+                                let _ = samulibre_vpn::reset_system_network_proxy();
+                                log_step("reset_network: Reseteado proxy directamente");
+                            }
+                        });
+                    }
+
                     "refresh_vpn_pings" => {
                         log_step("IPC: refresh_vpn_pings recibido");
                         let proxy_pings = proxy_for_ipc.clone();
@@ -1019,6 +1058,11 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                         latencies: dummy_map,
                         tunnel_ping,
                     });
+                } else if samulibre_vpn::is_system_proxy_enabled() {
+                    // Watchdog Fail-Safe: VPN inactiva pero el proxy del SO quedó encendido
+                    let _ = samulibre_vpn::reset_system_network_proxy();
+                    let countries = c.get_vpn_countries();
+                    let _ = proxy_tunnel_ping.send_event(CustomUserEvent::VpnStateUpdated { state, countries });
                 }
             }
         }
@@ -1214,6 +1258,10 @@ fn run_app(app_root: PathBuf) -> Result<()> {
             }
 
             Event::UserEvent(CustomUserEvent::Quit) => {
+                if let Ok(c) = core_for_actions.lock() {
+                    let _ = c.reset_vpn_network();
+                }
+                let _ = samulibre_vpn::reset_system_network_proxy();
                 *control_flow = ControlFlow::Exit;
             }
 

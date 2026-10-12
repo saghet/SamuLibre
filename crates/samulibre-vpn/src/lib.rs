@@ -8,7 +8,7 @@ use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 use std::time::{Duration, Instant};
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -137,6 +137,42 @@ pub fn set_linux_system_proxy(enable: bool, host: &str, http_port: u16, socks_po
     }
 
     info!("Proxy del sistema Linux actualizado con éxito: enable={}", enable);
+    Ok(())
+}
+
+/// Verifica si el proxy del sistema operativo está actualmente habilitado (Windows o Linux)
+pub fn is_system_proxy_enabled() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        let mut cmd = Command::new("reg");
+        cmd.args([
+            "query",
+            r"HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings",
+            "/v",
+            "ProxyEnable",
+        ]);
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        if let Ok(output) = cmd.output() {
+            let text = String::from_utf8_lossy(&output.stdout);
+            return text.contains("0x1");
+        }
+        false
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        if let Ok(output) = Command::new("gsettings").args(["get", "org.gnome.system.proxy", "mode"]).output() {
+            let text = String::from_utf8_lossy(&output.stdout);
+            return text.contains("manual");
+        }
+        false
+    }
+}
+
+/// Fuerza la restauración del proxy del sistema a desactivado (0) y notifica al SO.
+pub fn reset_system_network_proxy() -> Result<()> {
+    set_system_proxy(false, "")?;
+    notify_windows_proxy_changed();
+    info!("reset_system_network_proxy: Proxy desactivado y WinINet notificado.");
     Ok(())
 }
 
@@ -398,6 +434,13 @@ impl VpnManager {
             },
         ];
 
+        // Startup Self-Healing: Si el proxy del SO quedó activo indebidamente tras un cierre anterior,
+        // restaurar la conexión normal de inmediato.
+        if is_system_proxy_enabled() {
+            warn!("Startup Self-Healing: Se detectó un proxy de sistema huérfano. Restaurando navegación estándar...");
+            let _ = reset_system_network_proxy();
+        }
+
         Self {
             profiles_dir: abs_dir,
             is_connected: false,
@@ -638,6 +681,48 @@ impl VpnManager {
         self.active_country = None;
         self.connected_timestamp = None;
         self.assigned_ip = None;
+    }
+
+    /// Restablece completamente cualquier configuración de red residual del sistema
+    pub fn reset_system_network(&mut self) -> Result<()> {
+        info!("Restableciendo conexión de red del sistema (Emergencia / Mantenimiento)...");
+        self.disconnect_internal();
+        let _ = reset_system_network_proxy();
+        let _ = self.restore_default_dns();
+        let _ = self.disable_kill_switch();
+        Ok(())
+    }
+
+    /// Watchdog de vitalidad del túnel VPN:
+    /// Verifica si el subproceso Tor sigue vivo. Si murió inesperadamente,
+    /// apaga el proxy del sistema de inmediato para evitar dejar la máquina sin conexión.
+    pub fn verify_tunnel_health(&mut self) -> bool {
+        if !self.is_connected {
+            return true;
+        }
+
+        let is_dead = match &mut self.tor_process {
+            Some(child) => match child.try_wait() {
+                Ok(Some(status)) => {
+                    warn!("Watchdog VPN: El subproceso Tor terminó inesperadamente con código: {:?}", status);
+                    true
+                }
+                Err(e) => {
+                    warn!("Watchdog VPN: Error al consultar estado del proceso Tor: {:?}", e);
+                    true
+                }
+                Ok(None) => false,
+            },
+            None => true,
+        };
+
+        if is_dead {
+            error!("Watchdog VPN: Caída crítica de túnel detectada. Desactivando proxy del sistema para proteger navegación...");
+            self.disconnect_internal();
+            return false;
+        }
+
+        true
     }
 
     /// Consulta el estado actual de la VPN
