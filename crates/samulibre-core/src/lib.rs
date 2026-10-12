@@ -6,6 +6,7 @@ use samulibre_shield::EndpointShield;
 use samulibre_types::{FileScanStatus, ScanResult, SuiteStatus, ThreatAlert, VirtualPatchRule};
 use samulibre_vpn::VpnManager;
 use samulibre_watcher::RealTimeWatcher;
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use tracing::{info, warn};
@@ -235,6 +236,22 @@ impl SamuLibreCore {
                 bytes_received_mb: 0.0,
                 ping_ms: 0,
             }
+        }
+    }
+
+    pub fn refresh_vpn_latencies(&self) -> HashMap<String, u32> {
+        if let Ok(mut vpn) = self.vpn.lock() {
+            vpn.refresh_all_latencies()
+        } else {
+            HashMap::new()
+        }
+    }
+
+    pub fn get_active_vpn_tunnel_latency(&self) -> Option<u32> {
+        if let Ok(vpn) = self.vpn.lock() {
+            vpn.probe_active_tunnel_latency()
+        } else {
+            None
         }
     }
 

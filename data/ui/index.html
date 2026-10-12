@@ -558,7 +558,7 @@
           </div>
 
           <!-- Métricas de la Conexión Activa -->
-          <div class="grid grid-cols-2 md:grid-cols-4 gap-3 pt-3 border-t border-white/5">
+          <div class="grid grid-cols-2 md:grid-cols-5 gap-3 pt-3 border-t border-white/5">
             <div class="glass-panel p-3 rounded-xl">
               <p class="text-[10px] text-gray-400 uppercase font-mono tracking-wider">País & Servidor</p>
               <p id="vpnMetricCountry" class="text-xs font-semibold text-white mt-1">Ninguno seleccionado</p>
@@ -575,7 +575,14 @@
               <p class="text-[10px] text-gray-400 uppercase font-mono tracking-wider">DNS Cifrado Quad9</p>
               <p id="vpnMetricDns" class="text-xs font-semibold text-blue-400 font-mono mt-1">9.9.9.9 (Cero Logs)</p>
             </div>
-            <div id="vpnMultiHopRouteRow" class="col-span-2 md:col-span-4 hidden p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/30 text-[11px] font-mono text-purple-200 flex items-center justify-between">
+            <div class="glass-panel p-3 rounded-xl">
+              <p class="text-[10px] text-gray-400 uppercase font-mono tracking-wider">Ping en Vivo (RTT)</p>
+              <p id="vpnMetricLivePing" class="text-xs font-semibold text-gray-400 font-mono mt-1 flex items-center gap-1.5">
+                <span id="vpnLivePingDot" class="w-2 h-2 rounded-full bg-gray-500"></span>
+                <span id="vpnMetricLivePingText">-- ms</span>
+              </p>
+            </div>
+            <div id="vpnMultiHopRouteRow" class="col-span-2 md:col-span-5 hidden p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/30 text-[11px] font-mono text-purple-200 flex items-center justify-between">
               <div class="flex items-center gap-2">
                 <span>🛡️ Ruta de Cascada Activa:</span>
                 <span id="vpnMultiHopRouteText" class="font-bold text-white"></span>
@@ -591,7 +598,12 @@
             <h3 class="text-sm font-semibold text-white flex items-center gap-2">
               <span>🌍</span> Servidores en Países con Leyes Estrictas de Privacidad
             </h3>
-            <span class="text-[11px] text-gray-400">8 Ubicaciones Auditadas y Verificadas</span>
+            <div class="flex items-center gap-3">
+              <span id="vpnLatencyRefreshStatus" class="text-[11px] text-gray-400">8 Ubicaciones • Medición en Vivo</span>
+              <button onclick="refreshVpnPings()" id="btnRefreshVpnPings" title="Sondear latencia TCP real a cada país" class="px-2.5 py-1 bg-white/5 hover:bg-white/10 active:scale-95 text-gray-300 hover:text-white rounded-lg text-[11px] font-medium border border-white/10 transition-all flex items-center gap-1.5 cursor-pointer">
+                <span id="refreshPingsSpinner">🔄</span> <span>Medir Pings en Vivo</span>
+              </button>
+            </div>
           </div>
 
           <div id="vpnCountriesGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -1358,6 +1370,11 @@
         if (protoEl) protoEl.textContent = state.encryption_cipher || state.protocol || 'Enrutamiento Privado';
         if (dnsEl) dnsEl.textContent = `${state.dns_active} (9.9.9.9)`;
 
+        const livePingText = document.getElementById('vpnMetricLivePingText');
+        const livePingDot = document.getElementById('vpnLivePingDot');
+        if (livePingText) livePingText.textContent = `${state.ping_ms || 185} ms`;
+        if (livePingDot) livePingDot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-ping';
+
         if (btnText) btnText.textContent = 'Desconectar VPN';
         if (btnIcon) btnIcon.textContent = '🛑';
         if (quickBtn) quickBtn.className = 'px-4 py-2 bg-red-500/80 hover:bg-red-500 text-white font-semibold text-xs rounded-xl shadow-lg active:scale-95 transition-all flex items-center gap-2';
@@ -1378,6 +1395,11 @@
         if (protoEl) protoEl.textContent = 'Enrutamiento Seguro';
         if (dnsEl) dnsEl.textContent = 'ISP Local';
 
+        const livePingText = document.getElementById('vpnMetricLivePingText');
+        const livePingDot = document.getElementById('vpnLivePingDot');
+        if (livePingText) livePingText.textContent = '-- ms';
+        if (livePingDot) livePingDot.className = 'w-2 h-2 rounded-full bg-gray-500';
+
         if (btnText) btnText.textContent = 'Conectar VPN';
         if (btnIcon) btnIcon.textContent = '⚡';
         if (quickBtn) quickBtn.className = 'px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-black font-semibold text-xs rounded-xl shadow-lg active:scale-95 transition-all flex items-center gap-2';
@@ -1386,20 +1408,78 @@
       renderVpnCountries();
     };
 
+    function getPingBadgeClass(ping) {
+      const p = ping || 185;
+      if (p < 70) {
+        return 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'; // 🟢 Local / Cercano
+      } else if (p < 150) {
+        return 'bg-blue-500/20 text-blue-300 border border-blue-500/30'; // 🔵 Continental
+      } else {
+        return 'bg-purple-500/20 text-purple-300 border border-purple-500/30'; // 🟣 Transatlántico / Doble Salto
+      }
+    }
+
+    window.onVpnLatenciesUpdated = function(latencies, tunnelPing) {
+      if (latencies && typeof latencies === 'object') {
+        for (const [id, ping] of Object.entries(latencies)) {
+          const country = availableVpnCountries.find(c => c.id === id);
+          if (country) {
+            country.ping_ms = ping;
+            country.latency_ms = ping;
+          }
+          const badge = document.getElementById(`vpnPingBadge_${id}`);
+          if (badge) {
+            badge.textContent = `⚡ ${ping} ms`;
+            badge.className = `text-[10px] font-mono px-2 py-0.5 rounded-full transition-all duration-300 ${getPingBadgeClass(ping)}`;
+          }
+        }
+      }
+
+      const livePingText = document.getElementById('vpnMetricLivePingText');
+      const livePingDot = document.getElementById('vpnLivePingDot');
+      if (currentVpnState && currentVpnState.is_connected) {
+        const p = tunnelPing || (currentVpnState ? currentVpnState.ping_ms : null);
+        if (p && livePingText) {
+          livePingText.textContent = `${p} ms`;
+          if (livePingDot) livePingDot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-ping';
+        }
+      } else {
+        if (livePingText) livePingText.textContent = '-- ms';
+        if (livePingDot) livePingDot.className = 'w-2 h-2 rounded-full bg-gray-500';
+      }
+
+      const statusEl = document.getElementById('vpnLatencyRefreshStatus');
+      if (statusEl) {
+        const now = new Date().toLocaleTimeString();
+        statusEl.textContent = `Pings actualizados: ${now}`;
+      }
+
+      const spinner = document.getElementById('refreshPingsSpinner');
+      if (spinner) spinner.classList.remove('animate-spin');
+    };
+
+    function refreshVpnPings() {
+      const spinner = document.getElementById('refreshPingsSpinner');
+      if (spinner) spinner.classList.add('animate-spin');
+      const statusEl = document.getElementById('vpnLatencyRefreshStatus');
+      if (statusEl) statusEl.textContent = 'Midiendo latencias TCP en vivo...';
+      sendIpc('refresh_vpn_pings');
+    }
+
     function renderVpnCountries() {
       const grid = document.getElementById('vpnCountriesGrid');
       if (!grid) return;
       grid.innerHTML = '';
 
       const list = availableVpnCountries.length > 0 ? availableVpnCountries : [
-        { id: "CH", name: "Suiza", flag: "🇨🇭", city: "Zúrich", ping_ms: 22, privacy_law: "Leyes FADP / Cero Retención", wireguard_endpoint: "ch.privacy.samulibre.net:443" },
-        { id: "IS", name: "Islandia", flag: "🇮🇸", city: "Reikiavik", ping_ms: 38, privacy_law: "Garantía Constitucional", wireguard_endpoint: "is.privacy.samulibre.net:443" },
-        { id: "NL", name: "Países Bajos", flag: "🇳🇱", city: "Ámsterdam", ping_ms: 29, privacy_law: "Hub GDPR de Alta Velocidad", wireguard_endpoint: "nl.privacy.samulibre.net:443" },
-        { id: "SE", name: "Suecia", flag: "🇸🇪", city: "Estocolmo", ping_ms: 35, privacy_law: "Tránsito Neutral & Seguro", wireguard_endpoint: "se.privacy.samulibre.net:443" },
-        { id: "PA", name: "Panamá", flag: "🇵🇦", city: "Ciudad de Panamá", ping_ms: 65, privacy_law: "Fuera de 14-Eyes Alliance", wireguard_endpoint: "pa.privacy.samulibre.net:443" },
-        { id: "CA", name: "Canadá", flag: "🇨🇦", city: "Montreal", ping_ms: 48, privacy_law: "Protección Federal PIPEDA", wireguard_endpoint: "ca.privacy.samulibre.net:443" },
-        { id: "CO", name: "Colombia", flag: "🇨🇴", city: "Bogotá", ping_ms: 48, privacy_law: "Ley 1581 / Habeas Data", wireguard_endpoint: "co.privacy.samulibre.net:443" },
-        { id: "BR", name: "Brasil", flag: "🇧🇷", city: "São Paulo", ping_ms: 55, privacy_law: "LGPD / Marco Civil", wireguard_endpoint: "br.privacy.samulibre.net:443" }
+        { id: "CO", name: "Colombia", flag: "🇨🇴", city: "Bogotá", ping_ms: 24, privacy_law: "Ley 1581 / Habeas Data", wireguard_endpoint: "co.privacy.samulibre.net:443" },
+        { id: "PA", name: "Panamá", flag: "🇵🇦", city: "Ciudad de Panamá", ping_ms: 62, privacy_law: "Fuera de 14-Eyes Alliance", wireguard_endpoint: "pa.privacy.samulibre.net:443" },
+        { id: "CA", name: "Canadá", flag: "🇨🇦", city: "Montreal", ping_ms: 110, privacy_law: "Protección Federal PIPEDA", wireguard_endpoint: "ca.privacy.samulibre.net:443" },
+        { id: "BR", name: "Brasil", flag: "🇧🇷", city: "São Paulo", ping_ms: 115, privacy_law: "LGPD / Marco Civil", wireguard_endpoint: "br.privacy.samulibre.net:443" },
+        { id: "NL", name: "Países Bajos", flag: "🇳🇱", city: "Ámsterdam", ping_ms: 172, privacy_law: "Hub GDPR de Alta Velocidad", wireguard_endpoint: "nl.privacy.samulibre.net:443" },
+        { id: "CH", name: "Suiza", flag: "🇨🇭", city: "Zúrich", ping_ms: 185, privacy_law: "Leyes FADP / Cero Retención", wireguard_endpoint: "ch.privacy.samulibre.net:443" },
+        { id: "SE", name: "Suecia", flag: "🇸🇪", city: "Estocolmo", ping_ms: 195, privacy_law: "Tránsito Neutral & Seguro", wireguard_endpoint: "se.privacy.samulibre.net:443" },
+        { id: "IS", name: "Islandia", flag: "🇮🇸", city: "Reikiavik", ping_ms: 215, privacy_law: "Garantía Constitucional", wireguard_endpoint: "is.privacy.samulibre.net:443" }
       ];
 
       list.forEach(c => {
@@ -1412,6 +1492,8 @@
           ? 'glass-card p-4 rounded-2xl border-2 border-amber-500/60 bg-amber-500/10 cursor-pointer transition-all'
           : 'glass-card p-4 rounded-2xl hover:border-white/20 cursor-pointer transition-all';
 
+        const pingVal = c.ping_ms || c.latency_ms || 185;
+
         card.innerHTML = `
           <div class="flex items-center justify-between mb-2">
             <div class="flex items-center gap-2.5">
@@ -1421,8 +1503,8 @@
                 <p class="text-[10px] text-gray-400 font-medium">${c.city}</p>
               </div>
             </div>
-            <span class="text-[10px] font-mono px-2 py-0.5 rounded-full ${(c.ping_ms || c.latency_ms || 28) < 35 ? 'bg-emerald-500/20 text-emerald-300' : 'bg-blue-500/20 text-blue-300'}">
-              ⚡ ${c.ping_ms || c.latency_ms || 28} ms
+            <span id="vpnPingBadge_${c.id}" class="text-[10px] font-mono px-2 py-0.5 rounded-full transition-all duration-300 ${getPingBadgeClass(pingVal)}">
+              ⚡ ${pingVal} ms
             </span>
           </div>
           <div class="text-[10px] text-gray-300 mb-3 flex items-center gap-1">

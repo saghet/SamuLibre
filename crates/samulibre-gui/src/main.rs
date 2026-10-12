@@ -85,6 +85,10 @@ enum CustomUserEvent {
         state: samulibre_vpn::VpnConnectionState,
         countries: Vec<samulibre_vpn::VpnCountryInfo>,
     },
+    VpnLatenciesUpdated {
+        latencies: std::collections::HashMap<String, u32>,
+        tunnel_ping: Option<u32>,
+    },
     UpdateHistoryLoaded {
         entries: Vec<samulibre_scanner::UpdateHistoryEntry>,
     },
@@ -700,6 +704,22 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                         });
                     }
 
+                    "refresh_vpn_pings" => {
+                        log_step("IPC: refresh_vpn_pings recibido");
+                        let proxy_pings = proxy_for_ipc.clone();
+                        let core_pings = Arc::clone(&core_for_ipc);
+                        std::thread::spawn(move || {
+                            if let Ok(c) = core_pings.lock() {
+                                let latencies = c.refresh_vpn_latencies();
+                                let tunnel_ping = c.get_active_vpn_tunnel_latency();
+                                let _ = proxy_pings.send_event(CustomUserEvent::VpnLatenciesUpdated {
+                                    latencies,
+                                    tunnel_ping,
+                                });
+                            }
+                        });
+                    }
+
                     "get_update_history" => {
                         if let Ok(c) = core_for_ipc.lock() {
                             let entries = c.get_signature_update_history();
@@ -818,6 +838,50 @@ fn run_app(app_root: PathBuf) -> Result<()> {
         }
     });
 
+    // Hilo de sondeo periódico de latencias VPN en tiempo real (cada 25 segundos)
+    let proxy_vpn_latencies = proxy.clone();
+    let core_vpn_latencies = Arc::clone(&core);
+    std::thread::spawn(move || {
+        win_eco::set_current_thread_eco_qos();
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(25));
+            if let Ok(c) = core_vpn_latencies.lock() {
+                let latencies = c.refresh_vpn_latencies();
+                let tunnel_ping = c.get_active_vpn_tunnel_latency();
+                let _ = proxy_vpn_latencies.send_event(CustomUserEvent::VpnLatenciesUpdated {
+                    latencies,
+                    tunnel_ping,
+                });
+            }
+        }
+    });
+
+    // Hilo de telemetría de alta frecuencia para el túnel activo (cada 5 segundos si está conectado)
+    let proxy_tunnel_ping = proxy.clone();
+    let core_tunnel_ping = Arc::clone(&core);
+    std::thread::spawn(move || {
+        win_eco::set_current_thread_eco_qos();
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(5));
+            if let Ok(c) = core_tunnel_ping.lock() {
+                let state = c.get_vpn_state();
+                if state.is_connected {
+                    let tunnel_ping = c.get_active_vpn_tunnel_latency();
+                    let mut dummy_map = std::collections::HashMap::new();
+                    if let Some(ref cid) = state.country_id {
+                        if let Some(tp) = tunnel_ping {
+                            dummy_map.insert(cid.clone(), tp);
+                        }
+                    }
+                    let _ = proxy_tunnel_ping.send_event(CustomUserEvent::VpnLatenciesUpdated {
+                        latencies: dummy_map,
+                        tunnel_ping,
+                    });
+                }
+            }
+        }
+    });
+
     let _keep_tray = _tray_icon_handle;
 
     log_step("run_app: Entrando a event_loop.run()...");
@@ -893,6 +957,16 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                 let script = format!(
                     "if (window.onVpnStateUpdated) {{ window.onVpnStateUpdated({}, {}); }}",
                     state_json, countries_json
+                );
+                let _ = webview.evaluate_script(&script);
+            }
+
+            Event::UserEvent(CustomUserEvent::VpnLatenciesUpdated { latencies, tunnel_ping }) => {
+                let latencies_json = serde_json::to_string(&latencies).unwrap_or_else(|_| "{}".to_string());
+                let ping_json = serde_json::to_string(&tunnel_ping).unwrap_or_else(|_| "null".to_string());
+                let script = format!(
+                    "if (window.onVpnLatenciesUpdated) {{ window.onVpnLatenciesUpdated({}, {}); }}",
+                    latencies_json, ping_json
                 );
                 let _ = webview.evaluate_script(&script);
             }
