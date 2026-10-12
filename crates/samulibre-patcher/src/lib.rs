@@ -3,6 +3,8 @@ use chrono::Utc;
 use samulibre_types::{MitigationStrategy, PatchStatus, Severity, VirtualPatchRule};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::fs;
+use std::path::Path;
 use std::process::Command;
 use tracing::info;
 
@@ -23,9 +25,25 @@ pub struct OsVersionInfo {
     pub kernel_release: Option<String>,
 }
 
+/// Estado y métricas del Centinela de CVEs
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SentinelStatusInfo {
+    pub is_active: bool,
+    pub auto_patch_enabled: bool,
+    pub last_audit_time: Option<String>,
+    pub total_cves_audited: usize,
+    pub unmitigated_count: usize,
+    pub active_vpatches_count: usize,
+    pub natively_fixed_count: usize,
+    pub auto_patched_history: Vec<String>,
+}
+
 pub struct VirtualPatcher {
     rules: Vec<VirtualPatchRule>,
     dry_run: bool,
+    pub auto_patch_enabled: bool,
+    pub last_audit_time: Option<String>,
+    pub auto_patched_history: Vec<String>,
 }
 
 impl VirtualPatcher {
@@ -33,6 +51,9 @@ impl VirtualPatcher {
         let mut patcher = Self {
             rules: Vec::new(),
             dry_run,
+            auto_patch_enabled: true,
+            last_audit_time: None,
+            auto_patched_history: Vec::new(),
         };
         patcher.load_default_cve_catalog();
         patcher
@@ -489,6 +510,121 @@ impl VirtualPatcher {
         #[cfg(not(target_os = "windows"))]
         {
             get_linux_os_info()
+        }
+    }
+
+    /// Alterna manualmente el parche virtual de una vulnerabilidad específica (desde la App o CLI)
+    pub fn toggle_patch(&mut self, cve: &str, enable: bool) -> Result<VirtualPatchRule> {
+        let dry_run = self.dry_run;
+        let now = Utc::now();
+        let rule_idx = self.rules.iter().position(|r| r.cve.eq_ignore_ascii_case(cve) || r.id.eq_ignore_ascii_case(cve))
+            .ok_or_else(|| anyhow::anyhow!("No se encontró la regla para el CVE: {}", cve))?;
+
+        if enable {
+            let strategy = self.rules[rule_idx].strategy.clone();
+            info!("Activando parche virtual para {}: {}", self.rules[rule_idx].cve, self.rules[rule_idx].title);
+            enforce_mitigation_helper(dry_run, &strategy)?;
+            let rule = &mut self.rules[rule_idx];
+            rule.status = PatchStatus::VirtualPatchActive;
+            rule.patched_at = Some(now);
+            rule.status_reason = Some("Parche virtual aplicado manualmente y activo desde SamuLibre.".to_string());
+        } else {
+            let strategy = self.rules[rule_idx].strategy.clone();
+            info!("Desactivando parche virtual para {}: {}", self.rules[rule_idx].cve, self.rules[rule_idx].title);
+            revert_mitigation_helper(dry_run, &strategy)?;
+            let installed_kbs = self.get_installed_kbs();
+            let rule = &mut self.rules[rule_idx];
+            rule.unpatched_at = Some(now);
+
+            if rule.required_kb.iter().any(|kb| installed_kbs.contains(&kb.to_uppercase())) {
+                rule.status = PatchStatus::NativePatchInstalled;
+                rule.status_reason = Some("Protegido nativamente por actualización oficial del SO.".to_string());
+            } else {
+                rule.status = PatchStatus::Unmitigated;
+                rule.status_reason = Some("Vulnerabilidad expuesta: parche virtual desactivado por el usuario.".to_string());
+            }
+        }
+
+        Ok(self.rules[rule_idx].clone())
+    }
+
+    /// Ejecuta un ciclo completo de auditoría y aplica parches virtuales automáticamente si la política está activa.
+    /// Retorna (unmitigated, active_vpatches, native_fixed, lista_de_cves_auto_parchados)
+    pub fn run_sentinel_audit_cycle(&mut self) -> (usize, usize, usize, Vec<String>) {
+        let (_unmitigated, _active, native_fixed) = self.scan_and_evaluate(None);
+        let mut auto_patched = Vec::new();
+        let now = Utc::now();
+        self.last_audit_time = Some(now.format("%H:%M:%S UTC").to_string());
+
+        if self.auto_patch_enabled {
+            for rule in &mut self.rules {
+                if rule.status == PatchStatus::Unmitigated {
+                    if rule.severity == Severity::Critical || rule.severity == Severity::High {
+                        info!("Centinela: Auto-parchando vulnerabilidad crítica {}...", rule.cve);
+                        if enforce_mitigation_helper(self.dry_run, &rule.strategy).is_ok() {
+                            rule.status = PatchStatus::VirtualPatchActive;
+                            rule.patched_at = Some(now);
+                            rule.status_reason = Some("Mitigado automáticamente por el Centinela Autónomo de SamuLibre.".to_string());
+                            auto_patched.push(format!("{} - {}", rule.cve, rule.title));
+                            self.auto_patched_history.push(format!("[{}] Auto-mitigado: {}", now.format("%Y-%m-%d %H:%M"), rule.cve));
+                        }
+                    }
+                }
+            }
+        }
+
+        let unmitigated_after = self.rules.iter().filter(|r| r.status == PatchStatus::Unmitigated).count();
+        let active_vpatches = self.rules.iter().filter(|r| r.status == PatchStatus::VirtualPatchActive).count();
+
+        (unmitigated_after, active_vpatches, native_fixed, auto_patched)
+    }
+
+    pub fn set_auto_patch_enabled(&mut self, enabled: bool) {
+        self.auto_patch_enabled = enabled;
+        info!("Centinela: Política de Auto-Parchado configurada a: {}", enabled);
+    }
+
+    pub fn get_sentinel_status(&self) -> SentinelStatusInfo {
+        let unmitigated = self.rules.iter().filter(|r| r.status == PatchStatus::Unmitigated).count();
+        let active_vpatches = self.rules.iter().filter(|r| r.status == PatchStatus::VirtualPatchActive).count();
+        let native_fixed = self.rules.iter().filter(|r| r.status == PatchStatus::NativePatchInstalled || r.status == PatchStatus::NotApplicable).count();
+
+        SentinelStatusInfo {
+            is_active: true,
+            auto_patch_enabled: self.auto_patch_enabled,
+            last_audit_time: self.last_audit_time.clone(),
+            total_cves_audited: self.rules.len(),
+            unmitigated_count: unmitigated,
+            active_vpatches_count: active_vpatches,
+            natively_fixed_count: native_fixed,
+            auto_patched_history: self.auto_patched_history.clone(),
+        }
+    }
+
+    /// Carga reglas dinámicas de CVEs desde archivos JSON en el directorio especificado
+    pub fn load_dynamic_cve_rules(&mut self, rules_dir: impl AsRef<Path>) {
+        let dir = rules_dir.as_ref();
+        if let Ok(entries) = fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) == Some("json") {
+                    if let Ok(content) = fs::read_to_string(&path) {
+                        if let Ok(rule) = serde_json::from_str::<VirtualPatchRule>(&content) {
+                            if !self.rules.iter().any(|r| r.cve == rule.cve) {
+                                info!("Regla dinámica cargada para {}", rule.cve);
+                                self.rules.push(rule);
+                            }
+                        } else if let Ok(rules_vec) = serde_json::from_str::<Vec<VirtualPatchRule>>(&content) {
+                            for rule in rules_vec {
+                                if !self.rules.iter().any(|r| r.cve == rule.cve) {
+                                    info!("Regla dinámica cargada para {}", rule.cve);
+                                    self.rules.push(rule);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

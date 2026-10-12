@@ -104,6 +104,7 @@ enum CustomUserEvent {
     UpdatePatchRules {
         rules: Vec<samulibre_types::VirtualPatchRule>,
         os_info: Option<samulibre_patcher::OsVersionInfo>,
+        sentinel_status: Option<samulibre_patcher::SentinelStatusInfo>,
     },
     VpnStateUpdated {
         state: samulibre_vpn::VpnConnectionState,
@@ -744,7 +745,8 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                         if let Ok(c) = core_for_ipc.lock() {
                             let rules = c.get_patch_rules();
                             let os_info = c.get_os_info();
-                            let _ = proxy_for_ipc.send_event(CustomUserEvent::UpdatePatchRules { rules, os_info });
+                            let sentinel_status = Some(c.get_sentinel_status());
+                            let _ = proxy_for_ipc.send_event(CustomUserEvent::UpdatePatchRules { rules, os_info, sentinel_status });
                         }
                     }
 
@@ -753,8 +755,52 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                             let _ = c.reaudit_vulnerabilities();
                             let rules = c.get_patch_rules();
                             let os_info = c.get_os_info();
-                            let _ = proxy_for_ipc.send_event(CustomUserEvent::UpdatePatchRules { rules, os_info });
+                            let sentinel_status = Some(c.get_sentinel_status());
+                            let _ = proxy_for_ipc.send_event(CustomUserEvent::UpdatePatchRules { rules, os_info, sentinel_status });
                         }
+                    }
+
+                    "toggle_virtual_patch" => {
+                        let payload_str = msg.payload.unwrap_or_default();
+                        let (cve, enable) = if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&payload_str) {
+                            (
+                                parsed["cve"].as_str().unwrap_or("").to_string(),
+                                parsed["enable"].as_bool().unwrap_or(true),
+                            )
+                        } else if let Some((c, e)) = payload_str.split_once('|') {
+                            (c.to_string(), e == "true" || e == "1")
+                        } else {
+                            (payload_str, true)
+                        };
+
+                        log_step(&format!("IPC: toggle_virtual_patch para {} (enable={})", cve, enable));
+                        let core_cloned = Arc::clone(&core_for_ipc);
+                        let proxy_cloned = proxy_for_ipc.clone();
+                        std::thread::spawn(move || {
+                            if let Ok(c) = core_cloned.lock() {
+                                let _ = c.toggle_virtual_patch(&cve, enable);
+                                let rules = c.get_patch_rules();
+                                let os_info = c.get_os_info();
+                                let sentinel_status = Some(c.get_sentinel_status());
+                                let _ = proxy_cloned.send_event(CustomUserEvent::UpdatePatchRules { rules, os_info, sentinel_status });
+                            }
+                        });
+                    }
+
+                    "set_sentinel_auto_patch" => {
+                        let enable = msg.payload.map(|p| p == "true" || p == "1").unwrap_or(true);
+                        log_step(&format!("IPC: set_sentinel_auto_patch: {}", enable));
+                        let core_cloned = Arc::clone(&core_for_ipc);
+                        let proxy_cloned = proxy_for_ipc.clone();
+                        std::thread::spawn(move || {
+                            if let Ok(c) = core_cloned.lock() {
+                                c.set_sentinel_auto_patch(enable);
+                                let rules = c.get_patch_rules();
+                                let os_info = c.get_os_info();
+                                let sentinel_status = Some(c.get_sentinel_status());
+                                let _ = proxy_cloned.send_event(CustomUserEvent::UpdatePatchRules { rules, os_info, sentinel_status });
+                            }
+                        });
                     }
 
                     "simulate_kb" => {
@@ -768,7 +814,8 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                             }
                             let rules = c.get_patch_rules();
                             let os_info = c.get_os_info();
-                            let _ = proxy_for_ipc.send_event(CustomUserEvent::UpdatePatchRules { rules, os_info });
+                            let sentinel_status = Some(c.get_sentinel_status());
+                            let _ = proxy_for_ipc.send_event(CustomUserEvent::UpdatePatchRules { rules, os_info, sentinel_status });
                         }
                     }
 
@@ -942,7 +989,8 @@ fn run_app(app_root: PathBuf) -> Result<()> {
         if let Ok(c) = core_init.lock() {
             let rules = c.get_patch_rules();
             let os_info = c.get_os_info();
-            let _ = proxy_init.send_event(CustomUserEvent::UpdatePatchRules { rules, os_info });
+            let sentinel_status = Some(c.get_sentinel_status());
+            let _ = proxy_init.send_event(CustomUserEvent::UpdatePatchRules { rules, os_info, sentinel_status });
 
             let vpn_state = c.get_vpn_state();
             let vpn_countries = c.get_vpn_countries();
@@ -962,6 +1010,29 @@ fn run_app(app_root: PathBuf) -> Result<()> {
 
             let quarantine = c.get_quarantined_records();
             let _ = proxy_init.send_event(CustomUserEvent::QuarantineListLoaded { records: quarantine });
+        }
+    });
+
+    // Hilo Demonio Centinela de CVEs en segundo plano (EcoQoS - ciclo continuo cada 15 min)
+    let proxy_sentinel = proxy.clone();
+    let core_sentinel = Arc::clone(&core);
+    std::thread::spawn(move || {
+        win_eco::set_current_thread_eco_qos();
+        loop {
+            // Dormir 15 minutos entre ciclos periódicos de auditoría
+            std::thread::sleep(std::time::Duration::from_secs(900));
+            if let Ok(c) = core_sentinel.lock() {
+                let (_unmitigated, _active, _native, auto_patched) = c.run_sentinel_audit_cycle();
+                if !auto_patched.is_empty() {
+                    let title = "🛡️ Centinela SamuLibre: Parche Virtual Aplicado".to_string();
+                    let details = format!("Se mitigaron automáticamente: {}", auto_patched.join(", "));
+                    let _ = proxy_sentinel.send_event(CustomUserEvent::RealTimeAlert { title, details });
+                }
+                let rules = c.get_patch_rules();
+                let os_info = c.get_os_info();
+                let sentinel_status = Some(c.get_sentinel_status());
+                let _ = proxy_sentinel.send_event(CustomUserEvent::UpdatePatchRules { rules, os_info, sentinel_status });
+            }
         }
     });
 
@@ -1081,12 +1152,13 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                 info!("SamuLibre Apple-Style GUI inicializado con éxito.");
             }
 
-            Event::UserEvent(CustomUserEvent::UpdatePatchRules { rules, os_info }) => {
+            Event::UserEvent(CustomUserEvent::UpdatePatchRules { rules, os_info, sentinel_status }) => {
                 let rules_json = serde_json::to_string(&rules).unwrap_or_else(|_| "[]".to_string());
                 let os_json = serde_json::to_string(&os_info).unwrap_or_else(|_| "null".to_string());
+                let sentinel_json = serde_json::to_string(&sentinel_status).unwrap_or_else(|_| "null".to_string());
                 let script = format!(
-                    "if (window.onPatchRulesUpdated) {{ window.onPatchRulesUpdated({}, {}); }}",
-                    rules_json, os_json
+                    "if (window.onPatchRulesUpdated) {{ window.onPatchRulesUpdated({}, {}, {}); }}",
+                    rules_json, os_json, sentinel_json
                 );
                 let _ = webview.evaluate_script(&script);
             }

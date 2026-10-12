@@ -283,17 +283,48 @@
 
       <!-- ================= VISTA 2: PARCHADO VIRTUAL ================= -->
       <div id="view-patcher" class="view-content space-y-5 hidden">
-        <div class="flex items-center justify-between">
+        <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h2 class="text-2xl font-semibold tracking-tight text-white">Parchado Virtual Autónomo</h2>
+            <h2 class="text-2xl font-semibold tracking-tight text-white flex items-center gap-2">
+              Parchado Virtual Autónomo
+              <span id="sentinelLiveBadge" class="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2.5 py-0.5 rounded-full font-mono flex items-center gap-1.5">
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                Centinela Activo
+              </span>
+            </h2>
             <div id="osBuildInfoBanner" class="mt-1 flex items-center gap-2 text-xs text-gray-400">
-              <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-              <span id="osBuildText">Windows 11 25H2 (Compilación 26200.9550) • Kernel &amp; Binarios Protegidos Nativamente</span>
+              <span id="osBuildText">Windows 11 (Cargando datos de compilación y kernel...)</span>
             </div>
           </div>
-          <button onclick="reauditSystemVulnerabilities()" class="px-3.5 py-1.5 bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 border border-emerald-500/30 rounded-xl text-xs font-medium active:scale-95 transition-all flex items-center gap-2">
-            <span>🛡️</span> Reauditar Estado de Seguridad del SO
-          </button>
+          <div class="flex items-center gap-3">
+            <button onclick="reauditSystemVulnerabilities()" class="px-3.5 py-1.5 bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 border border-emerald-500/30 rounded-xl text-xs font-medium active:scale-95 transition-all flex items-center gap-2">
+              <span>🛡️</span> Reauditar Estado de Seguridad del SO
+            </button>
+          </div>
+        </div>
+
+        <!-- Tarjeta de Control y Estado del Centinela Autónomo -->
+        <div class="glass-card p-4 rounded-2xl flex flex-wrap items-center justify-between gap-4 border border-white/10 bg-gradient-to-r from-emerald-950/25 to-transparent">
+          <div class="flex items-center gap-3.5">
+            <div class="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center text-lg shrink-0">
+              🛡️
+            </div>
+            <div>
+              <p class="text-xs font-semibold text-white flex items-center gap-2">
+                Centinela de Vulnerabilidades & Auto-Mitigación en Vivo
+                <span class="text-[9px] bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded-full font-mono">Zero-Downtime</span>
+              </p>
+              <p id="sentinelStatusSubText" class="text-[11px] text-gray-300 mt-0.5">
+                Supervisando el sistema continuamente en segundo plano (EcoQoS). Mitigación autónoma de CVEs críticos.
+              </p>
+            </div>
+          </div>
+          <div class="flex items-center gap-3 shrink-0">
+            <span class="text-[11px] text-gray-400 font-medium">Auto-Mitigar</span>
+            <div id="sentinelAutoPatchSwitch" class="apple-switch active cursor-pointer" onclick="toggleSentinelAutoPatch(this)">
+              <div class="apple-switch-thumb"></div>
+            </div>
+          </div>
         </div>
 
         <!-- Contenedor dinámico de Reglas y Estado de Mitigación -->
@@ -815,11 +846,27 @@
       sendIpc('reaudit_so');
     }
 
-    window.onPatchRulesUpdated = function(rules, osInfo) {
+    window.onPatchRulesUpdated = function(rules, osInfo, sentinelStatus) {
       if (osInfo && osInfo.build_number) {
         const osText = document.getElementById('osBuildText');
         if (osText) {
-          osText.textContent = `Windows 11 ${osInfo.display_version} (Compilación ${osInfo.build_number}.${osInfo.ubr}) • Protegido Nativamente por SO`;
+          osText.textContent = `Windows 11 ${osInfo.display_version} (Compilación ${osInfo.build_number}.${osInfo.ubr}) • Kernel & Binarios Protegidos Nativamente`;
+        }
+      }
+
+      if (sentinelStatus) {
+        const subText = document.getElementById('sentinelStatusSubText');
+        if (subText) {
+          const auditTime = sentinelStatus.last_audit_time ? `Última revisión: ${sentinelStatus.last_audit_time}` : 'Centinela activo 24/7';
+          subText.textContent = `${auditTime} • ${sentinelStatus.total_cves_audited} CVEs auditados • Auto-mitigación: ${sentinelStatus.auto_patch_enabled ? 'Activa (Zero-Downtime)' : 'Modo Manual'}`;
+        }
+        const autoSwitch = document.getElementById('sentinelAutoPatchSwitch');
+        if (autoSwitch) {
+          if (sentinelStatus.auto_patch_enabled) {
+            autoSwitch.className = 'apple-switch active cursor-pointer';
+          } else {
+            autoSwitch.className = 'apple-switch inactive cursor-pointer';
+          }
         }
       }
 
@@ -829,6 +876,7 @@
       container.innerHTML = '';
       let activePatches = 0;
       let nativeFixed = 0;
+      let unmitigatedCount = 0;
 
       rules.forEach(rule => {
         let badgeHtml = '';
@@ -839,7 +887,7 @@
           nativeFixed++;
           badgeHtml = '<span class="text-[10px] bg-emerald-500/20 text-emerald-300 px-2.5 py-0.5 rounded-full font-medium flex items-center gap-1">✔ Corregido Nativamente</span>';
           actionText = '<span class="text-[11px] text-emerald-400 font-medium">Protegido por el SO</span>';
-          switchHtml = `<div class="apple-switch inactive opacity-40 pointer-events-none cursor-default"><div class="apple-switch-thumb"></div></div>`;
+          switchHtml = `<div class="apple-switch inactive cursor-pointer" title="Protegido por el SO. Haga clic para forzar mitigación de red/registro como capa extra" onclick="toggleVirtualPatch('${rule.cve}', true)"><div class="apple-switch-thumb"></div></div>`;
         } else if (rule.status === 'NotApplicable') {
           nativeFixed++;
           badgeHtml = '<span class="text-[10px] bg-blue-500/20 text-blue-300 px-2.5 py-0.5 rounded-full font-medium flex items-center gap-1">🛡️ Inmune (No Aplicable a Win11)</span>';
@@ -848,12 +896,13 @@
         } else if (rule.status === 'VirtualPatchActive') {
           activePatches++;
           badgeHtml = '<span class="text-[10px] bg-amber-500/20 text-amber-300 px-2.5 py-0.5 rounded-full font-medium flex items-center gap-1">🩹 Parche Virtual Activo</span>';
-          actionText = '<span class="text-[11px] text-amber-400 font-medium">Regla activa</span>';
-          switchHtml = `<div class="apple-switch active" onclick="toggleSwitch(this)"><div class="apple-switch-thumb"></div></div>`;
+          actionText = '<span class="text-[11px] text-amber-400 font-medium">Mitigación activa</span>';
+          switchHtml = `<div class="apple-switch active cursor-pointer" title="Haga clic para desactivar parche virtual" onclick="toggleVirtualPatch('${rule.cve}', false)"><div class="apple-switch-thumb"></div></div>`;
         } else {
-          badgeHtml = '<span class="text-[10px] bg-red-500/20 text-red-300 px-2.5 py-0.5 rounded-full font-medium flex items-center gap-1">⚠ Abierta</span>';
-          actionText = '<span class="text-[11px] text-red-400 font-medium">Parche pendiente</span>';
-          switchHtml = `<div class="apple-switch inactive" onclick="toggleSwitch(this)"><div class="apple-switch-thumb"></div></div>`;
+          unmitigatedCount++;
+          badgeHtml = '<span class="text-[10px] bg-red-500/20 text-red-300 px-2.5 py-0.5 rounded-full font-medium flex items-center gap-1 animate-pulse">⚠ Vulnerabilidad Expuesta</span>';
+          actionText = '<span class="text-[11px] text-red-400 font-medium">Parchar en Vivo</span>';
+          switchHtml = `<div class="apple-switch inactive cursor-pointer" title="Haga clic para aplicar parche virtual inmediatamente" onclick="toggleVirtualPatch('${rule.cve}', true)"><div class="apple-switch-thumb"></div></div>`;
         }
 
         const sevScore = rule.severity === 'Critical' ? '9.8' : (rule.severity === 'High' ? '8.8' : '7.8');
@@ -904,6 +953,30 @@
         widgetSub.textContent = activePatches === 0 ? '0 vulnerabilidades abiertas en Windows 11.' : `${activePatches} parches virtuales activos.`;
       }
     };
+
+    function toggleVirtualPatch(cve, enable) {
+      showToast(
+        enable ? 'Aplicando Parche Virtual...' : 'Revirtiendo Parche Virtual...',
+        `Configurando regla en tiempo real para ${cve}...`
+      );
+      sendIpc('toggle_virtual_patch', JSON.stringify({ cve: cve, enable: enable }));
+    }
+
+    function toggleSentinelAutoPatch(elem) {
+      const willEnable = !elem.classList.contains('active');
+      if (willEnable) {
+        elem.classList.remove('inactive');
+        elem.classList.add('active');
+      } else {
+        elem.classList.remove('active');
+        elem.classList.add('inactive');
+      }
+      showToast(
+        'Centinela de CVEs',
+        willEnable ? 'Auto-Mitigación ACTIVADA: el Centinela protegerá vulnerabilidades críticas automáticamente.' : 'Modo MANUAL: las mitigaciones requerirán activación manual.'
+      );
+      sendIpc('set_sentinel_auto_patch', willEnable ? 'true' : 'false');
+    }
 
     window.onShieldStatusUpdated = function(status) {
       if (!status) return;

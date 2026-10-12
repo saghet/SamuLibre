@@ -98,6 +98,20 @@ enum PatcherCommands {
         #[arg(value_name = "KB")]
         kb: String,
     },
+    /// Alterna manualmente la mitigación virtual de un CVE específico
+    Toggle {
+        /// Identificador de la regla o CVE (Ej. CVE-2024-38063)
+        cve: String,
+        /// Desactivar el parche virtual (por omisión lo activa)
+        #[arg(short, long)]
+        disable: bool,
+    },
+    /// Muestra el estado del Centinela de CVEs y ejecuta un ciclo de auto-mitigación
+    Sentinel {
+        /// Activar auto-parchado de vulnerabilidades críticas
+        #[arg(short, long, default_value_t = true)]
+        auto_patch: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -313,6 +327,37 @@ async fn main() -> Result<()> {
                         );
                     } else {
                         println!("El parche {} no correspondía a ninguna regla activa.", kb);
+                    }
+                }
+
+                PatcherCommands::Toggle { cve, disable } => {
+                    let enable = !disable;
+                    let action_str = if enable { "Activando" } else { "Desactivando" };
+                    println!("{} parche virtual para {}...", action_str, cve.bold().cyan());
+                    match patcher.toggle_patch(&cve, enable) {
+                        Ok(rule) => {
+                            println!("{} Regla actualizada: {} -> Estado: {:?}", "✔".green(), rule.title, rule.status);
+                        }
+                        Err(e) => {
+                            eprintln!("{} Error modificando parche: {:?}", "✖".red(), e);
+                        }
+                    }
+                }
+
+                PatcherCommands::Sentinel { auto_patch } => {
+                    println!("\n{}", "─── CENTINELA DE VULNERABILIDADES DEL SO (SAMULIBRE) ───".bold().cyan());
+                    patcher.set_auto_patch_enabled(auto_patch);
+                    println!("  Modo Auto-Mitigación: {}", if auto_patch { "ACTIVADO".green() } else { "MANUAL".yellow() });
+                    println!("  Ejecutando ciclo de auditoría...");
+                    let (unmitigated, active, native, auto_patched) = patcher.run_sentinel_audit_cycle();
+                    println!("  Vulnerabilidades Abiertas: {}", if unmitigated == 0 { "0 (Sistema Protegido)".green() } else { unmitigated.to_string().red() });
+                    println!("  Parches Virtuales Activos: {}", active.to_string().cyan());
+                    println!("  Corregidas Nativamente: {}", native.to_string().green());
+                    if !auto_patched.is_empty() {
+                        println!("\n  {} Parches aplicados automáticamente en este ciclo:", "⚡".yellow());
+                        for p in auto_patched {
+                            println!("    • {}", p);
+                        }
                     }
                 }
             }

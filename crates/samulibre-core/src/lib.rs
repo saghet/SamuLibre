@@ -187,6 +187,51 @@ impl SamuLibreCore {
         }
     }
 
+    pub fn toggle_virtual_patch(&self, cve: &str, enable: bool) -> Result<VirtualPatchRule> {
+        if let Ok(mut patcher) = self.patcher.lock() {
+            patcher.toggle_patch(cve, enable)
+        } else {
+            anyhow::bail!("Error adquiriendo lock de patcher")
+        }
+    }
+
+    pub fn run_sentinel_audit_cycle(&self) -> (usize, usize, usize, Vec<String>) {
+        if let Ok(mut patcher) = self.patcher.lock() {
+            patcher.run_sentinel_audit_cycle()
+        } else {
+            (0, 0, 0, Vec::new())
+        }
+    }
+
+    pub fn set_sentinel_auto_patch(&self, enabled: bool) {
+        if let Ok(mut patcher) = self.patcher.lock() {
+            patcher.set_auto_patch_enabled(enabled);
+        }
+    }
+
+    pub fn get_sentinel_status(&self) -> samulibre_patcher::SentinelStatusInfo {
+        if let Ok(patcher) = self.patcher.lock() {
+            patcher.get_sentinel_status()
+        } else {
+            samulibre_patcher::SentinelStatusInfo {
+                is_active: true,
+                auto_patch_enabled: true,
+                last_audit_time: None,
+                total_cves_audited: 0,
+                unmitigated_count: 0,
+                active_vpatches_count: 0,
+                natively_fixed_count: 0,
+                auto_patched_history: Vec::new(),
+            }
+        }
+    }
+
+    pub fn load_dynamic_cve_rules(&self, rules_dir: impl AsRef<std::path::Path>) {
+        if let Ok(mut patcher) = self.patcher.lock() {
+            patcher.load_dynamic_cve_rules(rules_dir);
+        }
+    }
+
     pub fn get_vpn_countries(&self) -> Vec<samulibre_vpn::VpnCountryInfo> {
         if let Ok(vpn) = self.vpn.lock() {
             vpn.get_available_countries()
