@@ -2261,6 +2261,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "samulibre-ai"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "regex",
+ "samulibre-types",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "samulibre-cli"
 version = "0.2.0"
 dependencies = [
@@ -2285,6 +2299,7 @@ version = "0.2.0"
 dependencies = [
  "anyhow",
  "chrono",
+ "samulibre-ai",
  "samulibre-patcher",
  "samulibre-scanner",
  "samulibre-shield",
@@ -2305,6 +2320,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "image",
+ "samulibre-ai",
  "samulibre-core",
  "samulibre-patcher",
  "samulibre-scanner",
@@ -2330,6 +2346,7 @@ version = "0.2.0"
 dependencies = [
  "anyhow",
  "chrono",
+ "samulibre-ai",
  "samulibre-types",
  "serde",
  "serde_json",

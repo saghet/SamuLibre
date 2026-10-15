@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 samulibre-types = { path = "../samulibre-types" }
+samulibre-ai = { path = "../samulibre-ai" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 chrono = { workspace = true }

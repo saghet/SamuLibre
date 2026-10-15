@@ -1,6 +1,10 @@
 use anyhow::Result;
 use chrono::Utc;
-use samulibre_types::{MitigationStrategy, PatchStatus, Severity, VirtualPatchRule};
+use samulibre_ai::LocalAiAnalyst;
+use samulibre_types::{
+    AiPatchAnalysisResult, KbAdvisory, KbMonitorStatus, MitigationStrategy, PatchStatus, Severity,
+    VirtualPatchRule,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
@@ -44,6 +48,10 @@ pub struct VirtualPatcher {
     pub auto_patch_enabled: bool,
     pub last_audit_time: Option<String>,
     pub auto_patched_history: Vec<String>,
+    pub monitored_kbs: Vec<KbAdvisory>,
+    pub ai_patch_results: Vec<AiPatchAnalysisResult>,
+    pub ai_autopilot_enabled: bool,
+    ai_analyst: LocalAiAnalyst,
 }
 
 impl VirtualPatcher {
@@ -54,8 +62,13 @@ impl VirtualPatcher {
             auto_patch_enabled: true,
             last_audit_time: None,
             auto_patched_history: Vec::new(),
+            monitored_kbs: Vec::new(),
+            ai_patch_results: Vec::new(),
+            ai_autopilot_enabled: true,
+            ai_analyst: LocalAiAnalyst::new(),
         };
         patcher.load_default_cve_catalog();
+        patcher.load_default_kb_advisories();
         patcher
     }
 
@@ -627,6 +640,220 @@ impl VirtualPatcher {
             }
         }
     }
+
+    /// Carga los boletines KB conocidos desde data/kbs/catalog.json y catálogo base embebido
+    pub fn load_default_kb_advisories(&mut self) {
+        let catalog_path = Path::new("data/kbs/catalog.json");
+        if catalog_path.exists() {
+            if let Ok(content) = fs::read_to_string(catalog_path) {
+                if let Ok(advisories) = serde_json::from_str::<Vec<KbAdvisory>>(&content) {
+                    for adv in advisories {
+                        if !self.monitored_kbs.iter().any(|k| k.kb_id.eq_ignore_ascii_case(&adv.kb_id)) {
+                            self.monitored_kbs.push(adv);
+                        }
+                    }
+                }
+            }
+        }
+
+        if self.monitored_kbs.is_empty() {
+            self.monitored_kbs = vec![
+                KbAdvisory {
+                    kb_id: "KB5041585".to_string(),
+                    title: "Windows 11 Cumulative Security Update August 2024".to_string(),
+                    release_date: "2024-08-13".to_string(),
+                    cves: vec!["CVE-2024-38063".to_string()],
+                    summary: "Critical Remote Code Execution vulnerability in Windows TCP/IP IPv6 network stack (tcpip.sys) via malformed IPv6 packets.".to_string(),
+                    affected_products: vec!["Windows 11 Version 23H2".to_string()],
+                    restart_required: true,
+                    support_url: Some("https://support.microsoft.com/kb/5041585".to_string()),
+                },
+                KbAdvisory {
+                    kb_id: "KB5040442".to_string(),
+                    title: "Windows 11 Security Update July 2024 (MadLicence)".to_string(),
+                    release_date: "2024-07-09".to_string(),
+                    cves: vec!["CVE-2024-38077".to_string()],
+                    summary: "Remote Code Execution in Windows Remote Desktop Licensing Service (lserver.exe) with SYSTEM privileges.".to_string(),
+                    affected_products: vec!["Windows 11".to_string()],
+                    restart_required: true,
+                    support_url: Some("https://support.microsoft.com/kb/5040442".to_string()),
+                },
+                KbAdvisory {
+                    kb_id: "KB5004945".to_string(),
+                    title: "Out-of-band security update for Windows Print Spooler (PrintNightmare)".to_string(),
+                    release_date: "2021-07-06".to_string(),
+                    cves: vec!["CVE-2021-34527".to_string()],
+                    summary: "Remote code execution vulnerability in spoolsv.exe allowing attackers to install malicious print drivers via PointAndPrint.".to_string(),
+                    affected_products: vec!["Windows 11".to_string(), "Windows 10".to_string()],
+                    restart_required: true,
+                    support_url: Some("https://support.microsoft.com/kb/5004945".to_string()),
+                },
+                KbAdvisory {
+                    kb_id: "KB5014699".to_string(),
+                    title: "Windows 11 Security Update June 2022 (Follina MSDT)".to_string(),
+                    release_date: "2022-06-14".to_string(),
+                    cves: vec!["CVE-2022-30190".to_string()],
+                    summary: "Microsoft Support Diagnostic Tool (MSDT) RCE vulnerability when invoked via URL protocol handlers from Office documents.".to_string(),
+                    affected_products: vec!["Windows 11 21H2".to_string()],
+                    restart_required: true,
+                    support_url: Some("https://support.microsoft.com/kb/5014699".to_string()),
+                },
+            ];
+        }
+    }
+
+    /// Consulta actualizaciones pendientes a través de la API local de Windows Update Agent (WUA)
+    pub fn fetch_pending_windows_updates(&self) -> HashSet<String> {
+        let mut pending = HashSet::new();
+
+        #[cfg(target_os = "windows")]
+        {
+            let mut cmd = Command::new("powershell");
+            cmd.args([
+                "-NoProfile",
+                "-Command",
+                r#"$searcher = (New-Object -ComObject Microsoft.Update.Session).CreateUpdateSearcher(); $res = $searcher.Search("IsInstalled=0 and Type='Software'"); foreach ($u in $res.Updates) { foreach ($kb in $u.KBArticleIDs) { "KB$kb" } }"#,
+            ]);
+            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+            if let Ok(output) = cmd.output() {
+                if output.status.success() {
+                    let text = String::from_utf8_lossy(&output.stdout);
+                    for line in text.lines() {
+                        let t = line.trim().to_uppercase();
+                        if t.starts_with("KB") && t.len() > 2 {
+                            pending.insert(t);
+                        }
+                    }
+                }
+            }
+        }
+
+        pending
+    }
+
+    /// Analiza un KB con la IA local y sintetiza su parche virtual de mitigación
+    pub fn analyze_kb(&mut self, advisory: &KbAdvisory) -> Result<AiPatchAnalysisResult> {
+        let analysis = self.ai_analyst.analyze_kb(advisory)?;
+
+        // Guardar la regla generada en disco si data/cve_rules existe
+        let rules_dir = Path::new("data/cve_rules");
+        if !rules_dir.exists() {
+            let _ = fs::create_dir_all(rules_dir);
+        }
+        let rule_file = rules_dir.join(format!("dynamic_{}.json", analysis.generated_rule.cve.replace('-', "_")));
+        if let Ok(json_str) = serde_json::to_string_pretty(&analysis.generated_rule) {
+            let _ = fs::write(&rule_file, json_str);
+        }
+
+        // Agregar o actualizar la regla en la lista de reglas activas
+        if let Some(pos) = self.rules.iter().position(|r| r.cve == analysis.generated_rule.cve) {
+            self.rules[pos] = analysis.generated_rule.clone();
+        } else {
+            self.rules.push(analysis.generated_rule.clone());
+        }
+
+        // Registrar en historial de análisis de IA
+        if let Some(pos) = self.ai_patch_results.iter().position(|r| r.kb_id == analysis.kb_id) {
+            self.ai_patch_results[pos] = analysis.clone();
+        } else {
+            self.ai_patch_results.push(analysis.clone());
+        }
+
+        Ok(analysis)
+    }
+
+    /// Analiza texto sin procesar provisto por el usuario desde la UI o CLI
+    pub fn analyze_raw_kb(&mut self, kb_id: &str, title: &str, description: &str) -> Result<AiPatchAnalysisResult> {
+        let advisory = KbAdvisory {
+            kb_id: kb_id.to_string(),
+            title: title.to_string(),
+            release_date: Utc::now().format("%Y-%m-%d").to_string(),
+            cves: vec![],
+            summary: description.to_string(),
+            affected_products: vec!["Windows 11 / 10".to_string()],
+            restart_required: true,
+            support_url: None,
+        };
+        self.analyze_kb(&advisory)
+    }
+
+    /// Ejecuta el ciclo completo de auditoría de KBs asistido por IA:
+    /// 1. Comprueba qué KBs no están instalados
+    /// 2. Analiza con IA los KBs no mitigados
+    /// 3. Si Auto-Pilot IA está activo, aplica los parches virtuales automáticamente
+    /// 4. Si el KB ya se instaló oficialmente, auto-retira el parche virtual
+    pub fn run_ai_kb_audit_cycle(&mut self) -> Vec<AiPatchAnalysisResult> {
+        let installed_kbs = self.get_installed_kbs();
+        let mut results = Vec::new();
+
+        let advisories = self.monitored_kbs.clone();
+        for adv in &advisories {
+            let is_installed = installed_kbs.contains(&adv.kb_id.to_uppercase());
+
+            if !is_installed {
+                let already_analyzed = self.ai_patch_results.iter().any(|r| r.kb_id.eq_ignore_ascii_case(&adv.kb_id));
+                let analysis = if !already_analyzed {
+                    self.analyze_kb(adv).ok()
+                } else {
+                    self.ai_patch_results.iter().find(|r| r.kb_id.eq_ignore_ascii_case(&adv.kb_id)).cloned()
+                };
+
+                if let Some(an) = analysis {
+                    if self.ai_autopilot_enabled && an.safety_verified {
+                        let cve = an.generated_rule.cve.clone();
+                        let current_status = self.rules.iter().find(|r| r.cve == cve).map(|r| r.status.clone());
+                        if current_status == Some(PatchStatus::Unmitigated) {
+                            info!("Auto-Pilot IA: Aplicando parche virtual automático para {}", cve);
+                            let _ = self.toggle_patch(&cve, true);
+                            let log_entry = format!("{}: Auto-parcheado por IA local ({}) ante ausencia de {}", Utc::now().format("%Y-%m-%d %H:%M:%S"), cve, adv.kb_id);
+                            if !self.auto_patched_history.contains(&log_entry) {
+                                self.auto_patched_history.push(log_entry);
+                            }
+                        }
+                    }
+                    results.push(an);
+                }
+            } else {
+                let cves_to_retire: Vec<String> = self.rules.iter()
+                    .filter(|r| r.required_kb.iter().any(|k| k.eq_ignore_ascii_case(&adv.kb_id)) && r.status == PatchStatus::VirtualPatchActive)
+                    .map(|r| r.cve.clone())
+                    .collect();
+
+                for cve in cves_to_retire {
+                    info!("Auto-Retire: {} detectado como instalado nativamente. Retirando parche virtual para {}", adv.kb_id, cve);
+                    let _ = self.toggle_patch(&cve, false);
+                    let log_entry = format!("{}: Parche virtual para {} auto-retirado tras instalación oficial de {}", Utc::now().format("%Y-%m-%d %H:%M:%S"), cve, adv.kb_id);
+                    if !self.auto_patched_history.contains(&log_entry) {
+                        self.auto_patched_history.push(log_entry);
+                    }
+                }
+            }
+        }
+
+        self.last_audit_time = Some(Utc::now().format("%Y-%m-%d %H:%M:%S UTC").to_string());
+        results
+    }
+
+    /// Obtiene el estado consolidado del monitor de KBs y la IA
+    pub fn get_kb_monitor_status(&self) -> KbMonitorStatus {
+        let installed = self.get_installed_kbs();
+        let pending_count = self.monitored_kbs.iter().filter(|k| !installed.contains(&k.kb_id.to_uppercase())).count();
+        let auto_vpatch_count = self.rules.iter().filter(|r| r.status == PatchStatus::VirtualPatchActive && r.id.starts_with("VP-AI")).count();
+
+        KbMonitorStatus {
+            last_check_time: self.last_audit_time.clone(),
+            pending_kbs_count: pending_count,
+            monitored_kbs: self.monitored_kbs.clone(),
+            ai_analyzed_count: self.ai_patch_results.len(),
+            auto_vpatch_count,
+            ai_autopilot_enabled: self.ai_autopilot_enabled,
+        }
+    }
+
+    /// Habilita o deshabilita el parchado autónomo asistido por IA
+    pub fn set_ai_autopilot(&mut self, enabled: bool) {
+        self.ai_autopilot_enabled = enabled;
+    }
 }
 
 /// Consulta de /etc/os-release y kernel en distribuciones Linux (Ubuntu, Red Hat, Garuda, etc.)
@@ -896,6 +1123,19 @@ mod tests {
         for rule in patcher.get_rules() {
             assert_eq!(rule.status, PatchStatus::VirtualPatchActive);
         }
+    }
+
+    #[test]
+    fn test_ai_kb_audit_and_auto_patch() {
+        let mut patcher = VirtualPatcher::new(true);
+        let status_before = patcher.get_kb_monitor_status();
+        assert!(!status_before.monitored_kbs.is_empty());
+
+        let results = patcher.run_ai_kb_audit_cycle();
+        assert!(!results.is_empty());
+
+        let status_after = patcher.get_kb_monitor_status();
+        assert!(status_after.ai_analyzed_count > 0);
     }
 }
 

@@ -1,0 +1,17 @@
+[package]
+name = "samulibre-ai"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Motor de IA local embebido para análisis de boletines KB y síntesis de parches virtuales"
+
+[dependencies]
+samulibre-types = { path = "../samulibre-types" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+regex = { workspace = true }

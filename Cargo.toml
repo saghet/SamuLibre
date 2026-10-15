@@ -9,6 +9,7 @@ members = [
     "crates/samulibre-cli",
     "crates/samulibre-gui",
     "crates/samulibre-watcher",
+    "crates/samulibre-ai",
 ]
 resolver = "2"
 

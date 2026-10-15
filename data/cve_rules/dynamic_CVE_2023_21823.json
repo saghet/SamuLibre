@@ -1,0 +1,24 @@
+{
+  "id": "VP-AI-CVE_2023_21823",
+  "cve": "CVE-2023-21823",
+  "title": "[IA Patch] Windows Security Update February 2023 (SMB & CLFS)",
+  "description": "Mitigación virtual preventiva sintetizada por IA local para KB5022845: Vulnerabilidad en el servicio SMB de Windows. La IA forzó la desactivación de dialectos heredados vulnerables en el registro.",
+  "severity": "High",
+  "target_component": "srv.sys / LanmanServer (SMB)",
+  "required_kb": [
+    "KB5022845"
+  ],
+  "strategy": {
+    "RegistryHardening": {
+      "key_path": "HKLM\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters",
+      "value_name": "SMB1",
+      "safe_value": "0",
+      "revert_value": "1"
+    }
+  },
+  "status": "Unmitigated",
+  "detected_at": "2026-10-15T19:19:33.985779900Z",
+  "patched_at": null,
+  "unpatched_at": null,
+  "status_reason": "Generado por IA local (SamuLibre-CyberGuard-NeuroSymbolic-SLM) con confianza 95.0%"
+}

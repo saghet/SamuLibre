@@ -1,0 +1,24 @@
+{
+  "id": "VP-AI-CVE_2022_30190",
+  "cve": "CVE-2022-30190",
+  "title": "[IA Patch] Windows 11 Security Update June 2022 (Follina MSDT)",
+  "description": "Mitigación virtual preventiva sintetizada por IA local para KB5014699: Vulnerabilidad en el manejador de diagnósticos por URI. La IA deshabilitó consultas remotas mediante directiva de registro segura.",
+  "severity": "Critical",
+  "target_component": "msdt.exe (Microsoft Support Diagnostic Tool)",
+  "required_kb": [
+    "KB5014699"
+  ],
+  "strategy": {
+    "RegistryHardening": {
+      "key_path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\ScriptedDiagnostics",
+      "value_name": "EnableQueryRemoteServer",
+      "safe_value": "0",
+      "revert_value": "1"
+    }
+  },
+  "status": "Unmitigated",
+  "detected_at": "2026-10-15T19:19:33.984254300Z",
+  "patched_at": null,
+  "unpatched_at": null,
+  "status_reason": "Generado por IA local (SamuLibre-CyberGuard-NeuroSymbolic-SLM) con confianza 94.0%"
+}

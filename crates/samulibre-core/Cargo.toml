@@ -12,6 +12,7 @@ samulibre-shield = { path = "../samulibre-shield" }
 samulibre-scanner = { path = "../samulibre-scanner" }
 samulibre-vpn = { path = "../samulibre-vpn" }
 samulibre-watcher = { path = "../samulibre-watcher" }
+samulibre-ai = { path = "../samulibre-ai" }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

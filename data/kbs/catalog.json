@@ -1,0 +1,62 @@
+[
+  {
+    "kb_id": "KB5041585",
+    "title": "Windows 11 Cumulative Security Update August 2024",
+    "release_date": "2024-08-13",
+    "cves": ["CVE-2024-38063"],
+    "summary": "Critical vulnerability in the Windows TCP/IP IPv6 network stack (tcpip.sys) that allows unauthenticated remote code execution via specially crafted IPv6 packets.",
+    "affected_products": ["Windows 11 Version 23H2", "Windows 11 Version 22H2"],
+    "restart_required": true,
+    "support_url": "https://support.microsoft.com/kb/5041585"
+  },
+  {
+    "kb_id": "KB5040442",
+    "title": "Windows 11 Security Update July 2024",
+    "release_date": "2024-07-09",
+    "cves": ["CVE-2024-38077"],
+    "summary": "Remote Code Execution vulnerability in the Windows Remote Desktop Licensing Service (lserver.exe) with SYSTEM privileges without prior authentication.",
+    "affected_products": ["Windows Server 2022", "Windows 11"],
+    "restart_required": true,
+    "support_url": "https://support.microsoft.com/kb/5040442"
+  },
+  {
+    "kb_id": "KB5004945",
+    "title": "Out-of-band security update for Windows Print Spooler (PrintNightmare)",
+    "release_date": "2021-07-06",
+    "cves": ["CVE-2021-34527"],
+    "summary": "Remote code execution vulnerability in spoolsv.exe allowing attackers to install malicious print drivers and gain SYSTEM privileges via PointAndPrint.",
+    "affected_products": ["Windows 10", "Windows 11", "Windows Server"],
+    "restart_required": true,
+    "support_url": "https://support.microsoft.com/kb/5004945"
+  },
+  {
+    "kb_id": "KB5014699",
+    "title": "Windows 11 Security Update June 2022 (Follina MSDT)",
+    "release_date": "2022-06-14",
+    "cves": ["CVE-2022-30190"],
+    "summary": "Microsoft Windows Support Diagnostic Tool (MSDT) Remote Code Execution vulnerability when called using URI protocol handlers from malicious Office documents.",
+    "affected_products": ["Windows 11 Version 21H2", "Windows 10"],
+    "restart_required": true,
+    "support_url": "https://support.microsoft.com/kb/5014699"
+  },
+  {
+    "kb_id": "KB5005010",
+    "title": "Windows 10 & 11 Security Update August 2021 (Netlogon & Spooler)",
+    "release_date": "2021-08-10",
+    "cves": ["CVE-2021-36958"],
+    "summary": "Elevation of privilege vulnerability in Windows Print Spooler service and Netlogon RPC client encryption validation.",
+    "affected_products": ["Windows 11", "Windows 10"],
+    "restart_required": true,
+    "support_url": "https://support.microsoft.com/kb/5005010"
+  },
+  {
+    "kb_id": "KB5022845",
+    "title": "Windows Security Update February 2023 (SMB & CLFS)",
+    "release_date": "2023-02-14",
+    "cves": ["CVE-2023-21823"],
+    "summary": "Windows Graphics Component and Common Log File System (CLFS) Driver Elevation of Privilege vulnerability exploited in the wild.",
+    "affected_products": ["Windows 11", "Windows 10"],
+    "restart_required": true,
+    "support_url": "https://support.microsoft.com/kb/5022845"
+  }
+]

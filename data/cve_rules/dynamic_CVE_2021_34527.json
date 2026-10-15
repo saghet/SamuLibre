@@ -1,0 +1,24 @@
+{
+  "id": "VP-AI-CVE_2021_34527",
+  "cve": "CVE-2021-34527",
+  "title": "[IA Patch] Out-of-band security update for Windows Print Spooler (PrintNightmare)",
+  "description": "Mitigación virtual preventiva sintetizada por IA local para KB5004945: Se detectó vulnerabilidad en el servicio Spooler. La IA aplicó política de registro restringiendo la instalación de controladores solo a Administradores.",
+  "severity": "Critical",
+  "target_component": "spoolsv.exe (Print Spooler)",
+  "required_kb": [
+    "KB5004945"
+  ],
+  "strategy": {
+    "RegistryHardening": {
+      "key_path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint",
+      "value_name": "RestrictDriverInstallationToAdministrators",
+      "safe_value": "1",
+      "revert_value": "0"
+    }
+  },
+  "status": "Unmitigated",
+  "detected_at": "2026-10-15T19:19:33.983577900Z",
+  "patched_at": null,
+  "unpatched_at": null,
+  "status_reason": "Generado por IA local (SamuLibre-CyberGuard-NeuroSymbolic-SLM) con confianza 95.0%"
+}

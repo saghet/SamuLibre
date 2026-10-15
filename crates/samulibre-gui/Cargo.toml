@@ -17,6 +17,7 @@ samulibre-shield = { path = "../samulibre-shield" }
 samulibre-scanner = { path = "../samulibre-scanner" }
 samulibre-vpn = { path = "../samulibre-vpn" }
 samulibre-watcher = { path = "../samulibre-watcher" }
+samulibre-ai = { path = "../samulibre-ai" }
 walkdir = "2.5"
 wry = "0.57"
 tao = "0.37"

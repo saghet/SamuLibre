@@ -105,6 +105,10 @@ enum CustomUserEvent {
         rules: Vec<samulibre_types::VirtualPatchRule>,
         os_info: Option<samulibre_patcher::OsVersionInfo>,
         sentinel_status: Option<samulibre_patcher::SentinelStatusInfo>,
+        kb_monitor_status: Option<samulibre_types::KbMonitorStatus>,
+    },
+    KbAnalysisResultLoaded {
+        result: samulibre_types::AiPatchAnalysisResult,
     },
     VpnStateUpdated {
         state: samulibre_vpn::VpnConnectionState,
@@ -746,7 +750,8 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                             let rules = c.get_patch_rules();
                             let os_info = c.get_os_info();
                             let sentinel_status = Some(c.get_sentinel_status());
-                            let _ = proxy_for_ipc.send_event(CustomUserEvent::UpdatePatchRules { rules, os_info, sentinel_status });
+                            let kb_monitor_status = Some(c.get_kb_monitor_status());
+                            let _ = proxy_for_ipc.send_event(CustomUserEvent::UpdatePatchRules { rules, os_info, sentinel_status, kb_monitor_status });
                         }
                     }
 
@@ -756,7 +761,8 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                             let rules = c.get_patch_rules();
                             let os_info = c.get_os_info();
                             let sentinel_status = Some(c.get_sentinel_status());
-                            let _ = proxy_for_ipc.send_event(CustomUserEvent::UpdatePatchRules { rules, os_info, sentinel_status });
+                            let kb_monitor_status = Some(c.get_kb_monitor_status());
+                            let _ = proxy_for_ipc.send_event(CustomUserEvent::UpdatePatchRules { rules, os_info, sentinel_status, kb_monitor_status });
                         }
                     }
 
@@ -782,7 +788,8 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                                 let rules = c.get_patch_rules();
                                 let os_info = c.get_os_info();
                                 let sentinel_status = Some(c.get_sentinel_status());
-                                let _ = proxy_cloned.send_event(CustomUserEvent::UpdatePatchRules { rules, os_info, sentinel_status });
+                                let kb_monitor_status = Some(c.get_kb_monitor_status());
+                                let _ = proxy_cloned.send_event(CustomUserEvent::UpdatePatchRules { rules, os_info, sentinel_status, kb_monitor_status });
                             }
                         });
                     }
@@ -798,7 +805,8 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                                 let rules = c.get_patch_rules();
                                 let os_info = c.get_os_info();
                                 let sentinel_status = Some(c.get_sentinel_status());
-                                let _ = proxy_cloned.send_event(CustomUserEvent::UpdatePatchRules { rules, os_info, sentinel_status });
+                                let kb_monitor_status = Some(c.get_kb_monitor_status());
+                                let _ = proxy_cloned.send_event(CustomUserEvent::UpdatePatchRules { rules, os_info, sentinel_status, kb_monitor_status });
                             }
                         });
                     }
@@ -815,8 +823,81 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                             let rules = c.get_patch_rules();
                             let os_info = c.get_os_info();
                             let sentinel_status = Some(c.get_sentinel_status());
-                            let _ = proxy_for_ipc.send_event(CustomUserEvent::UpdatePatchRules { rules, os_info, sentinel_status });
+                            let kb_monitor_status = Some(c.get_kb_monitor_status());
+                            let _ = proxy_for_ipc.send_event(CustomUserEvent::UpdatePatchRules { rules, os_info, sentinel_status, kb_monitor_status });
                         }
+                    }
+
+                    "get_kb_monitor_status" => {
+                        if let Ok(c) = core_for_ipc.lock() {
+                            let rules = c.get_patch_rules();
+                            let os_info = c.get_os_info();
+                            let sentinel_status = Some(c.get_sentinel_status());
+                            let kb_monitor_status = Some(c.get_kb_monitor_status());
+                            let _ = proxy_for_ipc.send_event(CustomUserEvent::UpdatePatchRules { rules, os_info, sentinel_status, kb_monitor_status });
+                        }
+                    }
+
+                    "run_ai_kb_audit" => {
+                        let core_cloned = Arc::clone(&core_for_ipc);
+                        let proxy_cloned = proxy_for_ipc.clone();
+                        std::thread::spawn(move || {
+                            if let Ok(c) = core_cloned.lock() {
+                                let results = c.run_ai_kb_audit_cycle();
+                                let rules = c.get_patch_rules();
+                                let os_info = c.get_os_info();
+                                let sentinel_status = Some(c.get_sentinel_status());
+                                let kb_monitor_status = Some(c.get_kb_monitor_status());
+                                let _ = proxy_cloned.send_event(CustomUserEvent::UpdatePatchRules { rules, os_info, sentinel_status, kb_monitor_status });
+                                if let Some(first) = results.first() {
+                                    let _ = proxy_cloned.send_event(CustomUserEvent::KbAnalysisResultLoaded { result: first.clone() });
+                                }
+                            }
+                        });
+                    }
+
+                    "analyze_raw_kb" => {
+                        let payload_str = msg.payload.unwrap_or_default();
+                        let core_cloned = Arc::clone(&core_for_ipc);
+                        let proxy_cloned = proxy_for_ipc.clone();
+                        std::thread::spawn(move || {
+                            #[derive(serde::Deserialize)]
+                            struct RawKbReq {
+                                kb_id: String,
+                                title: Option<String>,
+                                description: Option<String>,
+                            }
+                            if let Ok(req) = serde_json::from_str::<RawKbReq>(&payload_str) {
+                                if let Ok(c) = core_cloned.lock() {
+                                    let title = req.title.unwrap_or_else(|| format!("Actualización {}", req.kb_id));
+                                    let desc = req.description.unwrap_or_else(|| "Análisis técnico de seguridad solicitado".to_string());
+                                    if let Ok(res) = c.analyze_raw_kb(&req.kb_id, &title, &desc) {
+                                        let _ = proxy_cloned.send_event(CustomUserEvent::KbAnalysisResultLoaded { result: res });
+                                        let rules = c.get_patch_rules();
+                                        let os_info = c.get_os_info();
+                                        let sentinel_status = Some(c.get_sentinel_status());
+                                        let kb_monitor_status = Some(c.get_kb_monitor_status());
+                                        let _ = proxy_cloned.send_event(CustomUserEvent::UpdatePatchRules { rules, os_info, sentinel_status, kb_monitor_status });
+                                    }
+                                }
+                            }
+                        });
+                    }
+
+                    "set_ai_autopilot" => {
+                        let enable = msg.payload.map(|p| p == "true" || p == "1").unwrap_or(true);
+                        let core_cloned = Arc::clone(&core_for_ipc);
+                        let proxy_cloned = proxy_for_ipc.clone();
+                        std::thread::spawn(move || {
+                            if let Ok(c) = core_cloned.lock() {
+                                c.set_ai_autopilot(enable);
+                                let rules = c.get_patch_rules();
+                                let os_info = c.get_os_info();
+                                let sentinel_status = Some(c.get_sentinel_status());
+                                let kb_monitor_status = Some(c.get_kb_monitor_status());
+                                let _ = proxy_cloned.send_event(CustomUserEvent::UpdatePatchRules { rules, os_info, sentinel_status, kb_monitor_status });
+                            }
+                        });
                     }
 
                     "deploy_canaries" => {
@@ -990,7 +1071,8 @@ fn run_app(app_root: PathBuf) -> Result<()> {
             let rules = c.get_patch_rules();
             let os_info = c.get_os_info();
             let sentinel_status = Some(c.get_sentinel_status());
-            let _ = proxy_init.send_event(CustomUserEvent::UpdatePatchRules { rules, os_info, sentinel_status });
+            let kb_monitor_status = Some(c.get_kb_monitor_status());
+            let _ = proxy_init.send_event(CustomUserEvent::UpdatePatchRules { rules, os_info, sentinel_status, kb_monitor_status });
 
             let vpn_state = c.get_vpn_state();
             let vpn_countries = c.get_vpn_countries();
@@ -1023,6 +1105,7 @@ fn run_app(app_root: PathBuf) -> Result<()> {
             std::thread::sleep(std::time::Duration::from_secs(900));
             if let Ok(c) = core_sentinel.lock() {
                 let (_unmitigated, _active, _native, auto_patched) = c.run_sentinel_audit_cycle();
+                let _ai_results = c.run_ai_kb_audit_cycle();
                 if !auto_patched.is_empty() {
                     let title = "🛡️ Centinela SamuLibre: Parche Virtual Aplicado".to_string();
                     let details = format!("Se mitigaron automáticamente: {}", auto_patched.join(", "));
@@ -1031,7 +1114,8 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                 let rules = c.get_patch_rules();
                 let os_info = c.get_os_info();
                 let sentinel_status = Some(c.get_sentinel_status());
-                let _ = proxy_sentinel.send_event(CustomUserEvent::UpdatePatchRules { rules, os_info, sentinel_status });
+                let kb_monitor_status = Some(c.get_kb_monitor_status());
+                let _ = proxy_sentinel.send_event(CustomUserEvent::UpdatePatchRules { rules, os_info, sentinel_status, kb_monitor_status });
             }
         }
     });
@@ -1152,13 +1236,23 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                 info!("SamuLibre Apple-Style GUI inicializado con éxito.");
             }
 
-            Event::UserEvent(CustomUserEvent::UpdatePatchRules { rules, os_info, sentinel_status }) => {
+            Event::UserEvent(CustomUserEvent::UpdatePatchRules { rules, os_info, sentinel_status, kb_monitor_status }) => {
                 let rules_json = serde_json::to_string(&rules).unwrap_or_else(|_| "[]".to_string());
                 let os_json = serde_json::to_string(&os_info).unwrap_or_else(|_| "null".to_string());
                 let sentinel_json = serde_json::to_string(&sentinel_status).unwrap_or_else(|_| "null".to_string());
+                let kb_json = serde_json::to_string(&kb_monitor_status).unwrap_or_else(|_| "null".to_string());
                 let script = format!(
-                    "if (window.onPatchRulesUpdated) {{ window.onPatchRulesUpdated({}, {}, {}); }}",
-                    rules_json, os_json, sentinel_json
+                    "if (window.onPatchRulesUpdated) {{ window.onPatchRulesUpdated({}, {}, {}, {}); }}",
+                    rules_json, os_json, sentinel_json, kb_json
+                );
+                let _ = webview.evaluate_script(&script);
+            }
+
+            Event::UserEvent(CustomUserEvent::KbAnalysisResultLoaded { result }) => {
+                let res_json = serde_json::to_string(&result).unwrap_or_else(|_| "null".to_string());
+                let script = format!(
+                    "if (window.onKbAnalysisResult) {{ window.onKbAnalysisResult({}); }}",
+                    res_json
                 );
                 let _ = webview.evaluate_script(&script);
             }

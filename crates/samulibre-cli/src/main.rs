@@ -112,6 +112,25 @@ enum PatcherCommands {
         #[arg(short, long, default_value_t = true)]
         auto_patch: bool,
     },
+    /// Escanea las actualizaciones pendientes de Windows (WUA) y el catálogo de KBs
+    KbScan,
+    /// Analiza un boletín de seguridad o KB específico con el motor de IA local
+    AiAnalyze {
+        /// Identificador del KB (Ej. KB5041585, KB5004945)
+        kb: String,
+        /// Título o resumen descriptivo opcional
+        #[arg(short, long)]
+        title: Option<String>,
+        /// Descripción técnica o vector del boletín
+        #[arg(short, long)]
+        desc: Option<String>,
+    },
+    /// Ejecuta el ciclo de auditoría de KBs con IA local y auto-parchado preventivo
+    AiAudit {
+        /// Habilitar auto-parchado inmediato de KBs no instalados
+        #[arg(short, long, default_value_t = true)]
+        auto_patch: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -358,6 +377,68 @@ async fn main() -> Result<()> {
                         for p in auto_patched {
                             println!("    • {}", p);
                         }
+                    }
+                }
+
+                PatcherCommands::KbScan => {
+                    println!("\n{}", "─── MONITOR DE ACTUALIZACIONES KB (WINDOWS UPDATE / MSRC) ───".bold().cyan());
+                    let status = patcher.get_kb_monitor_status();
+                    println!("  KBs en Catálogo Monitoreado: {}", status.monitored_kbs.len().to_string().cyan());
+                    println!("  KBs Pendientes de Instalación: {}", if status.pending_kbs_count == 0 { "0 (SO al día)".green() } else { status.pending_kbs_count.to_string().yellow() });
+                    println!("  Análisis de IA Realizados: {}", status.ai_analyzed_count.to_string().cyan());
+                    println!("  Parches IA Activos: {}", status.auto_vpatch_count.to_string().green());
+                    println!("  Auto-Pilot IA: {}", if status.ai_autopilot_enabled { "ACTIVADO".green() } else { "DESACTIVADO".yellow() });
+
+                    println!("\n  {} Boletines y KBs Monitoreados:", "📋".cyan());
+                    let installed = patcher.get_installed_kbs();
+                    for kb in &status.monitored_kbs {
+                        let is_inst = installed.contains(&kb.kb_id.to_uppercase());
+                        let badge = if is_inst { "[INSTALADO]".green() } else { "[PENDIENTE - REQUIERE VIRTUAL PATCH]".red() };
+                        println!("    • {} {} - {}", kb.kb_id.bold().yellow(), badge, kb.title);
+                        println!("      CVEs: {:?} | Afecta: {:?}", kb.cves, kb.affected_products);
+                    }
+                }
+
+                PatcherCommands::AiAnalyze { kb, title, desc } => {
+                    println!("\n{}", "─── ANALIZADOR DE KBs CON IA LOCAL (SAMULIBRE-AI) ───".bold().cyan());
+                    let analysis_result = if let Some(adv) = patcher.monitored_kbs.iter().find(|k| k.kb_id.eq_ignore_ascii_case(&kb)).cloned() {
+                        patcher.analyze_kb(&adv)
+                    } else {
+                        let t = title.unwrap_or_else(|| format!("Actualización de Seguridad {}", kb));
+                        let d = desc.unwrap_or_else(|| format!("Análisis de seguridad solicitado por el usuario para {}", kb));
+                        patcher.analyze_raw_kb(&kb, &t, &d)
+                    };
+
+                    match analysis_result {
+                        Ok(res) => {
+                            println!("  {} Análisis completado con éxito", "✔".green());
+                            println!("  KB ID: {}", res.kb_id.bold().yellow());
+                            println!("  CVE Identificado: {}", res.cve.bold().red());
+                            println!("  Componente Afectado: {}", res.affected_component.bold());
+                            println!("  Vector de Ataque: {}", res.attack_vector);
+                            println!("  Confianza de la IA: {:.1}%", res.confidence_score * 100.0);
+                            println!("  Guardrails de Seguridad en Rust: {}", if res.safety_verified { "APROBADO (Seguro para el SO)".green() } else { "RECHAZADO".red() });
+                            println!("\n  {} Explicación del Parche Virtual:", "🤖".cyan());
+                            println!("    {}", res.reasoning);
+                            println!("\n  {} Estrategia Sintetizada:", "🛡".cyan());
+                            println!("    {:?}", res.recommended_mitigation);
+                            println!("\n  Regla persistida en disco en data/cve_rules/dynamic_{}.json", res.cve.replace('-', "_"));
+                        }
+                        Err(e) => {
+                            eprintln!("{} Error en el análisis de IA: {:?}", "✖".red(), e);
+                        }
+                    }
+                }
+
+                PatcherCommands::AiAudit { auto_patch } => {
+                    println!("\n{}", "─── CICLO DE AUDITORÍA Y PARCHADO AUTÓNOMO CON IA ───".bold().cyan());
+                    patcher.set_ai_autopilot(auto_patch);
+                    println!("  Modo Auto-Pilot IA: {}", if auto_patch { "ACTIVADO (Parchado Automático)".green() } else { "SOLO ANÁLISIS".yellow() });
+                    println!("  Ejecutando auditoría de KBs pendientes...");
+                    let results = patcher.run_ai_kb_audit_cycle();
+                    println!("  {} KBs analizados/auditados con IA: {}", "✔".green(), results.len());
+                    for r in &results {
+                        println!("    • {} ({}) -> Componente: {} [Confianza: {:.0}%]", r.kb_id.bold().yellow(), r.cve.bold().red(), r.affected_component, r.confidence_score * 100.0);
                     }
                 }
             }

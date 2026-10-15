@@ -232,6 +232,51 @@ impl SamuLibreCore {
         }
     }
 
+    pub fn get_kb_monitor_status(&self) -> samulibre_types::KbMonitorStatus {
+        if let Ok(patcher) = self.patcher.lock() {
+            patcher.get_kb_monitor_status()
+        } else {
+            samulibre_types::KbMonitorStatus {
+                last_check_time: None,
+                pending_kbs_count: 0,
+                monitored_kbs: Vec::new(),
+                ai_analyzed_count: 0,
+                auto_vpatch_count: 0,
+                ai_autopilot_enabled: true,
+            }
+        }
+    }
+
+    pub fn run_ai_kb_audit_cycle(&self) -> Vec<samulibre_types::AiPatchAnalysisResult> {
+        if let Ok(mut patcher) = self.patcher.lock() {
+            patcher.run_ai_kb_audit_cycle()
+        } else {
+            Vec::new()
+        }
+    }
+
+    pub fn analyze_kb_advisory(&self, advisory: &samulibre_types::KbAdvisory) -> Result<samulibre_types::AiPatchAnalysisResult> {
+        if let Ok(mut patcher) = self.patcher.lock() {
+            patcher.analyze_kb(advisory)
+        } else {
+            anyhow::bail!("Error adquiriendo lock de patcher")
+        }
+    }
+
+    pub fn analyze_raw_kb(&self, kb_id: &str, title: &str, description: &str) -> Result<samulibre_types::AiPatchAnalysisResult> {
+        if let Ok(mut patcher) = self.patcher.lock() {
+            patcher.analyze_raw_kb(kb_id, title, description)
+        } else {
+            anyhow::bail!("Error adquiriendo lock de patcher")
+        }
+    }
+
+    pub fn set_ai_autopilot(&self, enabled: bool) {
+        if let Ok(mut patcher) = self.patcher.lock() {
+            patcher.set_ai_autopilot(enabled);
+        }
+    }
+
     pub fn get_vpn_countries(&self) -> Vec<samulibre_vpn::VpnCountryInfo> {
         if let Ok(vpn) = self.vpn.lock() {
             vpn.get_available_countries()

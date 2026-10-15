@@ -161,3 +161,43 @@ pub struct SuiteStatus {
     pub canaries_deployed_count: usize,
     pub last_scan_timestamp: Option<DateTime<Utc>>,
 }
+
+/// Información de un boletín o actualización KB de Microsoft Windows
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KbAdvisory {
+    pub kb_id: String,
+    pub title: String,
+    pub release_date: String,
+    pub cves: Vec<String>,
+    pub summary: String,
+    pub affected_products: Vec<String>,
+    pub restart_required: bool,
+    pub support_url: Option<String>,
+}
+
+/// Resultado de análisis generado por la IA local para un KB
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiPatchAnalysisResult {
+    pub kb_id: String,
+    pub cve: String,
+    pub attack_vector: String,
+    pub affected_component: String,
+    pub risk_assessment: String,
+    pub recommended_mitigation: MitigationStrategy,
+    pub reasoning: String,
+    pub confidence_score: f32,
+    pub safety_verified: bool,
+    pub generated_rule: VirtualPatchRule,
+}
+
+/// Estado del monitor de KBs y orquestador de IA local
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KbMonitorStatus {
+    pub last_check_time: Option<String>,
+    pub pending_kbs_count: usize,
+    pub monitored_kbs: Vec<KbAdvisory>,
+    pub ai_analyzed_count: usize,
+    pub auto_vpatch_count: usize,
+    pub ai_autopilot_enabled: bool,
+}
+

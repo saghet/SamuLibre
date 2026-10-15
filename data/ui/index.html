@@ -324,6 +324,116 @@
             <div id="sentinelAutoPatchSwitch" class="apple-switch active cursor-pointer" onclick="toggleSentinelAutoPatch(this)">
               <div class="apple-switch-thumb"></div>
             </div>
+        </div>
+
+        <!-- Tarjeta de Monitoreo de KBs y Analizador con IA Local -->
+        <div class="glass-card p-5 rounded-2xl border border-purple-500/20 bg-gradient-to-br from-purple-950/20 via-slate-900/40 to-emerald-950/20 space-y-4">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-xl bg-purple-500/15 border border-purple-500/30 text-purple-300 flex items-center justify-center text-xl shrink-0 shadow-sm">
+                🧠
+              </div>
+              <div>
+                <div class="flex items-center gap-2">
+                  <h3 class="text-sm font-semibold text-white">Centinela de KBs con IA Local</h3>
+                  <span class="text-[9px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-2 py-0.5 rounded-full font-mono">100% Offline / Privado</span>
+                  <span id="aiGuardrailBadge" class="text-[9px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full font-mono">Guardrails Rust ✔</span>
+                </div>
+                <p class="text-[11px] text-gray-300 mt-0.5">
+                  Vigila nuevos boletines de Windows, analiza los binarios afectados y genera parches virtuales con IA local en la máquina.
+                </p>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-3 shrink-0">
+              <div class="flex items-center gap-2">
+                <span class="text-[11px] text-gray-300 font-medium">Auto-Pilot IA</span>
+                <div id="aiAutopilotSwitch" class="apple-switch active cursor-pointer" onclick="toggleAiAutopilot(this)" title="Aplica automáticamente parches virtuales generados por la IA al detectar KBs faltantes">
+                  <div class="apple-switch-thumb"></div>
+                </div>
+              </div>
+              <button onclick="runAiKbAudit()" class="px-3 py-1.5 bg-purple-600/30 hover:bg-purple-600/40 text-purple-200 border border-purple-500/40 rounded-xl text-xs font-medium active:scale-95 transition-all flex items-center gap-1.5 shadow-sm">
+                <span>⚡</span> Auditar KBs con IA
+              </button>
+              <button onclick="toggleManualKbModal()" class="px-3 py-1.5 bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10 rounded-xl text-xs font-medium active:scale-95 transition-all flex items-center gap-1.5">
+                <span>📝</span> Analizar KB Manual
+              </button>
+            </div>
+          </div>
+
+          <!-- Métricas del Monitor de KBs -->
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
+            <div class="bg-black/25 border border-white/5 rounded-xl p-3 flex flex-col">
+              <span class="text-[10px] text-gray-400 uppercase tracking-wider">KBs en Catálogo</span>
+              <span id="kbMonitoredCount" class="text-lg font-bold text-white font-mono mt-0.5">6</span>
+            </div>
+            <div class="bg-black/25 border border-white/5 rounded-xl p-3 flex flex-col">
+              <span class="text-[10px] text-gray-400 uppercase tracking-wider">Pendientes en SO</span>
+              <span id="kbPendingCount" class="text-lg font-bold text-amber-400 font-mono mt-0.5">--</span>
+            </div>
+            <div class="bg-black/25 border border-white/5 rounded-xl p-3 flex flex-col">
+              <span class="text-[10px] text-gray-400 uppercase tracking-wider">Análisis IA Realizados</span>
+              <span id="kbAiAnalyzedCount" class="text-lg font-bold text-purple-300 font-mono mt-0.5">0</span>
+            </div>
+            <div class="bg-black/25 border border-white/5 rounded-xl p-3 flex flex-col">
+              <span class="text-[10px] text-gray-400 uppercase tracking-wider">Parches IA Activos</span>
+              <span id="kbAiVpatchCount" class="text-lg font-bold text-emerald-400 font-mono mt-0.5">0</span>
+            </div>
+          </div>
+
+          <!-- Panel de Último Análisis de la IA (Oculto inicialmente) -->
+          <div id="aiAnalysisCard" class="hidden bg-slate-900/70 border border-purple-500/30 rounded-xl p-4 space-y-2.5 transition-all">
+            <div class="flex items-center justify-between border-b border-white/10 pb-2">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="text-xs font-bold text-purple-300 font-mono" id="aiCardKbId">KB5041585</span>
+                <span class="text-[10px] bg-red-500/20 text-red-300 px-2 py-0.5 rounded-full font-mono font-medium" id="aiCardCve">CVE-2024-38063</span>
+                <span class="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-mono font-medium" id="aiCardConfidence">Confianza: 96%</span>
+              </div>
+              <span class="text-[10px] text-emerald-400 font-mono" id="aiCardGuardrail">✔ Guardrail Verificado</span>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+              <div><span class="text-gray-400">Componente:</span> <span class="text-white font-medium" id="aiCardComponent">tcpip.sys (IPv6)</span></div>
+              <div><span class="text-gray-400">Vector de ataque:</span> <span class="text-amber-300 font-medium" id="aiCardVector">Remote Code Execution</span></div>
+            </div>
+            <div class="text-[11px] text-gray-300 bg-black/30 p-2.5 rounded-lg border border-white/5">
+              <span class="text-purple-400 font-semibold">Explicación del Razonamiento IA:</span>
+              <p id="aiCardReasoning" class="mt-1 leading-relaxed">...</p>
+            </div>
+            <div class="flex items-center justify-between text-xs pt-1">
+              <span class="text-gray-400 font-mono text-[10px]" id="aiCardMitigation">Estrategia: NetworkFirewall</span>
+              <button id="aiCardActionBtn" class="px-3 py-1 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 rounded-lg text-xs font-medium transition-all">
+                Aplicar Mitigación
+              </button>
+            </div>
+          </div>
+
+          <!-- Formulario Plegable para Analizar KB Manualmente -->
+          <div id="manualKbForm" class="hidden bg-black/40 border border-white/10 rounded-xl p-4 space-y-3">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold text-white">Laboratorio de Análisis de Boletín con IA Local</span>
+              <button onclick="toggleManualKbModal()" class="text-gray-400 hover:text-white text-xs">✕ Cerrar</button>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <input id="inputManualKbId" type="text" placeholder="Ej: KB5041585 o CVE-2024-38063" class="bg-slate-900 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-purple-500" />
+              <input id="inputManualKbTitle" type="text" placeholder="Título (Opcional)" class="sm:col-span-2 bg-slate-900 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-purple-500" />
+            </div>
+            <textarea id="inputManualKbDesc" rows="2" placeholder="Pegue aquí el resumen del boletín, componentes afectados (ej. tcpip.sys, spoolsv.exe, lserver.exe) o descripción del fallo..." class="w-full bg-slate-900 border border-white/10 rounded-lg p-2.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-purple-500"></textarea>
+            <div class="flex justify-end gap-2">
+              <button onclick="submitManualKbAnalysis()" class="px-4 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-medium active:scale-95 transition-all flex items-center gap-1.5 shadow">
+                <span>🧠</span> Iniciar Análisis de IA Local
+              </button>
+            </div>
+          </div>
+
+          <!-- Lista de KBs Monitoreados con su Estado -->
+          <div class="space-y-1.5 pt-1">
+            <div class="flex items-center justify-between text-[11px] text-gray-400 px-1 font-medium">
+              <span>Boletines de Seguridad Windows Monitoreados</span>
+              <span>Estado en este Equipo</span>
+            </div>
+            <div id="monitoredKbsList" class="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+              <!-- Se puebla dinámicamente -->
+            </div>
           </div>
         </div>
 
@@ -846,7 +956,7 @@
       sendIpc('reaudit_so');
     }
 
-    window.onPatchRulesUpdated = function(rules, osInfo, sentinelStatus) {
+    window.onPatchRulesUpdated = function(rules, osInfo, sentinelStatus, kbMonitorStatus) {
       if (osInfo && osInfo.build_number) {
         const osText = document.getElementById('osBuildText');
         if (osText) {
@@ -867,6 +977,46 @@
           } else {
             autoSwitch.className = 'apple-switch inactive cursor-pointer';
           }
+        }
+      }
+
+      if (kbMonitorStatus) {
+        const countElem = document.getElementById('kbMonitoredCount');
+        if (countElem) countElem.textContent = kbMonitorStatus.monitored_kbs ? kbMonitorStatus.monitored_kbs.length : '0';
+
+        const pendElem = document.getElementById('kbPendingCount');
+        if (pendElem) pendElem.textContent = kbMonitorStatus.pending_kbs_count;
+
+        const aiCountElem = document.getElementById('kbAiAnalyzedCount');
+        if (aiCountElem) aiCountElem.textContent = kbMonitorStatus.ai_analyzed_count;
+
+        const vpatchCountElem = document.getElementById('kbAiVpatchCount');
+        if (vpatchCountElem) vpatchCountElem.textContent = kbMonitorStatus.auto_vpatch_count;
+
+        const aiSwitch = document.getElementById('aiAutopilotSwitch');
+        if (aiSwitch) {
+          aiSwitch.className = kbMonitorStatus.ai_autopilot_enabled ? 'apple-switch active cursor-pointer' : 'apple-switch inactive cursor-pointer';
+        }
+
+        const kbsList = document.getElementById('monitoredKbsList');
+        if (kbsList && kbMonitorStatus.monitored_kbs) {
+          kbsList.innerHTML = '';
+          kbMonitorStatus.monitored_kbs.forEach(kb => {
+            const row = document.createElement('div');
+            row.className = 'flex items-center justify-between p-2 rounded-lg bg-black/20 hover:bg-black/30 border border-white/5 transition-all text-xs';
+            row.innerHTML = `
+              <div class="flex items-center gap-2">
+                <span class="font-bold text-purple-300 font-mono">${kb.kb_id}</span>
+                <span class="text-[11px] text-gray-300 truncate max-w-xs sm:max-w-md">${kb.title}</span>
+              </div>
+              <div class="flex items-center gap-2 shrink-0">
+                <button onclick="analyzeSpecificKb('${kb.kb_id}')" class="px-2 py-0.5 bg-purple-500/20 hover:bg-purple-500/30 text-purple-200 border border-purple-500/30 rounded text-[10px] font-medium transition-all">
+                  Analizar con IA
+                </button>
+              </div>
+            `;
+            kbsList.appendChild(row);
+          });
         }
       }
 
@@ -953,6 +1103,77 @@
         widgetSub.textContent = activePatches === 0 ? '0 vulnerabilidades abiertas en Windows 11.' : `${activePatches} parches virtuales activos.`;
       }
     };
+
+    window.onKbAnalysisResult = function(result) {
+      if (!result) return;
+      const card = document.getElementById('aiAnalysisCard');
+      if (!card) return;
+
+      document.getElementById('aiCardKbId').textContent = result.kb_id;
+      document.getElementById('aiCardCve').textContent = result.cve;
+      document.getElementById('aiCardConfidence').textContent = `Confianza IA: ${(result.confidence_score * 100).toFixed(0)}%`;
+      document.getElementById('aiCardGuardrail').textContent = result.safety_verified ? '✔ Guardrail Verificado (Rust)' : '✖ Guardrail Rechazado';
+      document.getElementById('aiCardComponent').textContent = result.affected_component;
+      document.getElementById('aiCardVector').textContent = result.attack_vector;
+      document.getElementById('aiCardReasoning').textContent = result.reasoning;
+      document.getElementById('aiCardMitigation').textContent = `Estrategia: ${JSON.stringify(result.recommended_mitigation)}`;
+
+      const btn = document.getElementById('aiCardActionBtn');
+      btn.onclick = function() {
+        toggleVirtualPatch(result.cve, true);
+      };
+
+      card.classList.remove('hidden');
+      showToast('Análisis de IA Local Completado', `Parche sintetizado para ${result.kb_id} (${result.cve}) con confianza ${(result.confidence_score * 100).toFixed(0)}%.`);
+    };
+
+    function runAiKbAudit() {
+      showToast('Auditoría de KBs con IA', 'Analizando boletines de seguridad y verificando estado del SO...');
+      sendIpc('run_ai_kb_audit');
+    }
+
+    function toggleAiAutopilot(elem) {
+      const willEnable = !elem.classList.contains('active');
+      if (willEnable) {
+        elem.classList.remove('inactive');
+        elem.classList.add('active');
+      } else {
+        elem.classList.remove('active');
+        elem.classList.add('inactive');
+      }
+      showToast(
+        'Auto-Pilot Asistido por IA',
+        willEnable ? 'ACTIVADO: los parches virtuales sintetizados por la IA se aplicarán automáticamente.' : 'DESACTIVADO: el análisis de IA requerirá confirmación manual.'
+      );
+      sendIpc('set_ai_autopilot', willEnable ? 'true' : 'false');
+    }
+
+    function toggleManualKbModal() {
+      const form = document.getElementById('manualKbForm');
+      if (form) {
+        form.classList.toggle('hidden');
+      }
+    }
+
+    function submitManualKbAnalysis() {
+      const kbId = document.getElementById('inputManualKbId').value.trim();
+      const title = document.getElementById('inputManualKbTitle').value.trim();
+      const desc = document.getElementById('inputManualKbDesc').value.trim();
+
+      if (!kbId) {
+        showToast('Campo Requerido', 'Por favor ingrese el identificador de KB o CVE.');
+        return;
+      }
+
+      showToast('Invocando IA Local', `Analizando boletín técnico para ${kbId}...`);
+      sendIpc('analyze_raw_kb', JSON.stringify({ kb_id: kbId, title: title, description: desc }));
+      toggleManualKbModal();
+    }
+
+    function analyzeSpecificKb(kbId) {
+      showToast('Invocando IA Local', `Analizando ${kbId} con modelo embebido...`);
+      sendIpc('analyze_raw_kb', JSON.stringify({ kb_id: kbId }));
+    }
 
     function toggleVirtualPatch(cve, enable) {
       showToast(
