@@ -201,3 +201,63 @@ pub struct KbMonitorStatus {
     pub ai_autopilot_enabled: bool,
 }
 
+/// Tipo de mecanismo de persistencia detectado en el arranque del SO
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum PersistenceType {
+    RegistryRun,
+    RegistryWinlogon,
+    ScheduledTask,
+    StartupFolder,
+    SystemDriverOrService,
+}
+
+/// Entrada de auto-inicio o persistencia auditada
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PersistenceEntry {
+    pub id: String,
+    pub name: String,
+    pub target_path: String,
+    pub arguments: Option<String>,
+    pub entry_type: PersistenceType,
+    pub location: String,
+    pub is_enabled: bool,
+    pub sha256: Option<String>,
+    pub status: FileScanStatus,
+    pub detection_details: Option<String>,
+}
+
+/// Socket o conexión de red inspeccionada en tiempo real
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NetworkSocketInfo {
+    pub protocol: String,
+    pub local_address: String,
+    pub local_port: u16,
+    pub remote_address: String,
+    pub remote_port: u16,
+    pub state: String,
+    pub pid: u32,
+    pub process_name: String,
+    pub process_path: Option<String>,
+    pub is_risk_port: bool,
+    pub is_isolated: bool,
+}
+
+/// Botón o píldora de acción sugerida por el Copiloto IA
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CopilotActionPill {
+    pub label: String,
+    pub action_type: String,
+    pub payload: String,
+}
+
+/// Respuesta contextual generada por el Copiloto de Ciberseguridad local
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CopilotResponse {
+    pub answer: String,
+    pub confidence: f32,
+    pub risk_level: Severity,
+    pub suggested_actions: Vec<CopilotActionPill>,
+    pub timestamp: String,
+}
+
+

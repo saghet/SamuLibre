@@ -10,4 +10,5 @@ data/quarantine/*
 !data/quarantine/.gitkeep
 data/app_error.log
 crates/samulibre-vpn/data/
+crates/samulibre-patcher/data/
 *.zip

@@ -63,6 +63,24 @@ enum Commands {
         sub: VpnCommands,
     },
 
+    /// Cazador de Persistencia y Auto-Inicio (Run, RunOnce, Startup, Tareas Programadas)
+    Persistence {
+        #[command(subcommand)]
+        sub: PersistenceCommands,
+    },
+
+    /// Inspector de Red en Vivo, Puertos y Aislamiento de Procesos
+    Network {
+        #[command(subcommand)]
+        sub: NetworkCommands,
+    },
+
+    /// Copiloto de Ciberseguridad Interactivo con IA Local Offline
+    Copilot {
+        /// Consulta en lenguaje natural para el copiloto
+        query: String,
+    },
+
     /// Ejecuta una demostración en vivo de los tres pilares de protección
     Demo,
 }
@@ -175,6 +193,34 @@ enum VpnCommands {
         /// Proveedor: quad9 | adguard | cloudflare
         #[arg(default_value = "quad9")]
         provider: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum PersistenceCommands {
+    /// Audita todas las entradas de arranque del SO (Registro, Startup, schtasks)
+    Scan,
+    /// Alterna el estado activo/desactivado de una entrada de persistencia
+    Toggle {
+        /// Identificador de la entrada
+        id: String,
+        /// Desactivar la entrada (por omisión la activa)
+        #[arg(short, long)]
+        disable: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum NetworkCommands {
+    /// Inspecciona todos los sockets y puertos de red activos con mapeo de procesos
+    Sockets,
+    /// Aísla de la red un proceso sospechoso usando reglas WFP
+    Isolate {
+        /// PID del proceso
+        pid: u32,
+        /// Revocar aislamiento (desbloquear)
+        #[arg(short, long)]
+        unblock: bool,
     },
 }
 
@@ -568,6 +614,84 @@ async fn main() -> Result<()> {
                     println!("Navegación protegida contra dominios de phishing y servidores de comando y control (C2).");
                 }
             }
+        }
+
+        Commands::Persistence { sub } => {
+            let core = SamuLibreCore::new(&canary_dir, &vpn_dir, true);
+            match sub {
+                PersistenceCommands::Scan => {
+                    println!("\n{}", "─── CAZADOR DE PERSISTENCIA Y AUTO-INICIO (AUTORUNS) ───".bold().cyan());
+                    let entries = core.get_persistence_entries();
+                    println!("Total entradas detectadas: {}\n", entries.len().to_string().bold());
+                    for e in entries {
+                        let status_tag = match e.status {
+                            FileScanStatus::Clean => "✔ LIMPIO".green(),
+                            FileScanStatus::Suspicious => "⚠ SOSPECHOSO".yellow().bold(),
+                            FileScanStatus::Infected => "✘ MALICIOSO".red().bold(),
+                            _ => "• VERIFICADO".cyan(),
+                        };
+                        println!("{} [{:?}] {}", status_tag, e.entry_type, e.name.bold());
+                        println!("  Ubicación: {}", e.location);
+                        println!("  Destino:   {}", e.target_path);
+                        if let Some(args) = e.arguments {
+                            println!("  Argumentos: {}", args);
+                        }
+                        if let Some(det) = e.detection_details {
+                            println!("  Detalle:    {}", det.yellow());
+                        }
+                        println!();
+                    }
+                }
+                PersistenceCommands::Toggle { id, disable } => {
+                    let core = SamuLibreCore::new(&canary_dir, &vpn_dir, false);
+                    match core.toggle_persistence_entry(&id, !disable) {
+                        Ok(state) => println!("{} Entrada de persistencia '{}' actualizada (Activa: {}).", "✔".green(), id, state),
+                        Err(err) => println!("{} Error actualizando entrada '{}': {}", "✘".red(), id, err),
+                    }
+                }
+            }
+        }
+
+        Commands::Network { sub } => {
+            let core = SamuLibreCore::new(&canary_dir, &vpn_dir, true);
+            match sub {
+                NetworkCommands::Sockets => {
+                    println!("\n{}", "─── INSPECTOR DE RED Y CONEXIONES EN VIVO ───".bold().cyan());
+                    let sockets = core.get_network_sockets();
+                    println!("Total sockets TCP activos: {}\n", sockets.len().to_string().bold());
+                    println!("{:<8} {:<24} {:<24} {:<12} {:<8} {:<20}", "PROTO", "DIRECCIÓN LOCAL", "DIRECCIÓN REMOTA", "ESTADO", "PID", "PROCESO");
+                    println!("{}", "─".repeat(96));
+                    for s in sockets {
+                        let risk_marker = if s.is_risk_port { " ⚠ RIESGO".bold().red().to_string() } else { String::new() };
+                        let proc_display = format!("{}{}", s.process_name, risk_marker);
+                        println!("{:<8} {:<24} {:<24} {:<12} {:<8} {:<20}", s.protocol, s.local_address, s.remote_address, s.state, s.pid, proc_display);
+                    }
+                }
+                NetworkCommands::Isolate { pid, unblock } => {
+                    let core = SamuLibreCore::new(&canary_dir, &vpn_dir, false);
+                    match core.isolate_process_network(pid, !unblock) {
+                        Ok(msg) => println!("{} {}", "✔".green(), msg),
+                        Err(err) => println!("{} Error aislando proceso PID {}: {}", "✘".red(), pid, err),
+                    }
+                }
+            }
+        }
+
+        Commands::Copilot { query } => {
+            println!("\n{}", "─── COPILOTO DE CIBERSEGURIDAD SAMULIBRE (IA LOCAL OFFLINE) ───".bold().cyan());
+            let core = SamuLibreCore::new(&canary_dir, &vpn_dir, true);
+            let response = core.ask_copilot(&query);
+
+            println!("\n{}", response.answer);
+            println!("\nNivel de Riesgo Evaluado: {:?}", response.risk_level);
+            println!("Confianza del Modelo:    {:.0}%", response.confidence * 100.0);
+            if !response.suggested_actions.is_empty() {
+                println!("\nAcciones Recomendadas:");
+                for a in response.suggested_actions {
+                    println!("  → [{}] (Acción: {}, Payload: {})", a.label.cyan().bold(), a.action_type, a.payload);
+                }
+            }
+            println!();
         }
 
         Commands::Demo => {

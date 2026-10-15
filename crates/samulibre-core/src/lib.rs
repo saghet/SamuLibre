@@ -1,9 +1,13 @@
 use anyhow::Result;
 use chrono::Utc;
+use samulibre_ai::{CopilotSystemTelemetry, CyberCopilotEngine};
 use samulibre_patcher::VirtualPatcher;
 use samulibre_scanner::MultiEngineScanner;
 use samulibre_shield::EndpointShield;
-use samulibre_types::{FileScanStatus, ScanResult, SuiteStatus, ThreatAlert, VirtualPatchRule};
+use samulibre_types::{
+    CopilotResponse, FileScanStatus, NetworkSocketInfo, PersistenceEntry, ScanResult, SuiteStatus,
+    ThreatAlert, VirtualPatchRule,
+};
 use samulibre_vpn::VpnManager;
 use samulibre_watcher::RealTimeWatcher;
 use std::collections::HashMap;
@@ -18,6 +22,7 @@ pub struct SamuLibreCore {
     pub scanner: Arc<Mutex<MultiEngineScanner>>,
     pub vpn: Arc<Mutex<VpnManager>>,
     pub watcher: Arc<Mutex<RealTimeWatcher>>,
+    pub copilot: Arc<Mutex<CyberCopilotEngine>>,
     alerts_history: Arc<Mutex<Vec<ThreatAlert>>>,
 }
 
@@ -28,6 +33,7 @@ impl SamuLibreCore {
         let scanner = Arc::new(Mutex::new(MultiEngineScanner::new()));
         let vpn = Arc::new(Mutex::new(VpnManager::new(vpn_dir)));
         let watcher = Arc::new(Mutex::new(RealTimeWatcher::new(Arc::clone(&scanner), Path::new("data").join("quarantine"))));
+        let copilot = Arc::new(Mutex::new(CyberCopilotEngine::new()));
 
         Self {
             patcher,
@@ -35,6 +41,7 @@ impl SamuLibreCore {
             scanner,
             vpn,
             watcher,
+            copilot,
             alerts_history: Arc::new(Mutex::new(Vec::new())),
         }
     }
@@ -555,6 +562,72 @@ impl SamuLibreCore {
         };
 
         Ok((details, quarantined))
+    }
+
+    // --- Cazador de Persistencia (Autoruns Hunter) ---
+    pub fn get_persistence_entries(&self) -> Vec<PersistenceEntry> {
+        if let Ok(shield) = self.shield.lock() {
+            shield.scan_persistence()
+        } else {
+            Vec::new()
+        }
+    }
+
+    pub fn toggle_persistence_entry(&self, id: &str, enable: bool) -> Result<bool> {
+        if let Ok(shield) = self.shield.lock() {
+            shield.toggle_persistence(id, enable)
+        } else {
+            anyhow::bail!("Error adquiriendo lock de shield")
+        }
+    }
+
+    // --- Inspector de Red y Conexiones en Vivo ---
+    pub fn get_network_sockets(&self) -> Vec<NetworkSocketInfo> {
+        if let Ok(mut shield) = self.shield.lock() {
+            shield.scan_network_sockets()
+        } else {
+            Vec::new()
+        }
+    }
+
+    pub fn isolate_process_network(&self, pid: u32, isolate: bool) -> Result<String> {
+        if let Ok(shield) = self.shield.lock() {
+            shield.isolate_process_network(pid, isolate)
+        } else {
+            anyhow::bail!("Error adquiriendo lock de shield")
+        }
+    }
+
+    // --- Copiloto de Ciberseguridad con IA Local ---
+    pub fn ask_copilot(&self, query: &str) -> CopilotResponse {
+        let shield_status = self.get_shield_status();
+        let sockets = self.get_network_sockets();
+        let risk_ports: Vec<u16> = sockets.iter().filter(|s| s.is_risk_port).map(|s| s.local_port).collect();
+        let persistence = self.get_persistence_entries();
+        let suspicious_persistence = persistence.iter().filter(|p| p.status == FileScanStatus::Suspicious).count();
+        let rules = self.get_patch_rules();
+        let active_patches = rules.iter().filter(|r| r.status == samulibre_types::PatchStatus::VirtualPatchActive).count();
+        let unmitigated = rules.iter().filter(|r| r.status == samulibre_types::PatchStatus::Unmitigated).count();
+        let quarantine_count = self.get_quarantined_records().len();
+
+        let telemetry = CopilotSystemTelemetry {
+            canaries_intact: shield_status.intact_count,
+            canaries_total: shield_status.total_canaries,
+            active_virtual_patches: active_patches,
+            pending_vulnerabilities: unmitigated,
+            risk_ports_open: risk_ports,
+            suspicious_persistence_count: suspicious_persistence,
+            quarantined_items_count: quarantine_count,
+            lsass_protected: shield_status.lsass_protection_active,
+            cookie_shield_active: shield_status.cookie_shield_active,
+        };
+
+        if let Ok(copilot) = self.copilot.lock() {
+            copilot.ask(query, &telemetry)
+        } else {
+            let engine = CyberCopilotEngine::new();
+            engine.ask(query, &telemetry)
+        }
     }
 }
 

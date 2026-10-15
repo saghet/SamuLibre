@@ -140,6 +140,15 @@ enum CustomUserEvent {
         log: String,
         quarantined: Option<samulibre_watcher::QuarantineRecord>,
     },
+    PersistenceListLoaded {
+        entries: Vec<samulibre_types::PersistenceEntry>,
+    },
+    NetworkSocketsLoaded {
+        sockets: Vec<samulibre_types::NetworkSocketInfo>,
+    },
+    CopilotAnswerLoaded {
+        response: samulibre_types::CopilotResponse,
+    },
     Quit,
 }
 
@@ -1043,6 +1052,101 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                         }
                     }
 
+                    "get_persistence_entries" => {
+                        let core_cloned = Arc::clone(&core_for_ipc);
+                        let proxy_cloned = proxy_for_ipc.clone();
+                        std::thread::spawn(move || {
+                            if let Ok(c) = core_cloned.lock() {
+                                let entries = c.get_persistence_entries();
+                                let _ = proxy_cloned.send_event(CustomUserEvent::PersistenceListLoaded { entries });
+                            }
+                        });
+                    }
+
+                    "toggle_persistence" => {
+                        let payload_str = msg.payload.unwrap_or_default();
+                        let (id, enable) = if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&payload_str) {
+                            (
+                                parsed["id"].as_str().unwrap_or("").to_string(),
+                                parsed["enable"].as_bool().unwrap_or(true),
+                            )
+                        } else if let Some((i, e)) = payload_str.split_once('|') {
+                            (i.to_string(), e == "true" || e == "1")
+                        } else {
+                            (payload_str, true)
+                        };
+
+                        let core_cloned = Arc::clone(&core_for_ipc);
+                        let proxy_cloned = proxy_for_ipc.clone();
+                        std::thread::spawn(move || {
+                            if let Ok(c) = core_cloned.lock() {
+                                let _ = c.toggle_persistence_entry(&id, enable);
+                                let entries = c.get_persistence_entries();
+                                let _ = proxy_cloned.send_event(CustomUserEvent::PersistenceListLoaded { entries });
+                            }
+                        });
+                    }
+
+                    "get_network_sockets" => {
+                        let core_cloned = Arc::clone(&core_for_ipc);
+                        let proxy_cloned = proxy_for_ipc.clone();
+                        std::thread::spawn(move || {
+                            if let Ok(c) = core_cloned.lock() {
+                                let sockets = c.get_network_sockets();
+                                let _ = proxy_cloned.send_event(CustomUserEvent::NetworkSocketsLoaded { sockets });
+                            }
+                        });
+                    }
+
+                    "isolate_process_network" => {
+                        let payload_str = msg.payload.unwrap_or_default();
+                        let (pid, isolate) = if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&payload_str) {
+                            (
+                                parsed["pid"].as_u64().unwrap_or(0) as u32,
+                                parsed["isolate"].as_bool().unwrap_or(true),
+                            )
+                        } else if let Some((p, iso)) = payload_str.split_once('|') {
+                            (p.parse::<u32>().unwrap_or(0), iso == "true" || iso == "1")
+                        } else {
+                            (payload_str.parse::<u32>().unwrap_or(0), true)
+                        };
+
+                        let core_cloned = Arc::clone(&core_for_ipc);
+                        let proxy_cloned = proxy_for_ipc.clone();
+                        std::thread::spawn(move || {
+                            if let Ok(c) = core_cloned.lock() {
+                                match c.isolate_process_network(pid, isolate) {
+                                    Ok(msg) => {
+                                        let _ = proxy_cloned.send_event(CustomUserEvent::RealTimeAlert {
+                                            title: "Control de Red SamuLibre".to_string(),
+                                            details: msg,
+                                        });
+                                    }
+                                    Err(e) => {
+                                        let _ = proxy_cloned.send_event(CustomUserEvent::RealTimeAlert {
+                                            title: "Error Aislamiento de Red".to_string(),
+                                            details: format!("{}", e),
+                                        });
+                                    }
+                                }
+                                let sockets = c.get_network_sockets();
+                                let _ = proxy_cloned.send_event(CustomUserEvent::NetworkSocketsLoaded { sockets });
+                            }
+                        });
+                    }
+
+                    "ask_copilot" => {
+                        let query = msg.payload.unwrap_or_default();
+                        let core_cloned = Arc::clone(&core_for_ipc);
+                        let proxy_cloned = proxy_for_ipc.clone();
+                        std::thread::spawn(move || {
+                            if let Ok(c) = core_cloned.lock() {
+                                let response = c.ask_copilot(&query);
+                                let _ = proxy_cloned.send_event(CustomUserEvent::CopilotAnswerLoaded { response });
+                            }
+                        });
+                    }
+
                     _ => {
                         info!("Acción IPC no reconocida: {}", msg.action);
                     }
@@ -1092,6 +1196,12 @@ fn run_app(app_root: PathBuf) -> Result<()> {
 
             let quarantine = c.get_quarantined_records();
             let _ = proxy_init.send_event(CustomUserEvent::QuarantineListLoaded { records: quarantine });
+
+            let persistence = c.get_persistence_entries();
+            let _ = proxy_init.send_event(CustomUserEvent::PersistenceListLoaded { entries: persistence });
+
+            let sockets = c.get_network_sockets();
+            let _ = proxy_init.send_event(CustomUserEvent::NetworkSocketsLoaded { sockets });
         }
     });
 
@@ -1383,6 +1493,33 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                 let script = format!(
                     "if (window.onAccessLabCompleted) {{ window.onAccessLabCompleted({}, {}); }}",
                     log_json, q_json
+                );
+                let _ = webview.evaluate_script(&script);
+            }
+
+            Event::UserEvent(CustomUserEvent::PersistenceListLoaded { entries }) => {
+                let rec_json = serde_json::to_string(&entries).unwrap_or_else(|_| "[]".to_string());
+                let script = format!(
+                    "if (window.onPersistenceLoaded) {{ window.onPersistenceLoaded({}); }}",
+                    rec_json
+                );
+                let _ = webview.evaluate_script(&script);
+            }
+
+            Event::UserEvent(CustomUserEvent::NetworkSocketsLoaded { sockets }) => {
+                let rec_json = serde_json::to_string(&sockets).unwrap_or_else(|_| "[]".to_string());
+                let script = format!(
+                    "if (window.onNetworkSocketsLoaded) {{ window.onNetworkSocketsLoaded({}); }}",
+                    rec_json
+                );
+                let _ = webview.evaluate_script(&script);
+            }
+
+            Event::UserEvent(CustomUserEvent::CopilotAnswerLoaded { response }) => {
+                let res_json = serde_json::to_string(&response).unwrap_or_else(|_| "null".to_string());
+                let script = format!(
+                    "if (window.onCopilotAnswerLoaded) {{ window.onCopilotAnswerLoaded({}); }}",
+                    res_json
                 );
                 let _ = webview.evaluate_script(&script);
             }
