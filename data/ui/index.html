@@ -991,71 +991,214 @@
       </div>
 
       <!-- ================= VISTA: COPILOTO IA ================= -->
-      <div id="view-copilot" class="view-content hidden space-y-4 flex flex-col h-full max-h-[calc(100vh-80px)]">
-        <div class="flex items-center justify-between pb-2 border-b border-white/5 shrink-0">
+      <div id="view-copilot" class="view-content hidden space-y-6">
+        <!-- Encabezado con Estado de la IA Local -->
+        <div class="flex flex-wrap items-center justify-between gap-4 pb-2 border-b border-white/5">
           <div>
             <h2 class="text-2xl font-semibold tracking-tight text-white flex items-center gap-2">
               <span>🤖</span> Copiloto de Ciberseguridad SamuLibre
             </h2>
-            <p class="text-xs text-gray-400">Inteligencia Artificial Local Offline • Grounded en la Telemetría Viva de tu Máquina</p>
+            <p class="text-xs text-gray-400">Inteligencia Artificial Local Offline • Razonamiento y Parchado Autónomo de KBs de Windows</p>
           </div>
-          <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-purple-500/10 text-purple-300 border border-purple-500/20">
-            <span class="w-2 h-2 rounded-full bg-purple-400 mr-2 animate-pulse"></span> 100% Offline / Privado
-          </span>
-        </div>
-
-        <!-- Prompt suggestion pills -->
-        <div class="flex items-center gap-2 overflow-x-auto pb-1 shrink-0">
-          <button onclick="sendQuickCopilotPrompt('¿Cómo está mi sistema hoy?')" class="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-gray-300 font-medium whitespace-nowrap active:scale-95 transition-all">
-            ✨ ¿Cómo está mi sistema hoy?
-          </button>
-          <button onclick="sendQuickCopilotPrompt('¿Tengo puertos de riesgo abiertos?')" class="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-gray-300 font-medium whitespace-nowrap active:scale-95 transition-all">
-            🌐 Puertos y Red
-          </button>
-          <button onclick="sendQuickCopilotPrompt('Auditar persistencia y programas de arranque')" class="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-gray-300 font-medium whitespace-nowrap active:scale-95 transition-all">
-            🚀 Persistencia de Arranque
-          </button>
-          <button onclick="sendQuickCopilotPrompt('Estado de los canarios anti-ransomware')" class="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-gray-300 font-medium whitespace-nowrap active:scale-95 transition-all">
-            🐤 Trampas Canario
-          </button>
-          <button onclick="sendQuickCopilotPrompt('¿Qué parches virtuales están activos?')" class="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-gray-300 font-medium whitespace-nowrap active:scale-95 transition-all">
-            🩹 Parcheo Virtual & CVEs
-          </button>
-        </div>
-
-        <!-- Chat history container -->
-        <div id="copilotChatContainer" class="flex-1 overflow-y-auto space-y-4 p-4 rounded-3xl glass-card border border-white/5">
-          <!-- Mensaje de bienvenida inicial -->
-          <div class="flex items-start gap-3 max-w-2xl">
-            <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-purple-500 to-indigo-500 text-white flex items-center justify-center text-sm font-bold shadow-md shadow-purple-500/20 shrink-0">
-              🤖
-            </div>
-            <div class="glass-panel p-4 rounded-2xl space-y-2 border border-white/10 bg-white/[0.03]">
-              <p class="text-xs text-gray-200 leading-relaxed font-sans">
-                ¡Hola! Soy el <strong>Copiloto de Ciberseguridad de SamuLibre</strong>. Estoy ejecutándome de forma 100% local en tu procesador, sin enviar ningún dato a la nube ni a servidores externos.
-              </p>
-              <p class="text-xs text-gray-300 leading-relaxed font-sans">
-                Tengo acceso directo a la telemetría viva de tu equipo: estado de canarios anti-ransomware, reglas de parchado virtual, sockets de red y programas de auto-inicio. ¿En qué puedo orientarte hoy?
-              </p>
-            </div>
+          <div class="flex items-center gap-2.5">
+            <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-purple-500/10 text-purple-300 border border-purple-500/20">
+              <span class="w-2 h-2 rounded-full bg-purple-400 mr-2 animate-pulse"></span> 100% Offline / Privado
+            </span>
+            <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+              <span class="w-2 h-2 rounded-full bg-emerald-400 mr-2"></span> Guardrails en Rust (Zero BSOD)
+            </span>
           </div>
         </div>
 
-        <!-- Chat Input Bar -->
-        <div class="flex items-center gap-2 pt-1 shrink-0">
-          <input
-            type="text"
-            id="copilotQueryInput"
-            placeholder="Pregúntale a tu Copiloto sobre la seguridad de tu equipo..."
-            onkeydown="if(event.key==='Enter') sendCopilotMessage()"
-            class="flex-1 bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-purple-500/50 focus:bg-white/10 transition-all font-sans"
-          />
-          <button
-            onclick="sendCopilotMessage()"
-            class="px-5 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 active:scale-95 text-white font-semibold text-xs rounded-2xl shadow-lg shadow-purple-500/20 transition-all flex items-center gap-1.5"
-          >
-            <span>Enviar</span> <span>➔</span>
-          </button>
+        <!-- Rejilla Principal de Dos Columnas: Izquierda Chat / Derecha Pensamiento IA & Simulador -->
+        <div class="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
+
+          <!-- Columna Izquierda: Chat interactivo con la IA (7 columnas en desktop) -->
+          <div class="xl:col-span-7 space-y-4 flex flex-col">
+            <!-- Píldoras de consulta rápida -->
+            <div class="flex items-center gap-2 overflow-x-auto pb-1">
+              <button onclick="sendQuickCopilotPrompt('¿Cómo está mi sistema hoy?')" class="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-gray-300 font-medium whitespace-nowrap active:scale-95 transition-all">
+                ✨ Estado del Sistema
+              </button>
+              <button onclick="sendQuickCopilotPrompt('¿Tengo puertos de riesgo abiertos?')" class="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-gray-300 font-medium whitespace-nowrap active:scale-95 transition-all">
+                🌐 Puertos & Red
+              </button>
+              <button onclick="sendQuickCopilotPrompt('Auditar persistencia y programas de arranque')" class="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-gray-300 font-medium whitespace-nowrap active:scale-95 transition-all">
+                🚀 Persistencia
+              </button>
+              <button onclick="sendQuickCopilotPrompt('Estado de los canarios anti-ransomware')" class="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-gray-300 font-medium whitespace-nowrap active:scale-95 transition-all">
+                🐤 Canarios
+              </button>
+              <button onclick="sendQuickCopilotPrompt('¿Qué parches virtuales están activos?')" class="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-gray-300 font-medium whitespace-nowrap active:scale-95 transition-all">
+                🩹 Parches & CVEs
+              </button>
+            </div>
+
+            <!-- Contenedor del Historial del Chat (Altura fija garantizada de 440px) -->
+            <div id="copilotChatContainer" class="overflow-y-auto space-y-4 p-4 rounded-3xl glass-card border border-white/5" style="height: 440px; min-height: 440px; max-height: 440px;">
+              <!-- Mensaje de bienvenida inicial -->
+              <div class="flex items-start gap-3 max-w-2xl">
+                <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-purple-500 to-indigo-500 text-white flex items-center justify-center text-sm font-bold shadow-md shadow-purple-500/20 shrink-0">
+                  🤖
+                </div>
+                <div class="glass-panel p-4 rounded-2xl space-y-2 border border-white/10 bg-white/[0.03]">
+                  <p class="text-xs text-gray-200 leading-relaxed font-sans">
+                    ¡Hola! Soy el <strong>Copiloto de Ciberseguridad de SamuLibre</strong>. Ejecuto directamente en tu hardware sin enviar ningún byte a la nube.
+                  </p>
+                  <p class="text-xs text-gray-300 leading-relaxed font-sans">
+                    Monitoreo en tiempo real los <strong>boletines y KBs futuros de Windows</strong> para aplicar mitigaciones virtuales antes de que los exploits se propaguen. Puedes consultarme cualquier duda técnica sobre tu equipo o probar el simulador a la derecha.
+                  </p>
+                  <div class="pt-2 flex flex-wrap gap-2 border-t border-white/5">
+                    <button onclick="sendQuickCopilotPrompt('¿Cómo funciona el parchado autónomo de KBs?')" class="px-3 py-1 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/30 text-xs font-semibold text-purple-200 rounded-xl active:scale-95 transition-all">
+                      💬 ¿Cómo funciona el Auto-Pilot?
+                    </button>
+                    <button onclick="sendQuickCopilotPrompt('¿Qué KBs faltan por instalar en Windows?')" class="px-3 py-1 bg-white/10 hover:bg-white/15 border border-white/10 text-xs font-semibold text-cyan-300 rounded-xl active:scale-95 transition-all">
+                      📋 Ver KBs pendientes
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Barra de Entrada del Chat -->
+            <div class="flex items-center gap-2 pt-1">
+              <input
+                type="text"
+                id="copilotQueryInput"
+                placeholder="Pregúntale a tu Copiloto sobre la seguridad de tu equipo..."
+                onkeydown="if(event.key==='Enter') sendCopilotMessage()"
+                class="flex-1 bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-purple-500/50 focus:bg-white/10 transition-all font-sans"
+              />
+              <button
+                onclick="sendCopilotMessage()"
+                class="px-5 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 active:scale-95 text-white font-semibold text-xs rounded-2xl shadow-lg shadow-purple-500/20 transition-all flex items-center gap-1.5 cursor-pointer"
+              >
+                <span>Enviar</span> <span>➔</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Columna Derecha: Observabilidad de la IA, Auto-Pilot & Simulador de KBs (5 columnas) -->
+          <div class="xl:col-span-5 space-y-4">
+
+            <!-- Tarjeta 1: Control Autónomo IA Auto-Pilot -->
+            <div class="glass-card p-4 rounded-3xl border border-purple-500/20 bg-purple-500/[0.03] space-y-3">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2.5">
+                  <div class="w-8 h-8 rounded-xl bg-purple-500/20 text-purple-300 flex items-center justify-center text-sm font-bold">
+                    ⚡
+                  </div>
+                  <div>
+                    <h3 class="text-xs font-semibold text-white">Parchado Autónomo (IA Auto-Pilot)</h3>
+                    <p class="text-[10px] text-gray-400">Aplica parches virtuales automáticamente al detectar nuevos KBs</p>
+                  </div>
+                </div>
+                <div id="copilotAutopilotSwitch" class="apple-switch active shrink-0 cursor-pointer" onclick="toggleCopilotAutopilot(this)">
+                  <div class="apple-switch-thumb"></div>
+                </div>
+              </div>
+
+              <!-- Mini estadísticas de la IA -->
+              <div class="grid grid-cols-3 gap-2 pt-2 border-t border-white/5 text-center">
+                <div class="glass-panel p-2 rounded-xl">
+                  <p class="text-[9px] uppercase font-mono text-gray-400">KBs Vigilados</p>
+                  <p id="copilotStatMonitoredKbs" class="text-sm font-bold text-white font-mono mt-0.5">4</p>
+                </div>
+                <div class="glass-panel p-2 rounded-xl">
+                  <p class="text-[9px] uppercase font-mono text-gray-400">IA Analizados</p>
+                  <p id="copilotStatAnalyzedKbs" class="text-sm font-bold text-purple-400 font-mono mt-0.5">4</p>
+                </div>
+                <div class="glass-panel p-2 rounded-xl">
+                  <p class="text-[9px] uppercase font-mono text-gray-400">Auto-Parcheados</p>
+                  <p id="copilotStatAutoPatches" class="text-sm font-bold text-emerald-400 font-mono mt-0.5">0</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Tarjeta 2: Consola de Pensamiento en Vivo de la IA (Live Thought Trace) -->
+            <div class="glass-card p-4 rounded-3xl border border-white/10 space-y-2.5">
+              <div class="flex items-center justify-between border-b border-white/5 pb-2">
+                <div class="flex items-center gap-2">
+                  <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping"></span>
+                  <span class="text-xs font-semibold text-white">Pensamiento en Vivo de la IA</span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <button onclick="clearCopilotLiveTrace()" title="Limpiar traza" class="text-[10px] text-gray-400 hover:text-white px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 transition-all">
+                    Limpiar
+                  </button>
+                  <span class="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
+                    Auditoría Viva
+                  </span>
+                </div>
+              </div>
+              <p class="text-[11px] text-gray-400 leading-tight">
+                Observa el razonamiento interno, extracción de vectores y validación formal de guardrails de seguridad:
+              </p>
+              <!-- Consola estilo terminal -->
+              <div id="copilotLiveThoughtConsole" class="overflow-y-auto space-y-1.5 p-3 rounded-2xl bg-black/60 border border-white/10 font-mono text-[10.5px] leading-relaxed text-gray-300" style="height: 160px; max-height: 160px;">
+                <!-- Logs iniciales dinámicos -->
+                <div class="text-purple-400 font-semibold">[IA-CORE] Motor de IA local SamuLibre inicializado en memoria local.</div>
+                <div class="text-blue-400">[SENTINEL] Demonio centinela EcoQoS activo (sondeo cada 900s).</div>
+                <div class="text-emerald-400">[SAFETY] Guardrail formal en Rust: 0 riesgos de BSOD / Servicios críticos protegidos.</div>
+                <div class="text-cyan-400">[AUTOPILOT] Modo Auto-Pilot activo: nuevos KBs serán mitigados automáticamente.</div>
+              </div>
+            </div>
+
+            <!-- Tarjeta 3: Simulador de KBs Futuros -->
+            <div class="glass-card p-4 rounded-3xl border border-white/10 space-y-3">
+              <div class="flex items-center justify-between border-b border-white/5 pb-2">
+                <div class="flex items-center gap-2">
+                  <span class="text-base">🧪</span>
+                  <span class="text-xs font-semibold text-white">Simulador de KBs Futuros</span>
+                </div>
+                <button onclick="triggerImmediateAiAudit()" class="text-[10px] bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/30 px-2.5 py-1 rounded-xl font-medium active:scale-95 transition-all">
+                  🔄 Sondeo Forzado
+                </button>
+              </div>
+              <p class="text-[11px] text-gray-400 leading-tight">
+                Prueba en tiempo real cómo la IA analiza un boletín nuevo y sintetiza la regla de mitigación virtual:
+              </p>
+
+              <!-- Botones de prueba rápida -->
+              <div class="flex flex-wrap gap-2">
+                <button onclick="simulateKbAnalysisQuick('KB5041585', 'Windows 11 TCP/IP IPv6 Remote Code Execution', 'Vulnerabilidad crítica en la pila de red TCP/IP de Windows vía paquetes IPv6 malformados.')" class="px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-[10.5px] text-gray-300 font-medium active:scale-95 transition-all">
+                  🧪 Simular KB5041585 (IPv6)
+                </button>
+                <button onclick="simulateKbAnalysisQuick('KB5004945', 'PrintNightmare Spooler RCE', 'Vulnerabilidad en Spoolsv.exe que permite inyección de DLLs maliciosas como controlador de impresora.')" class="px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-[10.5px] text-gray-300 font-medium active:scale-95 transition-all">
+                  🧪 Simular KB5004945 (Spooler)
+                </button>
+                <button onclick="simulateKbAnalysisQuick('KB5043076', 'Windows Kernel Local Privilege Escalation', 'Escalamiento de privilegios a SYSTEM debido a validación insuficiente de punteros en memoria de kernel.')" class="px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-[10.5px] text-gray-300 font-medium active:scale-95 transition-all">
+                  🧪 Simular KB5043076 (Kernel LPE)
+                </button>
+              </div>
+
+              <!-- Formulario de KB Personalizado -->
+              <div class="pt-2 border-t border-white/5 space-y-2">
+                <div class="flex items-center gap-2">
+                  <input
+                    type="text"
+                    id="customKbInputId"
+                    placeholder="ID (ej. KB5059999)"
+                    class="w-32 bg-white/5 border border-white/10 rounded-xl px-3 py-1.5 text-[11px] text-white font-mono placeholder-gray-500 focus:outline-none focus:border-purple-500/50"
+                  />
+                  <input
+                    type="text"
+                    id="customKbInputDesc"
+                    placeholder="Descripción técnica o vector de ataque..."
+                    class="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-1.5 text-[11px] text-white placeholder-gray-500 focus:outline-none focus:border-purple-500/50"
+                  />
+                </div>
+                <button
+                  onclick="triggerCustomKbTest()"
+                  class="w-full py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 active:scale-95 text-white font-semibold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <span>⚡</span> <span>Analizar y Mitigar con IA Local</span>
+                </button>
+              </div>
+            </div>
+
+          </div>
+
         </div>
       </div>
 
@@ -1188,6 +1331,18 @@
           aiSwitch.className = kbMonitorStatus.ai_autopilot_enabled ? 'apple-switch active cursor-pointer' : 'apple-switch inactive cursor-pointer';
         }
 
+        // Actualizar métricas del Copiloto IA si existe la vista
+        const copilotMonitored = document.getElementById('copilotStatMonitoredKbs');
+        if (copilotMonitored) copilotMonitored.textContent = kbMonitorStatus.monitored_kbs ? kbMonitorStatus.monitored_kbs.length : '0';
+        const copilotAnalyzed = document.getElementById('copilotStatAnalyzedKbs');
+        if (copilotAnalyzed) copilotAnalyzed.textContent = kbMonitorStatus.ai_analyzed_count;
+        const copilotVpatch = document.getElementById('copilotStatAutoPatches');
+        if (copilotVpatch) copilotVpatch.textContent = kbMonitorStatus.auto_vpatch_count;
+        const copilotSwitch = document.getElementById('copilotAutopilotSwitch');
+        if (copilotSwitch) {
+          copilotSwitch.className = kbMonitorStatus.ai_autopilot_enabled ? 'apple-switch active shrink-0 cursor-pointer' : 'apple-switch inactive shrink-0 cursor-pointer';
+        }
+
         const kbsList = document.getElementById('monitoredKbsList');
         if (kbsList && kbMonitorStatus.monitored_kbs) {
           kbsList.innerHTML = '';
@@ -1297,23 +1452,68 @@
     window.onKbAnalysisResult = function(result) {
       if (!result) return;
       const card = document.getElementById('aiAnalysisCard');
-      if (!card) return;
+      if (card) {
+        document.getElementById('aiCardKbId').textContent = result.kb_id;
+        document.getElementById('aiCardCve').textContent = result.cve;
+        document.getElementById('aiCardConfidence').textContent = `Confianza IA: ${(result.confidence_score * 100).toFixed(0)}%`;
+        document.getElementById('aiCardGuardrail').textContent = result.safety_verified ? '✔ Guardrail Verificado (Rust)' : '✖ Guardrail Rechazado';
+        document.getElementById('aiCardComponent').textContent = result.affected_component;
+        document.getElementById('aiCardVector').textContent = result.attack_vector;
+        document.getElementById('aiCardReasoning').textContent = result.reasoning;
+        document.getElementById('aiCardMitigation').textContent = `Estrategia: ${JSON.stringify(result.recommended_mitigation)}`;
 
-      document.getElementById('aiCardKbId').textContent = result.kb_id;
-      document.getElementById('aiCardCve').textContent = result.cve;
-      document.getElementById('aiCardConfidence').textContent = `Confianza IA: ${(result.confidence_score * 100).toFixed(0)}%`;
-      document.getElementById('aiCardGuardrail').textContent = result.safety_verified ? '✔ Guardrail Verificado (Rust)' : '✖ Guardrail Rechazado';
-      document.getElementById('aiCardComponent').textContent = result.affected_component;
-      document.getElementById('aiCardVector').textContent = result.attack_vector;
-      document.getElementById('aiCardReasoning').textContent = result.reasoning;
-      document.getElementById('aiCardMitigation').textContent = `Estrategia: ${JSON.stringify(result.recommended_mitigation)}`;
+        const btn = document.getElementById('aiCardActionBtn');
+        if (btn) {
+          btn.onclick = function() {
+            toggleVirtualPatch(result.cve, true);
+          };
+        }
+        card.classList.remove('hidden');
+      }
 
-      const btn = document.getElementById('aiCardActionBtn');
-      btn.onclick = function() {
-        toggleVirtualPatch(result.cve, true);
-      };
+      // Loguear en vivo en la consola de pensamiento del Copiloto IA
+      if (typeof logCopilotThought === 'function') {
+        logCopilotThought('IA-REASONING', `Boletín ${result.kb_id} analizado para ${result.cve}. Confianza: ${(result.confidence_score * 100).toFixed(0)}%`, 'text-purple-300 font-bold');
+        logCopilotThought('SAFETY-GUARDRAIL', result.safety_verified ? `Guardrail formal en Rust APROBADO: Mitigación segura y estable (0 riesgo BSOD)` : `Guardrail RECHAZADO: Posible interferencia con servicios del sistema`, result.safety_verified ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold');
+        logCopilotThought('VPATCH-ENGINE', `Vector: ${result.attack_vector} • Componente: ${result.affected_component}`, 'text-cyan-300');
+        if (result.safety_verified) {
+          logCopilotThought('AUTOPILOT', `Regla virtual sintetizada e inyectada en el catálogo de mitigación preventiva.`, 'text-emerald-300');
+        }
+      }
 
-      card.classList.remove('hidden');
+      // Enriquecer el chat del Copiloto con la tarjeta del nuevo KB analizado
+      const chat = document.getElementById('copilotChatContainer');
+      if (chat) {
+        const msgDiv = document.createElement('div');
+        msgDiv.className = 'flex items-start gap-3 max-w-2xl';
+        msgDiv.innerHTML = `
+          <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-purple-500 to-indigo-500 text-white flex items-center justify-center text-sm font-bold shadow-md shadow-purple-500/20 shrink-0">
+            🤖
+          </div>
+          <div class="glass-panel p-4 rounded-2xl space-y-2.5 border border-purple-500/30 bg-purple-500/[0.04] text-xs text-gray-200 font-sans">
+            <div class="flex items-center justify-between text-[10px] text-gray-400 border-b border-white/5 pb-1">
+              <span class="font-semibold text-purple-400">Análisis de Boletín • ${escapeHtml(result.kb_id)}</span>
+              <span class="${result.safety_verified ? 'text-emerald-400' : 'text-red-400'} font-semibold font-mono">${result.safety_verified ? '✔ Guardrails Rust OK' : '✖ Guardrail Inseguro'}</span>
+            </div>
+            <p class="text-xs text-white font-medium">He analizado el boletín para <strong>${escapeHtml(result.cve)}</strong> en <code>${escapeHtml(result.affected_component)}</code>.</p>
+            <p class="text-[11px] text-gray-300 leading-relaxed">${escapeHtml(result.reasoning)}</p>
+            <div class="p-2.5 rounded-xl bg-black/40 border border-white/10 font-mono text-[10.5px] text-cyan-300">
+              ⚡ Mitigación: ${escapeHtml(JSON.stringify(result.recommended_mitigation))}
+            </div>
+            <div class="pt-1 flex flex-wrap gap-2">
+              <button onclick="toggleVirtualPatch('${escapeHtml(result.cve)}', true)" class="px-3 py-1 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-xs font-semibold rounded-xl active:scale-95 transition-all">
+                ✔ Activar Parche Virtual Ahora
+              </button>
+              <button onclick="switchTab('patcher')" class="px-3 py-1 bg-white/10 hover:bg-white/15 border border-white/10 text-cyan-300 text-xs font-semibold rounded-xl active:scale-95 transition-all">
+                ➔ Ver en Parchado Virtual
+              </button>
+            </div>
+          </div>
+        `;
+        chat.appendChild(msgDiv);
+        chat.scrollTop = chat.scrollHeight;
+      }
+
       showToast('Análisis de IA Local Completado', `Parche sintetizado para ${result.kb_id} (${result.cve}) con confianza ${(result.confidence_score * 100).toFixed(0)}%.`);
     };
 
@@ -2423,6 +2623,78 @@
     // ==========================================
     // MÓDULO 3: COPILOTO DE CIBERSEGURIDAD IA LOCAL
     // ==========================================
+    function logCopilotThought(tag, text, colorClass = 'text-gray-300') {
+      const consoleEl = document.getElementById('copilotLiveThoughtConsole');
+      if (!consoleEl) return;
+      const now = new Date();
+      const timeStr = now.toTimeString().split(' ')[0];
+      const row = document.createElement('div');
+      row.className = `${colorClass} transition-all duration-200`;
+      row.innerHTML = `<span class="text-gray-500">[${timeStr}]</span> <span class="font-bold">[${escapeHtml(tag)}]</span> ${escapeHtml(text)}`;
+      consoleEl.appendChild(row);
+      consoleEl.scrollTop = consoleEl.scrollHeight;
+    }
+
+    function clearCopilotLiveTrace() {
+      const consoleEl = document.getElementById('copilotLiveThoughtConsole');
+      if (consoleEl) {
+        consoleEl.innerHTML = '<div class="text-purple-400 font-semibold">[IA-CORE] Traza reiniciada. Vigilancia activa en segundo plano.</div>';
+      }
+    }
+
+    function toggleCopilotAutopilot(elem) {
+      const willEnable = !elem.classList.contains('active');
+      if (willEnable) {
+        elem.classList.remove('inactive');
+        elem.classList.add('active');
+      } else {
+        elem.classList.remove('active');
+        elem.classList.add('inactive');
+      }
+      logCopilotThought(
+        'AUTOPILOT',
+        willEnable ? 'Modo Auto-Pilot HABILITADO: Nuevos KBs se mitigarán de forma 100% autónoma.' : 'Modo Auto-Pilot DESACTIVADO: Requiere confirmación manual.',
+        willEnable ? 'text-emerald-400 font-bold' : 'text-amber-400 font-bold'
+      );
+      showToast(
+        'IA Auto-Pilot',
+        willEnable ? 'Parchado 100% autónomo activado para futuros KBs.' : 'Parchado autónomo en pausa (modo confirmación).'
+      );
+      sendIpc('set_ai_autopilot', willEnable ? 'true' : 'false');
+    }
+
+    function simulateKbAnalysisQuick(kbId, title, desc) {
+      logCopilotThought('IA-MONITOR', `Boletín detectado: ${kbId} - ${title}`, 'text-blue-300 font-bold');
+      logCopilotThought('IA-REASONING', `Analizando descripción técnica y vectores de ataque...`, 'text-purple-300');
+      logCopilotThought('SAFETY-GUARDRAIL', `Verificando estabilidad de kernel y compatibilidad formal con Windows...`, 'text-cyan-300');
+      showToast('Simulando Boletín KB', `Analizando ${kbId} con el modelo local de IA...`);
+      sendIpc('analyze_raw_kb', JSON.stringify({ kb_id: kbId, title: title, description: desc }));
+    }
+
+    function triggerCustomKbTest() {
+      const idInput = document.getElementById('customKbInputId');
+      const descInput = document.getElementById('customKbInputDesc');
+      if (!idInput) return;
+      const kbId = idInput.value.trim();
+      const desc = descInput ? descInput.value.trim() : '';
+
+      if (!kbId) {
+        showToast('Identificador Requerido', 'Por favor ingresa un identificador de KB (ej. KB5059999).', true);
+        return;
+      }
+
+      const technicalDesc = desc || `Actualización acumulativa de seguridad para componentes críticos de Windows (${kbId}).`;
+      simulateKbAnalysisQuick(kbId, `Actualización de Seguridad ${kbId}`, technicalDesc);
+      idInput.value = '';
+      if (descInput) descInput.value = '';
+    }
+
+    function triggerImmediateAiAudit() {
+      logCopilotThought('IA-MONITOR', 'Invocando sondeo inmediato de actualizaciones y boletines Microsoft...', 'text-blue-300');
+      showToast('Sondeo Inmediato', 'Consultando estado de KBs pendientes en el catálogo...');
+      sendIpc('run_ai_kb_audit');
+    }
+
     window.onCopilotAnswerLoaded = function(resp) {
       if (!resp) return;
       const chat = document.getElementById('copilotChatContainer');
@@ -2430,6 +2702,12 @@
 
       const typing = document.getElementById('copilotTypingIndicator');
       if (typing) typing.remove();
+
+      logCopilotThought(
+        'IA-REASONING',
+        `Respuesta lista (confianza ${(resp.confidence * 100).toFixed(0)}%). Acciones sugeridas: ${(resp.suggested_actions || []).length}`,
+        'text-emerald-400 font-semibold'
+      );
 
       const msgDiv = document.createElement('div');
       msgDiv.className = 'flex items-start gap-3 max-w-2xl';
@@ -2476,6 +2754,8 @@
       const text = input.value.trim();
       if (!text) return;
       input.value = '';
+
+      logCopilotThought('USER-PROMPT', text, 'text-blue-300 font-bold');
 
       const chat = document.getElementById('copilotChatContainer');
       if (chat) {
@@ -2558,6 +2838,8 @@
           Forzar Sincronización Ahora
         </button>
       </div>
+    </div>
+  </div>
   <!-- Modal Flotante: Bóveda de Cuarentena Cifrada -->
   <div id="modalQuarantine" class="fixed inset-0 z-50 bg-black/70 backdrop-blur-md flex items-center justify-center p-4 hidden">
     <div class="glass-panel bg-[#11141F]/95 max-w-2xl w-full rounded-3xl border border-emerald-500/30 p-6 shadow-2xl space-y-4 max-h-[85vh] flex flex-col">

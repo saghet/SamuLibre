@@ -510,7 +510,7 @@ impl CyberCopilotEngine {
                     CopilotActionPill {
                         label: "Reglas de Firewall".to_string(),
                         action_type: "navigate".to_string(),
-                        payload: "view-patches".to_string(),
+                        payload: "view-patcher".to_string(),
                     },
                 ],
                 timestamp,
@@ -568,7 +568,37 @@ impl CyberCopilotEngine {
             };
         }
 
-        // 5. Consultas sobre Parcheo Virtual, CVEs y KBs
+        // 5. Consultas específicas sobre Auto-Pilot y Parchado Autónomo de KBs Futuros
+        if q.contains("autopilot") || q.contains("auto-pilot") || q.contains("autonomo") || q.contains("autónomo") || q.contains("futuro") {
+            return CopilotResponse {
+                answer: format!(
+                    "⚡ **Parchado Autónomo de Nuevos KBs (IA Auto-Pilot):**\n\n\
+                    El modo Auto-Pilot de SamuLibre vigila permanentemente las actualizaciones y boletines de seguridad de Microsoft.\n\n\
+                    - **Detección Temprana:** Al publicarse un nuevo KB o CVE crítico, la IA local extrae los componentes afectados y vectores de ataque.\n\
+                    - **Síntesis Segura:** Genera reglas de contención en Windows Filtering Platform (WFP) o directivas de registro.\n\
+                    - **Guardrails en Rust (Zero BSOD):** Verifica formalmente que la mitigación sea inocua y no toque servicios críticos como RPCSS o LSASS.\n\
+                    - **Auto-Parchado:** Si Auto-Pilot está activo, la regla se inyecta inmediatamente sin reiniciar el equipo.\n\
+                    - **Retiro Automático:** Cuando Windows Update instala el parche oficial en el futuro, SamuLibre retira la regla virtual limpiamente.",
+                ),
+                confidence: 0.98,
+                risk_level: Severity::Low,
+                suggested_actions: vec![
+                    CopilotActionPill {
+                        label: "Ver Parches Virtuales".to_string(),
+                        action_type: "navigate".to_string(),
+                        payload: "view-patcher".to_string(),
+                    },
+                    CopilotActionPill {
+                        label: "¿Qué parches virtuales están activos?".to_string(),
+                        action_type: "ask".to_string(),
+                        payload: "¿Qué parches virtuales están activos?".to_string(),
+                    },
+                ],
+                timestamp,
+            };
+        }
+
+        // 6. Consultas sobre Parcheo Virtual, CVEs y KBs
         if q.contains("cve") || q.contains("kb") || q.contains("parche") || q.contains("virtual") || q.contains("vulnerabilidad") {
             return CopilotResponse {
                 answer: format!(
@@ -584,12 +614,12 @@ impl CyberCopilotEngine {
                     CopilotActionPill {
                         label: "Gestionar Parches Virtuales".to_string(),
                         action_type: "navigate".to_string(),
-                        payload: "view-patches".to_string(),
+                        payload: "view-patcher".to_string(),
                     },
                     CopilotActionPill {
-                        label: "Monitor de KBs con IA".to_string(),
-                        action_type: "navigate".to_string(),
-                        payload: "view-kb-monitor".to_string(),
+                        label: "¿Cómo funciona el Auto-Pilot?".to_string(),
+                        action_type: "ask".to_string(),
+                        payload: "Cómo funciona el Auto-Pilot de KBs".to_string(),
                     },
                 ],
                 timestamp,
@@ -791,5 +821,17 @@ mod tests {
 
         let persist_resp = copilot.ask("revisa la persistencia y autorun", &telemetry);
         assert!(persist_resp.answer.contains("Cazador de Persistencia"));
+    }
+
+    #[test]
+    fn test_cyber_copilot_autopilot_query() {
+        let copilot = CyberCopilotEngine::new();
+        let telemetry = CopilotSystemTelemetry::default();
+
+        let resp = copilot.ask("¿cómo funciona el autopilot de KBs futuros?", &telemetry);
+        assert_eq!(resp.risk_level, Severity::Low);
+        assert!(resp.answer.contains("Parchado Autónomo de Nuevos KBs"));
+        assert!(resp.answer.contains("Guardrails en Rust"));
+        assert!(resp.suggested_actions.iter().any(|a| a.payload == "view-patcher"));
     }
 }
