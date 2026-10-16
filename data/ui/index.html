@@ -336,6 +336,7 @@
             <div id="sentinelAutoPatchSwitch" class="apple-switch active cursor-pointer" onclick="toggleSentinelAutoPatch(this)">
               <div class="apple-switch-thumb"></div>
             </div>
+          </div>
         </div>
 
         <!-- Tarjeta de Monitoreo de KBs y Analizador con IA Local -->
@@ -1219,6 +1220,24 @@
       if (activeNav) {
         activeNav.classList.add('bg-white/10', 'text-white');
         activeNav.classList.remove('text-gray-400');
+      }
+
+      if (tabId === 'patcher') {
+        sendIpc('get_patch_rules');
+      } else if (tabId === 'shield') {
+        sendIpc('get_shield_status');
+      } else if (tabId === 'persistence') {
+        sendIpc('get_persistence_entries');
+      } else if (tabId === 'network') {
+        sendIpc('get_network_sockets');
+      } else if (tabId === 'vpn') {
+        sendIpc('get_vpn_info');
+        sendIpc('refresh_vpn_pings');
+      } else if (tabId === 'audit') {
+        sendIpc('run_internal_audit');
+      } else if (tabId === 'scanner') {
+        sendIpc('get_update_history');
+        sendIpc('get_quarantine_records');
       }
     }
 
@@ -2796,6 +2815,7 @@
       initDropZone();
       setTimeout(() => {
         sendIpc('get_patch_rules');
+        sendIpc('get_shield_status');
         sendIpc('get_vpn_info');
         sendIpc('get_update_history');
         sendIpc('run_internal_audit');
