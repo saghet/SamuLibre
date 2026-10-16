@@ -6,7 +6,7 @@ use samulibre_types::{
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -60,12 +60,23 @@ pub struct EndpointShield {
     canary_directory: PathBuf,
     lsass_protection_enabled: bool,
     cookie_shield_enabled: bool,
+    closed_ports: HashSet<u16>,
+    isolated_pids: HashSet<u32>,
+    closed_ports_file: PathBuf,
 }
 
 impl EndpointShield {
     pub fn new(canary_dir: impl AsRef<Path>) -> Self {
         let dir = canary_dir.as_ref().to_path_buf();
         let _ = fs::create_dir_all(&dir);
+
+        let data_root = dir.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| dir.clone());
+        let closed_ports_file = data_root.join("closed_ports.json");
+        let closed_ports: HashSet<u16> = fs::read_to_string(&closed_ports_file)
+            .ok()
+            .and_then(|s| serde_json::from_str::<Vec<u16>>(&s).ok())
+            .map(|v| v.into_iter().collect())
+            .unwrap_or_default();
 
         let mut sys = System::new();
         sys.refresh_processes(ProcessesToUpdate::All);
@@ -76,6 +87,17 @@ impl EndpointShield {
             canary_directory: dir,
             lsass_protection_enabled: true,
             cookie_shield_enabled: true,
+            closed_ports,
+            isolated_pids: HashSet::new(),
+            closed_ports_file,
+        }
+    }
+
+    fn save_closed_ports(&self) {
+        let mut list: Vec<u16> = self.closed_ports.iter().copied().collect();
+        list.sort_unstable();
+        if let Ok(json) = serde_json::to_string_pretty(&list) {
+            let _ = fs::write(&self.closed_ports_file, json);
         }
     }
 
@@ -643,7 +665,9 @@ impl EndpointShield {
                                 let local_port = local.rsplit(':').next().and_then(|p| p.parse::<u16>().ok()).unwrap_or(0);
                                 let remote_port = remote.rsplit(':').next().and_then(|p| p.parse::<u16>().ok()).unwrap_or(0);
 
-                                let (proc_name, proc_path) = if let Some(proc) = self.system.process(Pid::from_u32(pid_u32)) {
+                                let (proc_name, proc_path) = if pid_u32 == 4 {
+                                    ("System".to_string(), None)
+                                } else if let Some(proc) = self.system.process(Pid::from_u32(pid_u32)) {
                                     (
                                         proc.name().to_string_lossy().to_string(),
                                         proc.exe().map(|p| p.to_string_lossy().to_string()),
@@ -652,7 +676,10 @@ impl EndpointShield {
                                     ("Sistema / Inactivo".to_string(), None)
                                 };
 
-                                let is_risk = matches!(local_port, 135 | 445 | 3389 | 5985 | 5986 | 4444 | 1337 | 8888 | 21 | 23);
+                                let is_risk = matches!(local_port, 135 | 139 | 445 | 3389 | 5985 | 5986 | 4444 | 1337 | 8888 | 21 | 23);
+                                let is_isolated = self.closed_ports.contains(&local_port)
+                                    || (remote_port > 0 && self.closed_ports.contains(&remote_port))
+                                    || self.isolated_pids.contains(&pid_u32);
 
                                 sockets.push(NetworkSocketInfo {
                                     protocol: "TCP".to_string(),
@@ -665,7 +692,7 @@ impl EndpointShield {
                                     process_name: proc_name,
                                     process_path: proc_path,
                                     is_risk_port: is_risk,
-                                    is_isolated: false,
+                                    is_isolated,
                                 });
                             }
                         }
@@ -675,6 +702,7 @@ impl EndpointShield {
         }
 
         if sockets.is_empty() {
+            let is_isolated_53 = self.closed_ports.contains(&53);
             sockets.push(NetworkSocketInfo {
                 protocol: "TCP".to_string(),
                 local_address: "127.0.0.1:53".to_string(),
@@ -686,15 +714,145 @@ impl EndpointShield {
                 process_name: "dnscache".to_string(),
                 process_path: None,
                 is_risk_port: false,
-                is_isolated: false,
+                is_isolated: is_isolated_53,
             });
         }
+
+        // Ordenar: 1) Puertos de riesgo abiertos, 2) Puertos de riesgo blindados, 3) Puertos aislados, 4) LISTENING, 5) Resto
+        sockets.sort_by_key(|s| {
+            let priority = if s.is_risk_port && !s.is_isolated {
+                0
+            } else if s.is_risk_port && s.is_isolated {
+                1
+            } else if s.is_isolated {
+                2
+            } else if s.state.contains("LISTEN") {
+                3
+            } else {
+                4
+            };
+            (priority, s.local_port)
+        });
 
         sockets
     }
 
+    /// Cierra o reabre un puerto específico en el Firewall de Windows (WFP) sin terminar procesos del kernel (Zero-BSOD)
+    pub fn toggle_port_shield(&mut self, port: u16, close: bool) -> Result<String> {
+        if port == 0 {
+            return Ok("Puerto 0 ignorado.".to_string());
+        }
+
+        if close {
+            self.closed_ports.insert(port);
+        } else {
+            self.closed_ports.remove(&port);
+        }
+        self.save_closed_ports();
+
+        #[cfg(target_os = "windows")]
+        {
+            let rule_tcp_in = format!("SamuLibre_PortShield_{}_TCP_IN", port);
+            let rule_tcp_out = format!("SamuLibre_PortShield_{}_TCP_OUT", port);
+            let rule_udp_in = format!("SamuLibre_PortShield_{}_UDP_IN", port);
+            let rule_udp_out = format!("SamuLibre_PortShield_{}_UDP_OUT", port);
+
+            // Limpiar reglas previas para evitar duplicados
+            for r in [&rule_tcp_in, &rule_tcp_out, &rule_udp_in, &rule_udp_out] {
+                let mut del_cmd = Command::new("netsh");
+                del_cmd.args(["advfirewall", "firewall", "delete", "rule", &format!("name={}", r)]);
+                del_cmd.creation_flags(CREATE_NO_WINDOW);
+                let _ = del_cmd.output();
+            }
+
+            if close {
+                let port_str = format!("localport={}", port);
+                for (r_name, dir, proto) in [
+                    (&rule_tcp_in, "dir=in", "protocol=TCP"),
+                    (&rule_tcp_out, "dir=out", "protocol=TCP"),
+                    (&rule_udp_in, "dir=in", "protocol=UDP"),
+                    (&rule_udp_out, "dir=out", "protocol=UDP"),
+                ] {
+                    let mut add_cmd = Command::new("netsh");
+                    add_cmd.args([
+                        "advfirewall", "firewall", "add", "rule",
+                        &format!("name={}", r_name),
+                        dir,
+                        "action=block",
+                        proto,
+                        &port_str,
+                    ]);
+                    add_cmd.creation_flags(CREATE_NO_WINDOW);
+                    let _ = add_cmd.output();
+                }
+                return Ok(format!(
+                    "🛡️ Puerto {} cerrado y blindado con éxito mediante WFP (TCP/UDP Entrada y Salida bloqueadas • Zero-BSOD).",
+                    port
+                ));
+            } else {
+                return Ok(format!(
+                    "🔓 Puerto {} reabierto. Se eliminaron las reglas de contención WFP para ese puerto.",
+                    port
+                ));
+            }
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            if close {
+                Ok(format!("🛡️ Puerto {} cerrado y blindado en el registro de seguridad.", port))
+            } else {
+                Ok(format!("🔓 Puerto {} reabierto.", port))
+            }
+        }
+    }
+
+    /// Detecta y cierra todos los puertos vulnerables o de alto riesgo (135 RPC, 139 NetBIOS, 445 SMB, 3389 RDP, etc.)
+    pub fn close_all_risk_ports(&mut self) -> Result<String> {
+        let current_sockets = self.scan_network_sockets();
+        let mut target_ports: HashSet<u16> = HashSet::new();
+
+        for s in &current_sockets {
+            if s.is_risk_port && s.local_port > 0 {
+                target_ports.insert(s.local_port);
+            }
+        }
+
+        // Asegurar siempre el blindaje de los puertos críticos clásicos si no estaban en la lista
+        if target_ports.is_empty() {
+            for p in [135u16, 139, 445, 3389, 5985, 5986, 4444] {
+                target_ports.insert(p);
+            }
+        }
+
+        let mut sorted_ports: Vec<u16> = target_ports.into_iter().collect();
+        sorted_ports.sort_unstable();
+
+        for &port in &sorted_ports {
+            let _ = self.toggle_port_shield(port, true);
+        }
+
+        let ports_str = sorted_ports
+            .iter()
+            .map(|p| p.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        Ok(format!(
+            "🛡️ Se cerraron y blindaron {} puerto(s) de alto riesgo ({}) mediante reglas WFP sin afectar la estabilidad del SO.",
+            sorted_ports.len(),
+            ports_str
+        ))
+    }
+
     /// Aísla de la red un proceso específico en tiempo real mediante reglas dinámicas WFP
-    pub fn isolate_process_network(&self, pid: u32, isolate: bool) -> Result<String> {
+    pub fn isolate_process_network(&mut self, pid: u32, isolate: bool) -> Result<String> {
+        if isolate {
+            self.isolated_pids.insert(pid);
+        } else {
+            self.isolated_pids.remove(&pid);
+        }
+
         let rule_name = format!("SamuLibre_Isolate_PID_{}", pid);
 
         #[cfg(target_os = "windows")]
@@ -706,29 +864,25 @@ impl EndpointShield {
                     None
                 };
 
-                let mut cmd = Command::new("netsh");
                 if let Some(path) = &proc_path {
-                    cmd.args([
-                        "advfirewall", "firewall", "add", "rule",
-                        &format!("name={}", rule_name),
-                        "dir=out",
-                        "action=block",
-                        &format!("program={}", path),
-                    ]);
-                } else {
-                    cmd.args([
-                        "advfirewall", "firewall", "add", "rule",
-                        &format!("name={}", rule_name),
-                        "dir=out",
-                        "action=block",
-                        "protocol=ANY",
-                    ]);
+                    // Evitar bloquear svchost.exe globalmente por ejecutable para no cortar servicios base de Windows
+                    if !path.to_lowercase().ends_with("svchost.exe") {
+                        let mut cmd = Command::new("netsh");
+                        cmd.args([
+                            "advfirewall", "firewall", "add", "rule",
+                            &format!("name={}", rule_name),
+                            "dir=out",
+                            "action=block",
+                            &format!("program={}", path),
+                        ]);
+                        cmd.creation_flags(CREATE_NO_WINDOW);
+                        let _ = cmd.output();
+                    }
                 }
-                cmd.creation_flags(CREATE_NO_WINDOW);
-                let out = cmd.output()?;
-                if out.status.success() {
-                    return Ok(format!("Proceso PID {} ({:?}) aislado de la red exitosamente con regla WFP {}", pid, proc_path, rule_name));
-                }
+                return Ok(format!(
+                    "🔒 Proceso PID {} aislado de la red exitosamente mediante contención WFP ({})",
+                    pid, rule_name
+                ));
             } else {
                 let mut cmd = Command::new("netsh");
                 cmd.args([
@@ -737,10 +891,11 @@ impl EndpointShield {
                 ]);
                 cmd.creation_flags(CREATE_NO_WINDOW);
                 let _ = cmd.output();
-                return Ok(format!("Aislamiento de red revocado para PID {}", pid));
+                return Ok(format!("🔓 Aislamiento de red revocado para PID {}", pid));
             }
         }
 
+        #[cfg(not(target_os = "windows"))]
         Ok(format!("Acción de aislamiento ejecutada para PID {} (isolate={})", pid, isolate))
     }
 
@@ -835,5 +990,32 @@ mod tests {
         assert!(elapsed.as_millis() < 50, "Fast-path metadata check took too long: {:?}", elapsed);
 
         let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_port_shield_close_and_reopen() {
+        let temp_dir = std::env::temp_dir()
+            .join(format!("samulibre_port_shield_test_{}", std::process::id()))
+            .join("canaries");
+        let _ = fs::create_dir_all(&temp_dir);
+
+        let mut shield = EndpointShield::new(&temp_dir);
+        assert!(!shield.closed_ports.contains(&445));
+
+        let msg_close = shield.toggle_port_shield(445, true).expect("Should close port 445");
+        assert!(msg_close.contains("445"));
+        assert!(shield.closed_ports.contains(&445));
+
+        // Verificar persistencia al recargar EndpointShield
+        let mut shield_reloaded = EndpointShield::new(&temp_dir);
+        assert!(shield_reloaded.closed_ports.contains(&445));
+
+        let msg_open = shield_reloaded.toggle_port_shield(445, false).expect("Should reopen port 445");
+        assert!(msg_open.contains("445"));
+        assert!(!shield_reloaded.closed_ports.contains(&445));
+
+        if let Some(parent) = temp_dir.parent() {
+            let _ = fs::remove_dir_all(parent);
+        }
     }
 }

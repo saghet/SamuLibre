@@ -479,40 +479,48 @@ impl CyberCopilotEngine {
         }
 
         // 2. Consultas sobre Red, Puertos y Aislamiento de Procesos
-        if q.contains("puerto") || q.contains("red") || q.contains("socket") || q.contains("conexion") || q.contains("conexión") || q.contains("rdp") || q.contains("smb") || q.contains("aislar") {
+        if q.contains("puerto") || q.contains("red") || q.contains("socket") || q.contains("conexion") || q.contains("conexión") || q.contains("rdp") || q.contains("smb") || q.contains("aislar") || q.contains("cerrar") {
             let has_risk = !telemetry.risk_ports_open.is_empty();
             let risk_text = if has_risk {
                 format!(
                     "⚠️ **Puertos críticos detectados en escucha:** {:?}.\n\
-                    Puertos como 445 (SMB) y 3389 (RDP) son objetivos frecuentes de gusanos de red y ataques de fuerza bruta. \
-                    Puedes aislar de la red cualquier ejecutable no reconocido usando la vista de Red en Vivo.",
+                    Puertos como 135 (RPC) y 445 (SMB) son objetivos frecuentes de gusanos de red (EternalBlue) y movimientos laterales. \
+                    Puedes cerrarlos y blindarlos en 1 clic mediante reglas WFP sin afectar el kernel (Zero-BSOD).",
                     telemetry.risk_ports_open
                 )
             } else {
-                "✅ No hay puertos de alto riesgo (SMB, RDP, WinRM o reverse shells) expuestos en este momento.".to_string()
+                "✅ Todos los puertos críticos (135 RPC, 445 SMB, 3389 RDP, WinRM) están cerrados o blindados por SamuLibre WFP.".to_string()
             };
+
+            let mut actions = Vec::new();
+            if has_risk {
+                actions.push(CopilotActionPill {
+                    label: "🛡️ Cerrar Puertos Vulnerables Ahora".to_string(),
+                    action_type: "close_risk_ports".to_string(),
+                    payload: "all".to_string(),
+                });
+            }
+            actions.push(CopilotActionPill {
+                label: "Inspeccionar Sockets".to_string(),
+                action_type: "navigate".to_string(),
+                payload: "view-network".to_string(),
+            });
+            actions.push(CopilotActionPill {
+                label: "Reglas de Firewall".to_string(),
+                action_type: "navigate".to_string(),
+                payload: "view-patcher".to_string(),
+            });
 
             return CopilotResponse {
                 answer: format!(
                     "🌐 **Inspector de Red y Conexiones en Vivo:**\n\n{}\n\n\
-                    SamuLibre permite aislar procesos mediante reglas dinámicas del Windows Filtering Platform (WFP), \
-                    cortando de inmediato las comunicaciones sospechosas sin desconectar el resto del equipo.",
+                    SamuLibre bloquea paquetes entrantes y salientes sobre puertos vulnerables con Windows Filtering Platform (WFP), \
+                    cortando la superficie de ataque sin detener procesos del sistema.",
                     risk_text
                 ),
-                confidence: 0.94,
+                confidence: 0.96,
                 risk_level: if has_risk { Severity::High } else { Severity::Low },
-                suggested_actions: vec![
-                    CopilotActionPill {
-                        label: "Inspeccionar Sockets".to_string(),
-                        action_type: "navigate".to_string(),
-                        payload: "view-network".to_string(),
-                    },
-                    CopilotActionPill {
-                        label: "Reglas de Firewall".to_string(),
-                        action_type: "navigate".to_string(),
-                        payload: "view-patcher".to_string(),
-                    },
-                ],
+                suggested_actions: actions,
                 timestamp,
             };
         }

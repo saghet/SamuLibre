@@ -1135,6 +1135,68 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                         });
                     }
 
+                    "toggle_port_shield" => {
+                        let payload_str = msg.payload.unwrap_or_default();
+                        let (port, close) = if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&payload_str) {
+                            (
+                                parsed["port"].as_u64().unwrap_or(0) as u16,
+                                parsed["close"].as_bool().unwrap_or(true),
+                            )
+                        } else if let Some((p, cl)) = payload_str.split_once('|') {
+                            (p.parse::<u16>().unwrap_or(0), cl == "true" || cl == "1")
+                        } else {
+                            (payload_str.parse::<u16>().unwrap_or(0), true)
+                        };
+
+                        let core_cloned = Arc::clone(&core_for_ipc);
+                        let proxy_cloned = proxy_for_ipc.clone();
+                        std::thread::spawn(move || {
+                            if let Ok(c) = core_cloned.lock() {
+                                match c.toggle_port_shield(port, close) {
+                                    Ok(msg) => {
+                                        let _ = proxy_cloned.send_event(CustomUserEvent::RealTimeAlert {
+                                            title: if close { "Puerto Cerrado y Blindado".to_string() } else { "Puerto Reabierto".to_string() },
+                                            details: msg,
+                                        });
+                                    }
+                                    Err(e) => {
+                                        let _ = proxy_cloned.send_event(CustomUserEvent::RealTimeAlert {
+                                            title: "Error Control de Puerto".to_string(),
+                                            details: format!("{}", e),
+                                        });
+                                    }
+                                }
+                                let sockets = c.get_network_sockets();
+                                let _ = proxy_cloned.send_event(CustomUserEvent::NetworkSocketsLoaded { sockets });
+                            }
+                        });
+                    }
+
+                    "close_all_risk_ports" => {
+                        let core_cloned = Arc::clone(&core_for_ipc);
+                        let proxy_cloned = proxy_for_ipc.clone();
+                        std::thread::spawn(move || {
+                            if let Ok(c) = core_cloned.lock() {
+                                match c.close_all_risk_ports() {
+                                    Ok(msg) => {
+                                        let _ = proxy_cloned.send_event(CustomUserEvent::RealTimeAlert {
+                                            title: "Blindaje de Puertos Vulnerables".to_string(),
+                                            details: msg,
+                                        });
+                                    }
+                                    Err(e) => {
+                                        let _ = proxy_cloned.send_event(CustomUserEvent::RealTimeAlert {
+                                            title: "Error de Blindaje".to_string(),
+                                            details: format!("{}", e),
+                                        });
+                                    }
+                                }
+                                let sockets = c.get_network_sockets();
+                                let _ = proxy_cloned.send_event(CustomUserEvent::NetworkSocketsLoaded { sockets });
+                            }
+                        });
+                    }
+
                     "ask_copilot" => {
                         let query = msg.payload.unwrap_or_default();
                         let core_cloned = Arc::clone(&core_for_ipc);

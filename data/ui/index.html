@@ -934,16 +934,21 @@
 
       <!-- ================= VISTA: RED EN VIVO (LIVE NETWORK & WFP) ================= -->
       <div id="view-network" class="view-content hidden space-y-6">
-        <div class="flex items-center justify-between">
+        <div class="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 class="text-2xl font-semibold tracking-tight text-white flex items-center gap-2">
               <span>🌐</span> Inspector de Red en Vivo
             </h2>
-            <p class="text-xs text-gray-400">Telemetría de sockets TCP en tiempo real con atribución de proceso y corte de red con WFP.</p>
+            <p class="text-xs text-gray-400">Telemetría de sockets TCP en tiempo real con atribución de proceso y blindaje de puertos vulnerables con WFP.</p>
           </div>
-          <button onclick="refreshNetworkSockets()" class="px-4 py-2 bg-white/10 hover:bg-white/15 active:scale-95 text-xs font-semibold rounded-xl border border-white/10 flex items-center gap-2 transition-all">
-            <span>🔄</span> Refrescar Sockets
-          </button>
+          <div class="flex items-center gap-2.5">
+            <button id="btnCloseAllRiskPorts" onclick="closeAllVulnerablePorts()" class="px-4 py-2 bg-red-500/20 hover:bg-red-500/30 active:scale-95 text-red-200 border border-red-500/40 text-xs font-semibold rounded-xl flex items-center gap-2 transition-all shadow-lg shadow-red-500/10">
+              <span>🛡️</span> <span id="btnCloseAllRiskPortsText">Cerrar Puertos Vulnerables</span>
+            </button>
+            <button onclick="refreshNetworkSockets()" class="px-3.5 py-2 bg-white/10 hover:bg-white/15 active:scale-95 text-xs font-semibold rounded-xl border border-white/10 flex items-center gap-2 transition-all">
+              <span>🔄</span> Refrescar Sockets
+            </button>
+          </div>
         </div>
 
         <!-- Métricas de Red -->
@@ -959,7 +964,10 @@
             <span class="text-[10px] text-emerald-300">Servicios locales</span>
           </div>
           <div class="glass-card p-4 rounded-2xl">
-            <span class="text-[11px] text-gray-400 font-medium">Puertos de Alto Riesgo</span>
+            <div class="flex items-center justify-between">
+              <span class="text-[11px] text-gray-400 font-medium">Puertos de Alto Riesgo</span>
+              <span id="netShieldedBadge" class="hidden text-[9px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full font-mono">WFP Activo</span>
+            </div>
             <p id="netRiskCount" class="text-2xl font-bold text-emerald-400 mt-1">0</p>
             <span id="netRiskSub" class="text-[10px] text-emerald-300">RDP, SMB, WinRM asegurados</span>
           </div>
@@ -973,14 +981,14 @@
           </div>
           <div class="overflow-x-auto max-h-[460px] overflow-y-auto">
             <table class="w-full text-left text-xs">
-              <thead class="text-[11px] text-gray-400 uppercase border-b border-white/5 sticky top-0 bg-[#0B0D13]">
+              <thead class="text-[10px] text-gray-400 uppercase border-b border-white/5 sticky top-0 bg-[#0B0D13] z-10">
                 <tr>
-                  <th class="py-2 px-3">Proto</th>
-                  <th class="py-2 px-3">Dirección Local</th>
-                  <th class="py-2 px-3">Dirección Remota</th>
-                  <th class="py-2 px-3">Estado</th>
-                  <th class="py-2 px-3">Proceso & PID</th>
-                  <th class="py-2 px-3 text-right">Aislamiento WFP</th>
+                  <th class="py-2 px-2">Proto</th>
+                  <th class="py-2 px-2.5">Dirección Local & Puerto</th>
+                  <th class="py-2 px-2.5">Dirección Remota</th>
+                  <th class="py-2 px-2">Estado</th>
+                  <th class="py-2 px-2.5">Proceso & PID</th>
+                  <th class="py-2 px-2.5 text-right">Blindaje WFP / Puerto</th>
                 </tr>
               </thead>
               <tbody id="networkTableBody" class="divide-y divide-white/5 font-mono">
@@ -2559,28 +2567,56 @@
       const listenEl = document.getElementById('netListenCount');
       const riskEl = document.getElementById('netRiskCount');
       const riskSub = document.getElementById('netRiskSub');
+      const shieldedBadge = document.getElementById('netShieldedBadge');
+      const btnCloseAll = document.getElementById('btnCloseAllRiskPorts');
+      const btnCloseAllText = document.getElementById('btnCloseAllRiskPortsText');
       const countTable = document.getElementById('netTableCount');
       const tbody = document.getElementById('networkTableBody');
       const navBadge = document.getElementById('networkBadge');
 
       const total = cachedNetworkSockets.length;
       const listenCount = cachedNetworkSockets.filter(s => s.state && s.state.includes('LISTEN')).length;
-      const riskCount = cachedNetworkSockets.filter(s => s.is_risk_port).length;
+      const exposedRiskCount = cachedNetworkSockets.filter(s => s.is_risk_port && !s.is_isolated).length;
+      const shieldedRiskCount = cachedNetworkSockets.filter(s => s.is_risk_port && s.is_isolated).length;
 
       if (totalEl) totalEl.textContent = total;
       if (listenEl) listenEl.textContent = listenCount;
       if (riskEl) {
-        riskEl.textContent = riskCount;
-        riskEl.className = riskCount > 0 ? 'text-2xl font-bold text-red-400 mt-1 animate-pulse' : 'text-2xl font-bold text-emerald-400 mt-1';
+        riskEl.textContent = exposedRiskCount;
+        riskEl.className = exposedRiskCount > 0 ? 'text-2xl font-bold text-red-400 mt-1 animate-pulse' : 'text-2xl font-bold text-emerald-400 mt-1';
       }
       if (riskSub) {
-        riskSub.textContent = riskCount > 0 ? `${riskCount} puerto(s) de alto riesgo expuesto(s)` : 'RDP, SMB, WinRM asegurados';
-        riskSub.className = riskCount > 0 ? 'text-[10px] text-red-300 font-medium' : 'text-[10px] text-emerald-300 font-medium';
+        if (exposedRiskCount > 0) {
+          riskSub.textContent = `${exposedRiskCount} puerto(s) de alto riesgo expuesto(s)`;
+          riskSub.className = 'text-[10px] text-red-300 font-medium';
+        } else if (shieldedRiskCount > 0) {
+          riskSub.textContent = `${shieldedRiskCount} puerto(s) crítico(s) blindado(s) con WFP`;
+          riskSub.className = 'text-[10px] text-emerald-300 font-medium';
+        } else {
+          riskSub.textContent = 'RDP, SMB, RPC y WinRM asegurados';
+          riskSub.className = 'text-[10px] text-emerald-300 font-medium';
+        }
+      }
+      if (shieldedBadge) {
+        if (exposedRiskCount === 0 && shieldedRiskCount > 0) {
+          shieldedBadge.classList.remove('hidden');
+        } else {
+          shieldedBadge.classList.add('hidden');
+        }
+      }
+      if (btnCloseAll && btnCloseAllText) {
+        if (exposedRiskCount > 0) {
+          btnCloseAll.className = 'px-4 py-2 bg-red-500/25 hover:bg-red-500/35 active:scale-95 text-red-200 border border-red-500/50 text-xs font-semibold rounded-xl flex items-center gap-2 transition-all shadow-lg shadow-red-500/15 animate-pulse';
+          btnCloseAllText.textContent = `Cerrar ${exposedRiskCount} Puerto(s) Vulnerable(s)`;
+        } else {
+          btnCloseAll.className = 'px-4 py-2 bg-emerald-500/15 hover:bg-emerald-500/25 active:scale-95 text-emerald-300 border border-emerald-500/30 text-xs font-semibold rounded-xl flex items-center gap-2 transition-all';
+          btnCloseAllText.textContent = 'Puertos Vulnerables Blindados';
+        }
       }
       if (countTable) countTable.textContent = `${total} conexiones`;
       if (navBadge) {
-        if (riskCount > 0) {
-          navBadge.textContent = `${riskCount} Riesgo`;
+        if (exposedRiskCount > 0) {
+          navBadge.textContent = `${exposedRiskCount} Riesgo`;
           navBadge.className = 'ml-auto text-[10px] bg-red-500/20 text-red-300 px-2 py-0.5 rounded-full font-bold animate-pulse';
         } else {
           navBadge.textContent = 'Seguro';
@@ -2597,32 +2633,63 @@
 
       cachedNetworkSockets.forEach(s => {
         const tr = document.createElement('tr');
-        tr.className = s.is_risk_port
-          ? 'hover:bg-red-500/10 transition-colors bg-red-500/[0.03]'
+        const isExposedRisk = s.is_risk_port && !s.is_isolated;
+        tr.className = isExposedRisk
+          ? 'hover:bg-red-500/15 transition-colors bg-red-500/[0.06]'
+          : s.is_isolated
+          ? 'hover:bg-emerald-500/10 transition-colors bg-emerald-500/[0.04]'
           : 'hover:bg-white/[0.03] transition-colors';
 
-        const stateColor = (s.state && s.state.includes('ESTABLISHED')) ? 'text-emerald-400'
+        const stateColor = s.is_isolated ? 'text-emerald-400'
+          : (s.state && s.state.includes('ESTABLISHED')) ? 'text-emerald-400'
           : (s.state && s.state.includes('LISTEN')) ? 'text-blue-400' : 'text-gray-400';
 
-        const riskBadge = s.is_risk_port
-          ? '<span class="text-[9px] bg-red-500/20 text-red-300 px-1.5 py-0.5 rounded font-bold ml-1">ALTO RIESGO</span>'
+        const stateLabel = s.is_isolated ? 'BLINDADO (WFP)' : escapeHtml(s.state);
+
+        const statusBadge = isExposedRisk
+          ? '<span class="text-[9px] bg-red-500/25 text-red-200 border border-red-500/40 px-1.5 py-0.5 rounded font-bold ml-1.5 whitespace-nowrap">⚠ ALTO RIESGO</span>'
+          : s.is_isolated
+          ? '<span class="text-[9px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-1.5 py-0.5 rounded font-bold ml-1.5 whitespace-nowrap">🛡️ CERRADO</span>'
           : '';
 
+        let actionBtnHtml = '';
+        if (s.is_isolated) {
+          actionBtnHtml = `
+            <button onclick="togglePortShield(${s.local_port}, false)" class="px-2.5 py-1 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 rounded-lg text-[10px] font-semibold transition-all active:scale-95 whitespace-nowrap">
+              🔓 Reabrir (${s.local_port})
+            </button>
+          `;
+        } else if (s.is_risk_port || (s.state && s.state.includes('LISTEN'))) {
+          actionBtnHtml = `
+            <button onclick="togglePortShield(${s.local_port}, true)" class="px-2.5 py-1 ${s.is_risk_port ? 'bg-red-500/25 hover:bg-red-500/40 text-red-200 border-red-500/50 shadow-sm' : 'bg-white/10 hover:bg-white/20 text-gray-200 border-white/15'} border rounded-lg text-[10px] font-semibold transition-all active:scale-95 whitespace-nowrap">
+              🔒 Cerrar Puerto ${s.local_port}
+            </button>
+          `;
+        } else if (s.pid > 4) {
+          actionBtnHtml = `
+            <button onclick="isolateNetworkPid(${s.pid}, true)" class="px-2.5 py-1 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 rounded-lg text-[10px] font-semibold transition-all active:scale-95 whitespace-nowrap">
+              🔒 Aislar PID
+            </button>
+          `;
+        } else {
+          actionBtnHtml = `
+            <button onclick="togglePortShield(${s.local_port}, true)" class="px-2.5 py-1 bg-white/10 hover:bg-white/20 text-gray-300 border border-white/15 rounded-lg text-[10px] font-semibold transition-all active:scale-95 whitespace-nowrap">
+              🔒 Cerrar (${s.local_port})
+            </button>
+          `;
+        }
+
         tr.innerHTML = `
-          <td class="py-2.5 px-3 font-bold text-gray-300">${escapeHtml(s.protocol)}</td>
-          <td class="py-2.5 px-3 text-white">${escapeHtml(s.local_address)}${riskBadge}</td>
-          <td class="py-2.5 px-3 text-gray-300">${escapeHtml(s.remote_address)}</td>
-          <td class="py-2.5 px-3 ${stateColor} font-bold text-[11px]">${escapeHtml(s.state)}</td>
-          <td class="py-2.5 px-3 text-gray-200">
+          <td class="py-2.5 px-2 font-bold text-gray-300 whitespace-nowrap">${escapeHtml(s.protocol)}</td>
+          <td class="py-2.5 px-2.5 text-white whitespace-nowrap">${escapeHtml(s.local_address)}${statusBadge}</td>
+          <td class="py-2.5 px-2.5 text-gray-300 whitespace-nowrap">${escapeHtml(s.remote_address)}</td>
+          <td class="py-2.5 px-2 ${stateColor} font-bold text-[10.5px] whitespace-nowrap">${stateLabel}</td>
+          <td class="py-2.5 px-2.5 text-gray-200 whitespace-nowrap">
             <span class="font-semibold text-white">${escapeHtml(s.process_name)}</span>
             <span class="text-gray-400 text-[10px]">(${s.pid})</span>
           </td>
-          <td class="py-2.5 px-3 text-right">
-            ${s.pid > 4 ? `
-              <button onclick="isolateNetworkPid(${s.pid}, true)" class="px-2.5 py-1 bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/30 rounded-lg text-[10px] font-semibold transition-all active:scale-95">
-                🔒 Aislar Red
-              </button>
-            ` : '<span class="text-[10px] text-gray-500 font-sans">Sistema</span>'}
+          <td class="py-2.5 px-2.5 text-right whitespace-nowrap">
+            ${actionBtnHtml}
           </td>
         `;
         tbody.appendChild(tr);
@@ -2630,8 +2697,24 @@
     };
 
     function refreshNetworkSockets() {
-      showToast('Inspector de Red', 'Escaneando sockets TCP y mapeando ejecutables por PID...');
+      showToast('Inspector de Red', 'Escaneando sockets TCP y verificando blindaje WFP por puerto...');
       sendIpc('get_network_sockets');
+    }
+
+    function togglePortShield(port, close) {
+      showToast(
+        close ? `Cerrando Puerto ${port} (WFP)` : `Reabriendo Puerto ${port}`,
+        close ? `Bloqueando tráfico entrante/saliente TCP y UDP en el puerto ${port} (Zero-BSOD)...` : `Eliminando regla de bloqueo WFP para el puerto ${port}...`
+      );
+      sendIpc('toggle_port_shield', JSON.stringify({ port: Number(port), close: Boolean(close) }));
+    }
+
+    function closeAllVulnerablePorts() {
+      showToast(
+        'Blindando Puertos Vulnerables',
+        'Cerrando puertos críticos (135 RPC, 445 SMB, 139 NetBIOS, 3389 RDP...) mediante reglas WFP...'
+      );
+      sendIpc('close_all_risk_ports');
     }
 
     function isolateNetworkPid(pid, isolate) {
@@ -2735,7 +2818,9 @@
       if (resp.suggested_actions && resp.suggested_actions.length > 0) {
         actionsHtml = '<div class="pt-2 flex flex-wrap gap-2 border-t border-white/5">';
         resp.suggested_actions.forEach(a => {
-          if (a.action_type === 'navigate') {
+          if (a.action_type === 'close_risk_ports') {
+            actionsHtml += `<button onclick="closeAllVulnerablePorts(); switchTab('network');" class="px-3 py-1 bg-red-500/25 hover:bg-red-500/35 border border-red-500/50 text-xs font-semibold text-red-200 rounded-xl active:scale-95 transition-all">🛡️ ${escapeHtml(a.label)}</button>`;
+          } else if (a.action_type === 'navigate') {
             const cleanTarget = a.payload.replace('view-', '');
             actionsHtml += `<button onclick="switchTab('${cleanTarget}')" class="px-3 py-1 bg-white/10 hover:bg-white/15 border border-white/10 text-xs font-semibold text-cyan-300 rounded-xl active:scale-95 transition-all">➔ ${escapeHtml(a.label)}</button>`;
           } else if (a.action_type === 'ask') {

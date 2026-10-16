@@ -591,8 +591,24 @@ impl SamuLibreCore {
     }
 
     pub fn isolate_process_network(&self, pid: u32, isolate: bool) -> Result<String> {
-        if let Ok(shield) = self.shield.lock() {
+        if let Ok(mut shield) = self.shield.lock() {
             shield.isolate_process_network(pid, isolate)
+        } else {
+            anyhow::bail!("Error adquiriendo lock de shield")
+        }
+    }
+
+    pub fn toggle_port_shield(&self, port: u16, close: bool) -> Result<String> {
+        if let Ok(mut shield) = self.shield.lock() {
+            shield.toggle_port_shield(port, close)
+        } else {
+            anyhow::bail!("Error adquiriendo lock de shield")
+        }
+    }
+
+    pub fn close_all_risk_ports(&self) -> Result<String> {
+        if let Ok(mut shield) = self.shield.lock() {
+            shield.close_all_risk_ports()
         } else {
             anyhow::bail!("Error adquiriendo lock de shield")
         }
@@ -602,7 +618,11 @@ impl SamuLibreCore {
     pub fn ask_copilot(&self, query: &str) -> CopilotResponse {
         let shield_status = self.get_shield_status();
         let sockets = self.get_network_sockets();
-        let risk_ports: Vec<u16> = sockets.iter().filter(|s| s.is_risk_port).map(|s| s.local_port).collect();
+        let risk_ports: Vec<u16> = sockets
+            .iter()
+            .filter(|s| s.is_risk_port && !s.is_isolated)
+            .map(|s| s.local_port)
+            .collect();
         let persistence = self.get_persistence_entries();
         let suspicious_persistence = persistence.iter().filter(|p| p.status == FileScanStatus::Suspicious).count();
         let rules = self.get_patch_rules();
