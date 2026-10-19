@@ -131,7 +131,12 @@ class MainActivity : AppCompatActivity() {
         return paths.any { java.io.File(it).exists() }
     }
 
-    private fun startVpnService() {
+    private var pendingVpnAction: String = SamuVpnService.ACTION_START
+    private var pendingProxyPort: Int? = null
+
+    private fun startVpnService(action: String = SamuVpnService.ACTION_START, proxyPort: Int? = null) {
+        pendingVpnAction = action
+        pendingProxyPort = proxyPort
         val intent = VpnService.prepare(this)
         if (intent != null) {
             startActivityForResult(intent, vpnRequestCode)
@@ -141,6 +146,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun stopVpnService() {
+        TorManager.stopTor(this)
         val serviceIntent = Intent(this, SamuVpnService::class.java).apply {
             action = SamuVpnService.ACTION_STOP
         }
@@ -151,7 +157,10 @@ class MainActivity : AppCompatActivity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == vpnRequestCode && resultCode == Activity.RESULT_OK) {
             val serviceIntent = Intent(this, SamuVpnService::class.java).apply {
-                action = SamuVpnService.ACTION_START
+                action = pendingVpnAction
+                if (pendingProxyPort != null) {
+                    putExtra(SamuVpnService.EXTRA_PROXY_PORT, pendingProxyPort!!)
+                }
             }
             startService(serviceIntent)
         }
@@ -165,7 +174,7 @@ class MainActivity : AppCompatActivity() {
                 val action = json.optString("action")
 
                 if (action == "start_vpn_shield") {
-                    runOnUiThread { startVpnService() }
+                    runOnUiThread { startVpnService(SamuVpnService.ACTION_START_SHIELD) }
                     return JSONObject().apply {
                         put("success", true)
                         put("message", "Solicitando autorización de VpnService")
@@ -173,7 +182,24 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 if (action == "connect_vpn") {
-                    runOnUiThread { startVpnService() }
+                    val payload = json.optString("payload", "CH")
+                    val countryCode = payload.split("|").firstOrNull() ?: "CH"
+
+                    runOnUiThread {
+                        startVpnService(SamuVpnService.ACTION_START_PROXY_VPN, TorManager.HTTP_PROXY_PORT)
+                        TorManager.startTorForCountry(this@MainActivity, countryCode) { ready, verifiedIp ->
+                            val vpnIntent = Intent(this@MainActivity, SamuVpnService::class.java).apply {
+                                this.action = SamuVpnService.ACTION_START_PROXY_VPN
+                                putExtra(SamuVpnService.EXTRA_PROXY_PORT, TorManager.HTTP_PROXY_PORT)
+                            }
+                            startService(vpnIntent)
+
+                            if (verifiedIp != null) {
+                                val js = "if(window.currentVpnState){ window.currentVpnState.assigned_ip = '$verifiedIp'; const el = document.getElementById('vpnMetricIp'); if(el) el.textContent = '$verifiedIp'; }"
+                                webView.evaluateJavascript(js, null)
+                            }
+                        }
+                    }
                     return NativeBridge.dispatchIpc(jsonString)
                 }
 

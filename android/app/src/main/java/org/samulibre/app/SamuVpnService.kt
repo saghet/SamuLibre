@@ -18,42 +18,73 @@ import org.json.JSONObject
 import java.io.FileInputStream
 import java.nio.ByteBuffer
 
+import android.net.ProxyInfo
+
 class SamuVpnService : VpnService() {
 
     companion object {
         const val ACTION_START = "org.samulibre.app.START_VPN"
+        const val ACTION_START_SHIELD = "org.samulibre.app.START_SHIELD"
+        const val ACTION_START_PROXY_VPN = "org.samulibre.app.START_PROXY_VPN"
         const val ACTION_STOP = "org.samulibre.app.STOP_VPN"
+        const val EXTRA_PROXY_PORT = "extra_proxy_port"
         private const val CHANNEL_ID = "samulibre_vpn_channel"
         private const val NOTIFICATION_ID = 2001
     }
 
     private var vpnInterface: ParcelFileDescriptor? = null
     private var vpnJob: Job? = null
+    private var activeProxyPort: Int? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> stopVpn()
-            else -> startVpn()
+            ACTION_START_PROXY_VPN -> {
+                val port = intent.getIntExtra(EXTRA_PROXY_PORT, TorManager.HTTP_PROXY_PORT)
+                startVpn(port)
+            }
+            else -> startVpn(null)
         }
         return START_STICKY
     }
 
-    private fun startVpn() {
-        if (vpnInterface != null) return
+    private fun startVpn(proxyPort: Int? = null) {
+        if (vpnInterface != null && activeProxyPort == proxyPort) return
 
+        if (vpnInterface != null) {
+            vpnJob?.cancel()
+            vpnJob = null
+            try {
+                vpnInterface?.close()
+            } catch (e: Exception) {
+                // ignore
+            }
+            vpnInterface = null
+        }
+
+        activeProxyPort = proxyPort
         createNotificationChannel()
-        val notification = buildNotification()
+        val notification = buildNotification(proxyPort != null)
         startForeground(NOTIFICATION_ID, notification)
 
         try {
             val builder = Builder().apply {
                 addAddress("10.200.0.2", 32)
-                // Enrutamiento selectivo Zero-Root: Protección de vulnerabilidades y puertos de riesgo
-                // NO interceptamos DNS del sistema para garantizar el 100% de navegación nativa (Wi-Fi/5G y DoT)
                 addRoute("10.200.0.0", 24)
-                setSession("SamuLibre Zero-Root Virtual Shield")
+                setSession(if (proxyPort != null) "SamuLibre Multi-Hop Privacy VPN" else "SamuLibre Zero-Root Virtual Shield")
                 setMtu(1500)
                 setBlocking(false)
+
+                // Enrutamiento de proxy HTTP/HTTPS nativo de Android 10+ (API 29+) para cambio real de IP
+                if (proxyPort != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    try {
+                        val proxyInfo = ProxyInfo.buildDirectProxy("127.0.0.1", proxyPort)
+                        setHttpProxy(proxyInfo)
+                    } catch (pe: Exception) {
+                        pe.printStackTrace()
+                    }
+                }
+
                 try {
                     addDisallowedApplication(packageName)
                 } catch (e: Exception) {
@@ -112,6 +143,7 @@ class SamuVpnService : VpnService() {
             // ignore
         }
         vpnInterface = null
+        activeProxyPort = null
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -135,7 +167,7 @@ class SamuVpnService : VpnService() {
         }
     }
 
-    private fun buildNotification(): Notification {
+    private fun buildNotification(isProxyVpn: Boolean): Notification {
         val pendingIntent = PendingIntent.getActivity(
             this,
             0,
@@ -143,9 +175,12 @@ class SamuVpnService : VpnService() {
             PendingIntent.FLAG_IMMUTABLE
         )
 
+        val title = if (isProxyVpn) "SamuLibre VPN Multi-Salto Activa" else "SamuLibre Shield Activo"
+        val text = if (isProxyVpn) "Enrutando tráfico cifrado con cambio real de IP internacional" else "Filtrando tráfico, puertos de riesgo y exploits ASB (Zero-Root)"
+
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("SamuLibre Shield Activo")
-            .setContentText("Filtrando tráfico, puertos de riesgo y exploits ASB (Zero-Root)")
+            .setContentTitle(title)
+            .setContentText(text)
             .setSmallIcon(android.R.drawable.ic_lock_lock)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
