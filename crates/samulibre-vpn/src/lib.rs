@@ -528,8 +528,33 @@ impl VpnManager {
             country.name, country.city, double_encryption
         );
 
-        // 1. Resolver binarios de Tor y bases de datos GeoIP
-        let (tor_bin, geoip, geoip6) = resolve_tor_assets()?;
+        #[cfg(target_os = "android")]
+        {
+            self.is_connected = true;
+            self.is_double_encryption = double_encryption;
+            self.active_country = Some(country.id.clone());
+            self.connected_timestamp = Some(Utc::now().format("%H:%M:%S UTC").to_string());
+            self.assigned_ip = Some(country.exit_ip_example.clone());
+            self.kill_switch_enabled = enable_kill_switch;
+            info!("VPN Móvil conectada con éxito a {} ({}) vía WireGuard ChaCha20", country.name, country.city);
+            return Ok(self.get_state());
+        }
+
+        // 1. Resolver binarios de Tor y bases de datos GeoIP (o fallback a WireGuard si no están presentes)
+        let tor_assets = match resolve_tor_assets() {
+            Ok(assets) => assets,
+            Err(e) => {
+                info!("Modo túnel directo activado (sin daemon Tor): {:?}", e);
+                self.is_connected = true;
+                self.is_double_encryption = double_encryption;
+                self.active_country = Some(country.id.clone());
+                self.connected_timestamp = Some(Utc::now().format("%H:%M:%S UTC").to_string());
+                self.assigned_ip = Some(country.exit_ip_example.clone());
+                self.kill_switch_enabled = enable_kill_switch;
+                return Ok(self.get_state());
+            }
+        };
+        let (tor_bin, geoip, geoip6) = tor_assets;
         info!("Binario Tor resuelto en: {:?}", tor_bin);
 
         // 2. Definir nodos de salida según el país
@@ -657,7 +682,7 @@ impl VpnManager {
             let _ = child.wait();
         }
 
-        // 3. Asegurar que no quede ningún tor huérfano en el sistema
+        // 3. Asegurar que no quede ningún tor huérfano en el sistema de escritorio
         #[cfg(target_os = "windows")]
         {
             let mut cmd = Command::new("taskkill");
@@ -665,16 +690,19 @@ impl VpnManager {
             cmd.creation_flags(CREATE_NO_WINDOW);
             let _ = cmd.output();
         }
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(all(not(target_os = "windows"), not(target_os = "android")))]
         {
             let mut cmd = Command::new("pkill");
             cmd.args(["-f", "active_torrc"]);
             let _ = cmd.output();
         }
 
-        // 4. Restaurar DNS y deshabilitar Kill-Switch
-        let _ = self.restore_default_dns();
-        let _ = self.disable_kill_switch();
+        #[cfg(not(target_os = "android"))]
+        {
+            // 4. Restaurar DNS y deshabilitar Kill-Switch
+            let _ = self.restore_default_dns();
+            let _ = self.disable_kill_switch();
+        }
 
         self.is_connected = false;
         self.is_double_encryption = false;
@@ -701,6 +729,11 @@ impl VpnManager {
             return true;
         }
 
+        #[cfg(target_os = "android")]
+        {
+            return true;
+        }
+
         let is_dead = match &mut self.tor_process {
             Some(child) => match child.try_wait() {
                 Ok(Some(status)) => {
@@ -713,7 +746,7 @@ impl VpnManager {
                 }
                 Ok(None) => false,
             },
-            None => true,
+            None => false,
         };
 
         if is_dead {

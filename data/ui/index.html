@@ -1294,7 +1294,7 @@
           btn.innerHTML = '🛡️ Escudo TUN Activo';
           btn.className = 'px-3.5 py-1.5 bg-emerald-400 text-black font-bold text-xs rounded-xl shadow-lg shadow-emerald-500/30 transition-all cursor-pointer animate-pulse';
         }
-        showToast('Escudo TUN Zero-Root Activado', 'Filtrando DNS malicioso (Quad9) y puertos de riesgo sin corte de Internet.');
+        showToast('Escudo TUN Zero-Root Activado', 'Protegiendo puertos y vulnerabilidades ASB con 100% de navegación nativa.');
         sendIpc('start_vpn_shield');
       } else {
         if (btn) {
@@ -1311,8 +1311,13 @@
       console.log("dispatchAndroidIpcCallback:", res.action, res);
 
       if (res.action === 'get_vpn_info' || res.action === 'connect_vpn' || res.action === 'disconnect_vpn') {
-        if (res.data && window.onVpnInfoLoaded) {
-          window.onVpnInfoLoaded(res.data.state, res.data.countries);
+        if (res.data) {
+          if (typeof window.onVpnStateUpdated === 'function') {
+            window.onVpnStateUpdated(res.data.state, res.data.countries);
+          }
+          if (typeof window.onVpnInfoLoaded === 'function' && window.onVpnInfoLoaded !== window.onVpnStateUpdated) {
+            window.onVpnInfoLoaded(res.data.state, res.data.countries);
+          }
         }
       } else if (res.action === 'refresh_vpn_pings') {
         if (res.data && window.onVpnLatenciesUpdated) {
@@ -2242,6 +2247,7 @@
     let connectingCountryCode = null;
 
     window.onVpnStateUpdated = function(state, countries) {
+      clearTimeout(window._vpnConnectingTimeout);
       isVpnConnecting = false;
       connectingCountryCode = null;
       currentVpnState = state;
@@ -2330,6 +2336,7 @@
 
       renderVpnCountries();
     };
+    window.onVpnInfoLoaded = window.onVpnStateUpdated;
 
     function getPingBadgeClass(ping) {
       const p = ping || 185;
@@ -2506,6 +2513,27 @@
         isDouble ? 'Iniciando Doble Cifrado Militar...' : 'Conectando a VPN Segura...',
         `Estableciendo túnel ${isDouble ? 'con Doble Capa WireGuard + Onion v3' : 'cifrado'} (${code})...`
       );
+
+      // Salvaguarda de 5 segundos para resetear estado si ocurre cualquier retraso
+      clearTimeout(window._vpnConnectingTimeout);
+      window._vpnConnectingTimeout = setTimeout(() => {
+        if (isVpnConnecting) {
+          isVpnConnecting = false;
+          connectingCountryCode = null;
+          renderVpnCountries();
+          if (!currentVpnState || !currentVpnState.is_connected) {
+            const dot = document.getElementById('vpnStatusDot');
+            if (dot) dot.className = 'w-3.5 h-3.5 rounded-full bg-gray-500';
+            const title = document.getElementById('vpnStatusTitle');
+            if (title) title.textContent = 'VPN Desconectada';
+            const sub = document.getElementById('vpnStatusSub');
+            if (sub) sub.textContent = 'Tu tráfico actual utiliza tu proveedor de internet local.';
+            const btnText = document.getElementById('vpnBtnText');
+            if (btnText) btnText.textContent = 'Conectar VPN';
+          }
+        }
+      }, 5000);
+
       sendIpc('connect_vpn', payload);
     }
 

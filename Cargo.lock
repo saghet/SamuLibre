@@ -2279,6 +2279,7 @@ name = "samulibre-android"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "jni",
  "once_cell",
  "samulibre-ai",
