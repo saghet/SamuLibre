@@ -68,6 +68,24 @@ pub enum MitigationStrategy {
         safe_value: String,
         revert_value: String,
     },
+    /// Filtrado dinámico de paquetes en espacio de usuario vía VpnService TUN (Android)
+    AndroidTunPacketFilter {
+        filter_name: String,
+        port: u16,
+        protocol: String,
+        block_c2_domains: Vec<String>,
+    },
+    /// Restricción o advertencia de permisos abusivos en Android
+    AndroidPermissionRevoke {
+        target_package: String,
+        permission: String,
+        rationale: String,
+    },
+    /// Blindaje contra ataques de superposición de pantalla (Anti-Overlay / Cloak & Dagger)
+    AndroidOverlayGuard {
+        target_package: String,
+        reason: String,
+    },
 }
 
 /// Definición de una regla de parchado virtual
@@ -116,6 +134,10 @@ pub enum ThreatCategory {
     SuspiciousScript,
     LinuxPrivilegeEscalation,
     LinuxRootkitInjection,
+    AndroidBankerOverlayAttempt,
+    AndroidAccessibilityAbuse,
+    AndroidMaliciousApkSideload,
+    AndroidAsbVulnerabilityDetected,
 }
 
 /// Información multiplataforma del sistema operativo
@@ -258,6 +280,62 @@ pub struct CopilotResponse {
     pub risk_level: Severity,
     pub suggested_actions: Vec<CopilotActionPill>,
     pub timestamp: String,
+}
+
+/// Estado e información de seguridad específica para dispositivos Android
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AndroidSecurityInfo {
+    pub sdk_int: u32,
+    pub release_version: String,
+    pub security_patch_level: String,
+    pub kernel_version: String,
+    pub manufacturer: String,
+    pub model: String,
+    pub is_root_detected: bool,
+    pub unpatched_asb_cves: Vec<String>,
+    pub active_tun_rules_count: usize,
+    pub overlay_shield_active: bool,
+    pub accessibility_guard_active: bool,
+}
+
+/// Información de un Boletín de Seguridad de Android (ASB)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AndroidBulletinAdvisory {
+    pub asb_id: String,
+    pub title: String,
+    pub release_date: String,
+    pub cves: Vec<String>,
+    pub affected_component: String,
+    pub min_patch_level_required: String,
+    pub virtual_mitigation_available: bool,
+}
+
+/// Acción tomada por el motor TUN de filtrado de paquetes en Android
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum TunPacketAction {
+    Accept,
+    Drop {
+        reason: String,
+        rule_id: String,
+        src_ip: String,
+        dst_ip: String,
+        port: u16,
+    },
+}
+
+/// Información de un paquete o aplicación instalada en el dispositivo Android
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AndroidPackageInfo {
+    pub package_name: String,
+    pub app_name: String,
+    pub version_name: String,
+    pub is_system_app: bool,
+    pub installer_package_name: Option<String>,
+    pub requested_permissions: Vec<String>,
+    pub has_overlay_permission: bool,
+    pub has_accessibility_service: bool,
+    pub apk_path: Option<String>,
+    pub sha256: Option<String>,
 }
 
 

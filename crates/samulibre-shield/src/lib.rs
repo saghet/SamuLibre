@@ -1,8 +1,8 @@
 use anyhow::Result;
 use chrono::Utc;
 use samulibre_types::{
-    FileScanStatus, NetworkSocketInfo, PersistenceEntry, PersistenceType, Severity, ThreatAlert,
-    ThreatCategory,
+    AndroidPackageInfo, FileScanStatus, NetworkSocketInfo, PersistenceEntry, PersistenceType,
+    Severity, ThreatAlert, ThreatCategory, TunPacketAction,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -99,6 +99,13 @@ impl EndpointShield {
         if let Ok(json) = serde_json::to_string_pretty(&list) {
             let _ = fs::write(&self.closed_ports_file, json);
         }
+    }
+
+    /// Retorna la lista ordenada de puertos actualmente cerrados y blindados por el escudo
+    pub fn get_closed_ports(&self) -> Vec<u16> {
+        let mut list: Vec<u16> = self.closed_ports.iter().copied().collect();
+        list.sort_unstable();
+        list
     }
 
     /// Despliega archivos señuelo con nombres atractivos para atraer al ransomware
@@ -915,6 +922,164 @@ impl EndpointShield {
         }
         None
     }
+
+    /// Inspecciona y filtra paquetes de red crudos capturados a través de la interfaz virtual TUN de VpnService.
+    /// Realiza decodificación Zero-Copy de encabezados IPv4, filtrado de puertos de riesgo (ej. ADB 5555)
+    /// y detección de consultas DNS hacia servidores de comando y control (C2) de troyanos bancarios.
+    pub fn process_tun_packet(&self, packet_bytes: &[u8]) -> TunPacketAction {
+        if packet_bytes.len() < 20 {
+            return TunPacketAction::Accept;
+        }
+
+        let version = packet_bytes[0] >> 4;
+        if version != 4 {
+            // Permitir tráfico IPv6 no malformado por defecto si no es IPv4
+            return TunPacketAction::Accept;
+        }
+
+        let ihl = (packet_bytes[0] & 0x0F) as usize * 4;
+        if packet_bytes.len() < ihl {
+            return TunPacketAction::Accept;
+        }
+
+        let protocol = packet_bytes[9];
+        let src_ip = format!("{}.{}.{}.{}", packet_bytes[12], packet_bytes[13], packet_bytes[14], packet_bytes[15]);
+        let dst_ip = format!("{}.{}.{}.{}", packet_bytes[16], packet_bytes[17], packet_bytes[18], packet_bytes[19]);
+
+        // Protocolo TCP (6) o UDP (17)
+        if protocol == 6 || protocol == 17 {
+            if packet_bytes.len() >= ihl + 4 {
+                let src_port = u16::from_be_bytes([packet_bytes[ihl], packet_bytes[ihl + 1]]);
+                let dst_port = u16::from_be_bytes([packet_bytes[ihl + 2], packet_bytes[ihl + 3]]);
+
+                // 1. Bloqueo de puertos vulnerables o cerrados por el usuario / regla ASB
+                let risk_ports = [5555, 8080, 9000]; // 5555 = ADB inalámbrico expuesto
+                if self.closed_ports.contains(&dst_port) || self.closed_ports.contains(&src_port) || risk_ports.contains(&dst_port) {
+                    let blocked_port = if risk_ports.contains(&dst_port) || self.closed_ports.contains(&dst_port) { dst_port } else { src_port };
+                    return TunPacketAction::Drop {
+                        reason: format!("Conexión hacia o desde puerto vulnerable bloqueada por SamuLibre: {}", blocked_port),
+                        rule_id: "VP-TUN-PORT-DEFENSE".to_string(),
+                        src_ip,
+                        dst_ip,
+                        port: blocked_port,
+                    };
+                }
+
+                // 2. Inspección profunda de DNS (UDP puerto 53)
+                if protocol == 17 && (dst_port == 53 || src_port == 53) {
+                    let payload_offset = ihl + 8; // Cabecera UDP = 8 bytes
+                    if packet_bytes.len() > payload_offset + 12 {
+                        let dns_payload = &packet_bytes[payload_offset..];
+                        let lower_dns = String::from_utf8_lossy(dns_payload).to_lowercase();
+                        let malicious_c2_indicators = [
+                            "c2-banker",
+                            "teabot",
+                            "sharkbot",
+                            "duckdns.org",
+                            "ngrok-free.app",
+                            "ngrok.io",
+                            "malware-c2-bt.local",
+                        ];
+
+                        for indicator in malicious_c2_indicators {
+                            if lower_dns.contains(indicator) {
+                                return TunPacketAction::Drop {
+                                    reason: format!("Resolución DNS maliciosa hacia Command & Control detectada: {}", indicator),
+                                    rule_id: "VP-TUN-DNS-C2-DROP".to_string(),
+                                    src_ip,
+                                    dst_ip,
+                                    port: dst_port,
+                                };
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        TunPacketAction::Accept
+    }
+
+    /// Audita las aplicaciones instaladas en el dispositivo móvil Android para detectar
+    /// troyanos bancarios, abuso de superposición de pantalla (Overlay) y servicios de accesibilidad no autorizados.
+    pub fn audit_android_packages(&self, packages: &[AndroidPackageInfo]) -> Vec<ThreatAlert> {
+        let mut alerts = Vec::new();
+
+        for pkg in packages {
+            if pkg.is_system_app {
+                continue;
+            }
+
+            // Detección de abuso de accesibilidad (Stalkerware / Bankers)
+            if pkg.has_accessibility_service {
+                alerts.push(ThreatAlert {
+                    id: Uuid::new_v4(),
+                    timestamp: Utc::now(),
+                    severity: Severity::Critical,
+                    category: ThreatCategory::AndroidAccessibilityAbuse,
+                    title: format!("¡Riesgo Crítico de Troyano Bancario en {}!", pkg.app_name),
+                    details: format!(
+                        "La aplicación '{}' ({}) tiene permisos de Accesibilidad activos. Puede interceptar pulsaciones de teclado, robar credenciales bancarias y autorizar transferencias de manera invisible.",
+                        pkg.app_name, pkg.package_name
+                    ),
+                    process_id: None,
+                    process_name: Some(pkg.package_name.clone()),
+                    target_path: pkg.apk_path.clone(),
+                    action_taken: "Alerta crítica: Se sugiere desinstalar o revocar el servicio de accesibilidad de inmediato.".to_string(),
+                });
+            }
+
+            // Detección de abuso de superposición de pantalla (Overlay / Cloak & Dagger)
+            if pkg.has_overlay_permission {
+                let is_known_trusted = pkg.package_name.starts_with("com.google.")
+                    || pkg.package_name.starts_with("org.mozilla.")
+                    || pkg.package_name.starts_with("com.android.");
+
+                if !is_known_trusted {
+                    alerts.push(ThreatAlert {
+                        id: Uuid::new_v4(),
+                        timestamp: Utc::now(),
+                        severity: Severity::High,
+                        category: ThreatCategory::AndroidBankerOverlayAttempt,
+                        title: format!("Permiso de Superposición Sospechoso: {}", pkg.app_name),
+                        details: format!(
+                            "La app '{}' ({}) tiene permiso para superponer pantallas (SYSTEM_ALERT_WINDOW). Potencial vector para falsificar interfaces de inicio de sesión bancario.",
+                            pkg.app_name, pkg.package_name
+                        ),
+                        process_id: None,
+                        process_name: Some(pkg.package_name.clone()),
+                        target_path: pkg.apk_path.clone(),
+                        action_taken: "Monitoreo activo de pantalla y advertencia preventiva emitida.".to_string(),
+                    });
+                }
+            }
+
+            // Detección de Sideloading (instaladas fuera de tiendas oficiales)
+            let is_sideloaded = pkg.installer_package_name.is_none()
+                || pkg.installer_package_name.as_deref() == Some("com.android.packageinstaller")
+                || pkg.installer_package_name.as_deref() == Some("com.google.android.packageinstaller");
+
+            if is_sideloaded && !pkg.is_system_app {
+                alerts.push(ThreatAlert {
+                    id: Uuid::new_v4(),
+                    timestamp: Utc::now(),
+                    severity: Severity::Medium,
+                    category: ThreatCategory::AndroidMaliciousApkSideload,
+                    title: format!("Aplicación Sideloaded Detectada: {}", pkg.app_name),
+                    details: format!(
+                        "La aplicación '{}' fue instalada manualmente desde un archivo APK externo o navegador web sin firma de tienda oficial.",
+                        pkg.app_name
+                    ),
+                    process_id: None,
+                    process_name: Some(pkg.package_name.clone()),
+                    target_path: pkg.apk_path.clone(),
+                    action_taken: "Inspección estática programada con motor YARA-X y ClamAV.".to_string(),
+                });
+            }
+        }
+
+        alerts
+    }
 }
 
 fn compute_sha256(path: &Path) -> Result<String> {
@@ -1017,5 +1182,108 @@ mod tests {
         if let Some(parent) = temp_dir.parent() {
             let _ = fs::remove_dir_all(parent);
         }
+    }
+
+    #[test]
+    fn test_process_tun_packet_adb_and_dns_c2() {
+        let temp_dir = std::env::temp_dir().join(format!("samulibre_tun_test_{}", std::process::id()));
+        let shield = EndpointShield::new(&temp_dir);
+
+        // 1. Paquete IPv4 TCP a puerto 5555 (ADB inalámbrico)
+        let mut adb_packet = vec![0u8; 40];
+        adb_packet[0] = 0x45; // IPv4, IHL = 5 (20 bytes)
+        adb_packet[9] = 6;    // TCP
+        adb_packet[12..16].copy_from_slice(&[192, 168, 1, 100]);
+        adb_packet[16..20].copy_from_slice(&[192, 168, 1, 50]);
+        adb_packet[20..22].copy_from_slice(&45000u16.to_be_bytes()); // src port
+        adb_packet[22..24].copy_from_slice(&5555u16.to_be_bytes());  // dst port = 5555
+
+        let action = shield.process_tun_packet(&adb_packet);
+        match action {
+            TunPacketAction::Drop { port, reason, .. } => {
+                assert_eq!(port, 5555);
+                assert!(reason.contains("5555"));
+            }
+            TunPacketAction::Accept => panic!("El paquete hacia el puerto 5555 debió ser descartado (Drop)"),
+        }
+
+        // 2. Paquete DNS malicioso hacia C2 de troyano
+        let mut dns_packet = vec![0u8; 60];
+        dns_packet[0] = 0x45;
+        dns_packet[9] = 17; // UDP
+        dns_packet[12..16].copy_from_slice(&[10, 0, 0, 2]);
+        dns_packet[16..20].copy_from_slice(&[8, 8, 8, 8]);
+        dns_packet[20..22].copy_from_slice(&54321u16.to_be_bytes());
+        dns_packet[22..24].copy_from_slice(&53u16.to_be_bytes()); // dst port = 53
+        // Simular payload DNS que contiene nombre de dominio sospechoso
+        let c2_domain = b"\x07teabot\x06c2-banker\x03com\x00";
+        dns_packet[28..28 + c2_domain.len()].copy_from_slice(c2_domain);
+
+        let dns_action = shield.process_tun_packet(&dns_packet);
+        match dns_action {
+            TunPacketAction::Drop { reason, .. } => {
+                assert!(reason.contains("Command & Control"));
+            }
+            TunPacketAction::Accept => panic!("La consulta DNS hacia C2 debió ser bloqueada"),
+        }
+
+        // 3. Paquete legítimo HTTPS a puerto 443
+        let mut https_packet = vec![0u8; 40];
+        https_packet[0] = 0x45;
+        https_packet[9] = 6;
+        https_packet[12..16].copy_from_slice(&[10, 0, 0, 2]);
+        https_packet[16..20].copy_from_slice(&[1, 1, 1, 1]);
+        https_packet[20..22].copy_from_slice(&54321u16.to_be_bytes());
+        https_packet[22..24].copy_from_slice(&443u16.to_be_bytes()); // dst port = 443
+
+        let https_action = shield.process_tun_packet(&https_packet);
+        assert_eq!(https_action, TunPacketAction::Accept);
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_audit_android_packages() {
+        let temp_dir = std::env::temp_dir().join(format!("samulibre_pkg_test_{}", std::process::id()));
+        let shield = EndpointShield::new(&temp_dir);
+
+        let sample_packages = vec![
+            AndroidPackageInfo {
+                package_name: "com.whatsapp".to_string(),
+                app_name: "WhatsApp".to_string(),
+                version_name: "2.24.1".to_string(),
+                is_system_app: false,
+                installer_package_name: Some("com.android.vending".to_string()),
+                requested_permissions: vec!["android.permission.CAMERA".to_string()],
+                has_overlay_permission: false,
+                has_accessibility_service: false,
+                apk_path: Some("/data/app/com.whatsapp/base.apk".to_string()),
+                sha256: None,
+            },
+            AndroidPackageInfo {
+                package_name: "com.malicious.banker".to_string(),
+                app_name: "Flash Player Update".to_string(),
+                version_name: "1.0".to_string(),
+                is_system_app: false,
+                installer_package_name: None, // Sideloaded
+                requested_permissions: vec![
+                    "android.permission.SYSTEM_ALERT_WINDOW".to_string(),
+                    "android.permission.BIND_ACCESSIBILITY_SERVICE".to_string(),
+                ],
+                has_overlay_permission: true,
+                has_accessibility_service: true,
+                apk_path: Some("/data/app/com.malicious.banker/base.apk".to_string()),
+                sha256: None,
+            },
+        ];
+
+        let alerts = shield.audit_android_packages(&sample_packages);
+        // Debe alertar sobre: 1) Accesibilidad crítica, 2) Superposición (Overlay), 3) Sideloading
+        assert_eq!(alerts.len(), 3);
+        assert!(alerts.iter().any(|a| a.category == ThreatCategory::AndroidAccessibilityAbuse));
+        assert!(alerts.iter().any(|a| a.category == ThreatCategory::AndroidBankerOverlayAttempt));
+        assert!(alerts.iter().any(|a| a.category == ThreatCategory::AndroidMaliciousApkSideload));
+
+        let _ = fs::remove_dir_all(&temp_dir);
     }
 }

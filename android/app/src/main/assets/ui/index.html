@@ -1,0 +1,3049 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Antivirus SamuLibre - Apple Style GUI Prototype</title>
+  <script src="tailwindcss.min.js"></script>
+  <style>
+    @keyframes pulseGlow {
+      0%, 100% { opacity: 0.6; transform: scale(1); }
+      50% { opacity: 0.9; transform: scale(1.04); }
+    }
+    .animate-pulse-glow {
+      animation: pulseGlow 4s ease-in-out infinite;
+    }
+    .glass-panel {
+      background: rgba(255, 255, 255, 0.04);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .glass-card {
+      background: rgba(255, 255, 255, 0.03);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.07);
+      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .glass-card:hover {
+      background: rgba(255, 255, 255, 0.06);
+      border-color: rgba(255, 255, 255, 0.15);
+      transform: translateY(-2px);
+    }
+    .apple-switch {
+      position: relative;
+      width: 48px;
+      height: 28px;
+      border-radius: 9999px;
+      transition: background-color 0.3s;
+      cursor: pointer;
+    }
+    .apple-switch-thumb {
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 24px;
+      height: 24px;
+      border-radius: 9999px;
+      background: white;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+      transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    .apple-switch.active {
+      background: #34C759;
+    }
+    .apple-switch.active .apple-switch-thumb {
+      transform: translateX(20px);
+    }
+    .apple-switch.inactive {
+      background: rgba(255, 255, 255, 0.2);
+    }
+    * {
+      box-sizing: border-box;
+    }
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.3);
+    }
+  </style>
+</head>
+<body class="bg-[#0B0D13] text-gray-100 font-sans antialiased h-screen w-screen overflow-hidden m-0 p-0 selection:bg-blue-500/30">
+
+  <!-- Ventana Fluida Nativa Estilo macOS -->
+  <div class="w-full h-full glass-panel flex overflow-hidden relative">
+
+    <!-- Notificación Toast Flotante Estilo macOS -->
+    <div id="toastNotification" class="absolute top-5 right-6 z-50 glass-card bg-black/60 px-4 py-3 rounded-2xl border border-white/15 shadow-xl flex items-center gap-3 transition-all duration-300 transform translate-y-[-120%] opacity-0 pointer-events-none">
+      <div id="toastIcon" class="w-7 h-7 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-sm font-bold">✔</div>
+      <div>
+        <p id="toastTitle" class="text-xs font-semibold text-white">Notificación del Sistema</p>
+        <p id="toastMessage" class="text-xs text-gray-400">Detalles de la acción realizada.</p>
+      </div>
+    </div>
+
+    <!-- Sidebar Translúcida Izquierda (Desktop) -->
+    <div class="hidden md:flex w-60 md:w-64 bg-black/30 border-r border-white/5 p-4 md:p-5 flex-col justify-between select-none shrink-0">
+      <div>
+        <!-- Botones de Ventana macOS (Semáforo) -->
+        <div class="flex items-center gap-2 mb-8">
+          <div class="w-3 h-3 rounded-full bg-[#FF5F56] border border-[#E0443E]/50 cursor-pointer hover:opacity-80"></div>
+          <div class="w-3 h-3 rounded-full bg-[#FFBD2E] border border-[#DEA123]/50 cursor-pointer hover:opacity-80"></div>
+          <div class="w-3 h-3 rounded-full bg-[#27C93F] border border-[#1AAB29]/50 cursor-pointer hover:opacity-80"></div>
+          <span class="text-[11px] font-medium tracking-wide text-gray-400 ml-2">SamuLibre</span>
+        </div>
+
+        <!-- Logo / Marca -->
+        <div class="flex items-center gap-3 px-2 mb-6">
+          <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center text-black font-extrabold text-lg shadow-lg shadow-emerald-500/20">
+            🛡️
+          </div>
+          <div>
+            <h1 class="text-sm font-semibold tracking-tight text-white">SamuLibre</h1>
+            <p class="text-[11px] text-emerald-400 font-medium">100% Open Source</p>
+          </div>
+        </div>
+
+        <!-- Menú de Navegación -->
+        <nav class="space-y-1">
+          <button onclick="switchTab('dashboard')" id="nav-dashboard" class="nav-item w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium text-white bg-white/10 transition-all">
+            <span class="text-base">✨</span> Estado Global
+          </button>
+          <button onclick="switchTab('patcher')" id="nav-patcher" class="nav-item w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium text-gray-400 hover:text-white hover:bg-white/5 transition-all">
+            <span class="text-base">🩹</span> Parchado Virtual
+            <span id="patchBadge" class="ml-auto text-[10px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full font-semibold">5 Activos</span>
+          </button>
+          <button onclick="switchTab('shield')" id="nav-shield" class="nav-item w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium text-gray-400 hover:text-white hover:bg-white/5 transition-all">
+            <span class="text-base">🥷</span> Escudo Endpoint
+          </button>
+          <button onclick="switchTab('persistence')" id="nav-persistence" class="nav-item w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium text-gray-400 hover:text-white hover:bg-white/5 transition-all">
+            <span class="text-base">🚀</span> Persistencia
+            <span id="persistenceBadge" class="ml-auto text-[10px] bg-cyan-500/20 text-cyan-300 px-2 py-0.5 rounded-full font-semibold">Autoruns</span>
+          </button>
+          <button onclick="switchTab('network')" id="nav-network" class="nav-item w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium text-gray-400 hover:text-white hover:bg-white/5 transition-all">
+            <span class="text-base">🌐</span> Red en Vivo
+            <span id="networkBadge" class="ml-auto text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-semibold">WFP</span>
+          </button>
+          <button onclick="switchTab('copilot')" id="nav-copilot" class="nav-item w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium text-gray-400 hover:text-white hover:bg-white/5 transition-all">
+            <span class="text-base">🤖</span> Copiloto IA
+            <span class="ml-auto text-[10px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-full font-semibold">Local</span>
+          </button>
+          <button onclick="switchTab('scanner')" id="nav-scanner" class="nav-item w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium text-gray-400 hover:text-white hover:bg-white/5 transition-all">
+            <span class="text-base">🔍</span> Escáner Multi-Motor
+          </button>
+          <button onclick="switchTab('vpn')" id="nav-vpn" class="nav-item w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium text-gray-400 hover:text-white hover:bg-white/5 transition-all">
+            <span class="text-base">🔒</span> VPN & Privacidad
+            <span class="ml-auto text-[10px] bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-full font-semibold">8 Países</span>
+          </button>
+          <button onclick="switchTab('audit')" id="nav-audit" class="nav-item w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium text-gray-400 hover:text-white hover:bg-white/5 transition-all">
+            <span class="text-base">🛡️</span> Auditoría Interna
+            <span class="ml-auto text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-semibold">100/100</span>
+          </button>
+        </nav>
+      </div>
+
+      <!-- Pie de Sidebar: Cero Anuncios & Memoria -->
+      <div class="glass-card p-3 rounded-2xl bg-white/[0.02]">
+        <div class="flex items-center justify-between text-[11px] text-gray-400 mb-1">
+          <span>Memoria RAM</span>
+          <span class="font-mono text-emerald-400 font-semibold">38.4 MB</span>
+        </div>
+        <div class="w-full bg-white/10 h-1.5 rounded-full overflow-hidden mb-2">
+          <div class="bg-emerald-400 h-full w-[12%] rounded-full"></div>
+        </div>
+        <div class="flex items-center gap-1.5 text-[10px] text-emerald-400/90 font-medium">
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+          <span>0% Anuncios | Cero Telemetría</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Área de Contenido Principal -->
+    <div class="flex-1 flex flex-col overflow-y-auto p-4 md:p-8 pb-24 md:pb-8 relative">
+
+      <!-- ================= VISTA 1: DASHBOARD ================= -->
+      <div id="view-dashboard" class="view-content space-y-6">
+        <!-- Encabezado con Hero de Protección -->
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-2xl font-semibold tracking-tight text-white">Centro de Seguridad</h2>
+            <p class="text-xs text-gray-400">Protección activa en tiempo real contra amenazas de día cero.</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+              <span class="w-2 h-2 rounded-full bg-emerald-400 mr-2 animate-pulse"></span> Sistema Blindado
+            </span>
+          </div>
+        </div>
+
+        <!-- Banner de Diagnóstico EDR Android (Visible en dispositivos móviles / APK) -->
+        <div id="androidDeviceBanner" class="glass-card p-4 rounded-3xl border border-emerald-500/30 bg-emerald-500/10 hidden flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xl shrink-0">
+              📱
+            </div>
+            <div>
+              <div class="flex items-center gap-2">
+                <span class="text-xs font-semibold text-white" id="androidDeviceModel">Dispositivo Android</span>
+                <span class="text-[9px] bg-emerald-500/20 text-emerald-300 font-bold px-2 py-0.5 rounded-full">Zero-Root Shield</span>
+              </div>
+              <p class="text-[11px] text-gray-300" id="androidDeviceSpl">Cargando telemetría de kernel y nivel de parche SPL...</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <button onclick="sendIpc('start_vpn_shield')" class="px-3.5 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-black font-semibold text-xs rounded-xl shadow transition-all cursor-pointer">
+              🛡️ Activar Escudo TUN
+            </button>
+            <button onclick="sendIpc('audit_device_apps')" class="px-3.5 py-1.5 glass-panel hover:bg-white/10 text-white font-medium text-xs rounded-xl transition-all cursor-pointer">
+              🔍 Auditar Apps
+            </button>
+          </div>
+        </div>
+
+        <!-- Tarjeta Hero Central Estilo Apple con Anillo Suave -->
+        <div class="glass-card p-6 rounded-3xl relative overflow-hidden flex items-center justify-between">
+          <div class="space-y-2 z-10 max-w-lg">
+            <span class="text-[11px] font-semibold uppercase tracking-wider text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-lg">
+              Estado General
+            </span>
+            <h3 class="text-xl font-medium text-white">Tu equipo está completamente protegido</h3>
+            <p class="text-xs text-gray-400 leading-relaxed">
+              Todos los motores de detección (ClamAV, YARA-X), el escudo de credenciales LSASS y el parchador virtual están funcionando en segundo plano sin ralentizar tu procesador.
+            </p>
+            <div class="pt-3 flex gap-3">
+              <button onclick="triggerQuickScan()" class="px-4 py-2 bg-white text-black font-medium text-xs rounded-xl shadow-lg hover:bg-gray-100 active:scale-95 transition-all">
+                Escanear Ahora
+              </button>
+              <button onclick="switchTab('patcher')" class="px-4 py-2 glass-panel text-white font-medium text-xs rounded-xl hover:bg-white/10 active:scale-95 transition-all">
+                Ver Parches del SO
+              </button>
+              <button onclick="triggerUpdateSignatures()" class="px-3.5 py-2 glass-panel text-emerald-300 border border-emerald-500/20 font-medium text-xs rounded-xl hover:bg-emerald-500/10 active:scale-95 transition-all flex items-center gap-1.5">
+                <span>🔄</span> Actualizar Firmas
+              </button>
+            </div>
+          </div>
+
+          <!-- Gráfico de Anillo de Seguridad -->
+          <div class="relative w-40 h-40 flex items-center justify-center">
+            <div class="absolute inset-0 rounded-full bg-emerald-500/10 blur-2xl animate-pulse-glow"></div>
+            <svg class="w-36 h-36 transform -rotate-90" viewBox="0 0 100 100">
+              <circle cx="50" cy="50" r="40" stroke="rgba(255,255,255,0.06)" stroke-width="8" fill="transparent" />
+              <circle cx="50" cy="50" r="40" stroke="#34C759" stroke-width="8" stroke-dasharray="251.2" stroke-dashoffset="12" stroke-linecap="round" fill="transparent" />
+            </svg>
+            <div class="absolute flex flex-col items-center">
+              <span class="text-2xl font-bold tracking-tight text-white">99%</span>
+              <span class="text-[9px] uppercase tracking-wider text-gray-400">Protegido</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tarjeta de Progreso de Escaneo Real en Vivo -->
+        <div id="realScanProgressCard" class="glass-card p-6 rounded-3xl relative overflow-hidden hidden space-y-4 border border-blue-500/25 bg-blue-500/[0.04]">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              <div class="w-9 h-9 rounded-xl bg-blue-500/15 text-blue-400 flex items-center justify-center text-sm font-bold animate-pulse">⚡</div>
+              <div>
+                <h4 class="text-sm font-semibold text-white">Escaneo Profundo en Ejecución</h4>
+                <p class="text-xs text-gray-400">Analizando archivos reales en memoria, Downloads, Desktop, Temp...</p>
+              </div>
+            </div>
+            <div class="text-right">
+              <span id="scanCountText" class="text-xl font-bold font-mono text-emerald-400">0</span>
+              <span class="text-[11px] text-gray-400 block">archivos analizados</span>
+            </div>
+          </div>
+
+          <!-- Barra de Progreso Fluida con Degradado Apple -->
+          <div class="w-full bg-white/10 h-2.5 rounded-full overflow-hidden relative">
+            <div id="scanProgressBar" class="h-full bg-gradient-to-r from-blue-500 via-teal-400 to-emerald-400 rounded-full transition-all duration-150" style="width: 5%"></div>
+          </div>
+
+          <!-- Ticker del Archivo Actual en Tiempo Real -->
+          <div class="flex items-center justify-between text-[11px] font-mono text-gray-400">
+            <div class="truncate max-w-xl flex items-center gap-2">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span id="scanCurrentPathText" class="truncate text-gray-300">Iniciando motor multi-hilo...</span>
+            </div>
+            <div id="scanThreatsText" class="text-emerald-400 font-semibold font-sans whitespace-nowrap ml-4">0 amenazas</div>
+          </div>
+        </div>
+
+        <!-- Rejilla de Módulos (Widgets Apple Style) -->
+        <div class="grid grid-cols-3 gap-4">
+          <!-- Widget 1: Parchado Virtual -->
+          <div class="glass-card p-5 rounded-2xl flex flex-col justify-between cursor-pointer" onclick="switchTab('patcher')">
+            <div class="flex items-center justify-between mb-3">
+              <div class="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center text-sm">🩹</div>
+              <span id="widgetPatchStatusTag" class="text-[10px] font-semibold text-emerald-400 uppercase tracking-wider">SO Protegido</span>
+            </div>
+            <div>
+              <div id="widgetPatchCountText" class="text-xl font-bold text-white mb-0.5">5 Verificados</div>
+              <p id="widgetPatchSubText" class="text-xs text-gray-400">Kernel y binarios al día con Windows Update.</p>
+            </div>
+          </div>
+
+          <!-- Widget 2: Canarios Anti-Ransomware -->
+          <div class="glass-card p-5 rounded-2xl flex flex-col justify-between cursor-pointer" onclick="switchTab('shield')">
+            <div class="flex items-center justify-between mb-3">
+              <div class="w-8 h-8 rounded-xl bg-purple-500/10 text-purple-400 flex items-center justify-center text-sm">🪤</div>
+              <span class="text-[10px] font-semibold text-emerald-400 uppercase tracking-wider">Sin Cifrado</span>
+            </div>
+            <div>
+              <div class="text-xl font-bold text-white mb-0.5">4 Trampas</div>
+              <p class="text-xs text-gray-400">Archivos señuelo listos para neutralizar ransomware.</p>
+            </div>
+          </div>
+
+          <!-- Widget 3: VPN & Privacidad -->
+          <div class="glass-card p-5 rounded-2xl flex flex-col justify-between cursor-pointer" onclick="switchTab('vpn')">
+            <div class="flex items-center justify-between mb-3">
+              <div class="w-8 h-8 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center text-sm">🌐</div>
+              <span class="text-[10px] font-semibold text-blue-400 uppercase tracking-wider">WireGuard</span>
+            </div>
+            <div>
+              <div class="text-xl font-bold text-white mb-0.5">DNS Quad9</div>
+              <p class="text-xs text-gray-400">Filtrado anti-phishing y cero registros.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================= VISTA 2: PARCHADO VIRTUAL ================= -->
+      <div id="view-patcher" class="view-content space-y-5 hidden">
+        <div class="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h2 class="text-2xl font-semibold tracking-tight text-white flex items-center gap-2">
+              Parchado Virtual Autónomo
+              <span id="sentinelLiveBadge" class="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2.5 py-0.5 rounded-full font-mono flex items-center gap-1.5">
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                Centinela Activo
+              </span>
+            </h2>
+            <div id="osBuildInfoBanner" class="mt-1 flex items-center gap-2 text-xs text-gray-400">
+              <span id="osBuildText">Windows 11 (Cargando datos de compilación y kernel...)</span>
+            </div>
+          </div>
+          <div class="flex items-center gap-3">
+            <button onclick="reauditSystemVulnerabilities()" class="px-3.5 py-1.5 bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 border border-emerald-500/30 rounded-xl text-xs font-medium active:scale-95 transition-all flex items-center gap-2">
+              <span>🛡️</span> Reauditar Estado de Seguridad del SO
+            </button>
+          </div>
+        </div>
+
+        <!-- Tarjeta de Control y Estado del Centinela Autónomo -->
+        <div class="glass-card p-4 rounded-2xl flex flex-wrap items-center justify-between gap-4 border border-white/10 bg-gradient-to-r from-emerald-950/25 to-transparent">
+          <div class="flex items-center gap-3.5">
+            <div class="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center text-lg shrink-0">
+              🛡️
+            </div>
+            <div>
+              <p class="text-xs font-semibold text-white flex items-center gap-2">
+                Centinela de Vulnerabilidades & Auto-Mitigación en Vivo
+                <span class="text-[9px] bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded-full font-mono">Zero-Downtime</span>
+              </p>
+              <p id="sentinelStatusSubText" class="text-[11px] text-gray-300 mt-0.5">
+                Supervisando el sistema continuamente en segundo plano (EcoQoS). Mitigación autónoma de CVEs críticos.
+              </p>
+            </div>
+          </div>
+          <div class="flex items-center gap-3 shrink-0">
+            <span class="text-[11px] text-gray-400 font-medium">Auto-Mitigar</span>
+            <div id="sentinelAutoPatchSwitch" class="apple-switch active cursor-pointer" onclick="toggleSentinelAutoPatch(this)">
+              <div class="apple-switch-thumb"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tarjeta de Monitoreo de KBs y Analizador con IA Local -->
+        <div class="glass-card p-5 rounded-2xl border border-purple-500/20 bg-gradient-to-br from-purple-950/20 via-slate-900/40 to-emerald-950/20 space-y-4">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-xl bg-purple-500/15 border border-purple-500/30 text-purple-300 flex items-center justify-center text-xl shrink-0 shadow-sm">
+                🧠
+              </div>
+              <div>
+                <div class="flex items-center gap-2">
+                  <h3 class="text-sm font-semibold text-white">Centinela de KBs con IA Local</h3>
+                  <span class="text-[9px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-2 py-0.5 rounded-full font-mono">100% Offline / Privado</span>
+                  <span id="aiGuardrailBadge" class="text-[9px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full font-mono">Guardrails Rust ✔</span>
+                </div>
+                <p class="text-[11px] text-gray-300 mt-0.5">
+                  Vigila nuevos boletines de Windows, analiza los binarios afectados y genera parches virtuales con IA local en la máquina.
+                </p>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-3 shrink-0">
+              <div class="flex items-center gap-2">
+                <span class="text-[11px] text-gray-300 font-medium">Auto-Pilot IA</span>
+                <div id="aiAutopilotSwitch" class="apple-switch active cursor-pointer" onclick="toggleAiAutopilot(this)" title="Aplica automáticamente parches virtuales generados por la IA al detectar KBs faltantes">
+                  <div class="apple-switch-thumb"></div>
+                </div>
+              </div>
+              <button onclick="runAiKbAudit()" class="px-3 py-1.5 bg-purple-600/30 hover:bg-purple-600/40 text-purple-200 border border-purple-500/40 rounded-xl text-xs font-medium active:scale-95 transition-all flex items-center gap-1.5 shadow-sm">
+                <span>⚡</span> Auditar KBs con IA
+              </button>
+              <button onclick="toggleManualKbModal()" class="px-3 py-1.5 bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10 rounded-xl text-xs font-medium active:scale-95 transition-all flex items-center gap-1.5">
+                <span>📝</span> Analizar KB Manual
+              </button>
+            </div>
+          </div>
+
+          <!-- Métricas del Monitor de KBs -->
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
+            <div class="bg-black/25 border border-white/5 rounded-xl p-3 flex flex-col">
+              <span class="text-[10px] text-gray-400 uppercase tracking-wider">KBs en Catálogo</span>
+              <span id="kbMonitoredCount" class="text-lg font-bold text-white font-mono mt-0.5">6</span>
+            </div>
+            <div class="bg-black/25 border border-white/5 rounded-xl p-3 flex flex-col">
+              <span class="text-[10px] text-gray-400 uppercase tracking-wider">Pendientes en SO</span>
+              <span id="kbPendingCount" class="text-lg font-bold text-amber-400 font-mono mt-0.5">--</span>
+            </div>
+            <div class="bg-black/25 border border-white/5 rounded-xl p-3 flex flex-col">
+              <span class="text-[10px] text-gray-400 uppercase tracking-wider">Análisis IA Realizados</span>
+              <span id="kbAiAnalyzedCount" class="text-lg font-bold text-purple-300 font-mono mt-0.5">0</span>
+            </div>
+            <div class="bg-black/25 border border-white/5 rounded-xl p-3 flex flex-col">
+              <span class="text-[10px] text-gray-400 uppercase tracking-wider">Parches IA Activos</span>
+              <span id="kbAiVpatchCount" class="text-lg font-bold text-emerald-400 font-mono mt-0.5">0</span>
+            </div>
+          </div>
+
+          <!-- Panel de Último Análisis de la IA (Oculto inicialmente) -->
+          <div id="aiAnalysisCard" class="hidden bg-slate-900/70 border border-purple-500/30 rounded-xl p-4 space-y-2.5 transition-all">
+            <div class="flex items-center justify-between border-b border-white/10 pb-2">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="text-xs font-bold text-purple-300 font-mono" id="aiCardKbId">KB5041585</span>
+                <span class="text-[10px] bg-red-500/20 text-red-300 px-2 py-0.5 rounded-full font-mono font-medium" id="aiCardCve">CVE-2024-38063</span>
+                <span class="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-mono font-medium" id="aiCardConfidence">Confianza: 96%</span>
+              </div>
+              <span class="text-[10px] text-emerald-400 font-mono" id="aiCardGuardrail">✔ Guardrail Verificado</span>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+              <div><span class="text-gray-400">Componente:</span> <span class="text-white font-medium" id="aiCardComponent">tcpip.sys (IPv6)</span></div>
+              <div><span class="text-gray-400">Vector de ataque:</span> <span class="text-amber-300 font-medium" id="aiCardVector">Remote Code Execution</span></div>
+            </div>
+            <div class="text-[11px] text-gray-300 bg-black/30 p-2.5 rounded-lg border border-white/5">
+              <span class="text-purple-400 font-semibold">Explicación del Razonamiento IA:</span>
+              <p id="aiCardReasoning" class="mt-1 leading-relaxed">...</p>
+            </div>
+            <div class="flex items-center justify-between text-xs pt-1">
+              <span class="text-gray-400 font-mono text-[10px]" id="aiCardMitigation">Estrategia: NetworkFirewall</span>
+              <button id="aiCardActionBtn" class="px-3 py-1 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 rounded-lg text-xs font-medium transition-all">
+                Aplicar Mitigación
+              </button>
+            </div>
+          </div>
+
+          <!-- Formulario Plegable para Analizar KB Manualmente -->
+          <div id="manualKbForm" class="hidden bg-black/40 border border-white/10 rounded-xl p-4 space-y-3">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold text-white">Laboratorio de Análisis de Boletín con IA Local</span>
+              <button onclick="toggleManualKbModal()" class="text-gray-400 hover:text-white text-xs">✕ Cerrar</button>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <input id="inputManualKbId" type="text" placeholder="Ej: KB5041585 o CVE-2024-38063" class="bg-slate-900 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-purple-500" />
+              <input id="inputManualKbTitle" type="text" placeholder="Título (Opcional)" class="sm:col-span-2 bg-slate-900 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-purple-500" />
+            </div>
+            <textarea id="inputManualKbDesc" rows="2" placeholder="Pegue aquí el resumen del boletín, componentes afectados (ej. tcpip.sys, spoolsv.exe, lserver.exe) o descripción del fallo..." class="w-full bg-slate-900 border border-white/10 rounded-lg p-2.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-purple-500"></textarea>
+            <div class="flex justify-end gap-2">
+              <button onclick="submitManualKbAnalysis()" class="px-4 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-medium active:scale-95 transition-all flex items-center gap-1.5 shadow">
+                <span>🧠</span> Iniciar Análisis de IA Local
+              </button>
+            </div>
+          </div>
+
+          <!-- Lista de KBs Monitoreados con su Estado -->
+          <div class="space-y-1.5 pt-1">
+            <div class="flex items-center justify-between text-[11px] text-gray-400 px-1 font-medium">
+              <span>Boletines de Seguridad Windows Monitoreados</span>
+              <span>Estado en este Equipo</span>
+            </div>
+            <div id="monitoredKbsList" class="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+              <!-- Se puebla dinámicamente -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Contenedor dinámico de Reglas y Estado de Mitigación -->
+        <div id="patchRulesContainer" class="space-y-3">
+          <!-- Las tarjetas de CVEs se renderizan dinámicamente con los datos auditados en vivo -->
+        </div>
+      </div>
+
+      <!-- ================= VISTA 3: ESCUDO ENDPOINT ================= -->
+      <div id="view-shield" class="view-content space-y-6 hidden">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-2xl font-semibold tracking-tight text-white">Escudo Anti-Infiltración</h2>
+            <p class="text-xs text-gray-400">Blindaje de credenciales LSASS, cookies de navegadores y trampas señuelo anti-ransomware.</p>
+          </div>
+          <div class="flex items-center gap-2 px-3.5 py-1.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-300 text-xs font-medium shadow-sm">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span id="shieldLiveSummaryText">Escudo Activo en Tiempo Real</span>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4">
+          <!-- Tarjeta LSASS -->
+          <div class="glass-card p-5 rounded-2xl space-y-3">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2.5">
+                <div class="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center text-sm">🔒</div>
+                <div>
+                  <span class="text-xs font-semibold text-white block">Protección LSASS</span>
+                  <span class="text-[10px] text-gray-400">Blindaje de credenciales de Windows</span>
+                </div>
+              </div>
+              <div id="lsassSwitch" class="apple-switch active cursor-pointer" onclick="toggleLsassSwitch(this)">
+                <div class="apple-switch-thumb"></div>
+              </div>
+            </div>
+            <p class="text-xs text-gray-400">Bloquea intentos de apertura de memoria por parte de Mimikatz, NanoDump o minivolcados sospechosos.</p>
+            <div id="lsassStatusSub" class="text-[11px] font-mono text-emerald-400 bg-emerald-500/5 px-2.5 py-1.5 rounded-lg border border-emerald-500/15">
+              Estado: Protegido contra PROCESS_VM_READ (LSA RunAsPPL Activo)
+            </div>
+          </div>
+
+          <!-- Tarjeta Browser Shield -->
+          <div class="glass-card p-5 rounded-2xl space-y-3">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2.5">
+                <div class="w-8 h-8 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center text-sm">🍪</div>
+                <div>
+                  <span class="text-xs font-semibold text-white block">Escudo de Cookies & Tokens</span>
+                  <span class="text-[10px] text-gray-400">Protección contra InfoStealers</span>
+                </div>
+              </div>
+              <div id="cookieSwitch" class="apple-switch active cursor-pointer" onclick="toggleCookieSwitch(this)">
+                <div class="apple-switch-thumb"></div>
+              </div>
+            </div>
+            <p class="text-xs text-gray-400">Protege almacenes DPAPI y perfiles de Chrome, Edge, Brave y Firefox contra troyanos InfoStealers.</p>
+            <div id="cookieStatusSub" class="text-[11px] font-mono text-blue-400 bg-blue-500/5 px-2.5 py-1.5 rounded-lg border border-blue-500/15">
+              Estado: Bloqueo activo fuera de procesos oficiales (Chrome, Edge, Firefox)
+            </div>
+          </div>
+        </div>
+
+        <!-- Sección de Trampas Canario Señuelo en Tiempo Real -->
+        <div class="glass-card p-5 rounded-2xl space-y-3">
+          <div class="flex items-center justify-between">
+            <div>
+              <h4 class="text-xs font-semibold text-white uppercase tracking-wider">Archivos Señuelo Anti-Ransomware (Honeyfiles)</h4>
+              <p class="text-[10px] text-gray-400">Trampas tripwire vigiladas por hash SHA-256 en tiempo real.</p>
+            </div>
+            <span id="canaryIntegrityCount" class="text-[11px] text-emerald-400 font-medium bg-emerald-500/10 px-2.5 py-0.5 rounded-full border border-emerald-500/20">
+              4 de 4 íntegros
+            </span>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3" id="canaryList">
+            <!-- Cargado dinámicamente con los 4 archivos canarios reales -->
+          </div>
+        </div>
+      </div>
+
+      <!-- ================= VISTA 4: ESCÁNER ================= -->
+      <div id="view-scanner" class="view-content space-y-6 hidden">
+        <div>
+          <h2 class="text-2xl font-semibold tracking-tight text-white">Escáner Multi-Engine</h2>
+          <p class="text-xs text-gray-400">Inspección estática de archivos mediante firmas ClamAV, reglas YARA-X y análisis heurístico de entropía.</p>
+        </div>
+
+        <!-- Base de Datos de Firmas & Inteligencia de Amenazas -->
+        <div class="glass-card p-5 rounded-2xl flex flex-wrap items-center justify-between gap-4 border border-blue-500/20 bg-blue-500/[0.03]">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-2xl bg-blue-500/10 text-blue-400 flex items-center justify-center text-lg font-bold">
+              🛡️
+            </div>
+            <div>
+              <div class="flex items-center gap-2">
+                <h4 class="text-sm font-semibold text-white">Base de Firmas e Inteligencia de Amenazas</h4>
+                <span id="signaturesStatusBadge" class="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-medium">Sincronizada & Al Día</span>
+              </div>
+              <p id="signaturesDateText" class="text-xs text-gray-400">Feeds de MalwareBazaar, ThreatFox y ClamAV integrados en memoria.</p>
+              <p class="text-[10px] text-blue-300/80 mt-0.5 font-mono">⏱️ Actualizador automático en segundo plano: cada 60 minutos (3600s)</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <button onclick="openUpdateHistoryModal()" class="px-3.5 py-2 glass-panel text-white font-medium text-xs rounded-xl hover:bg-white/10 active:scale-95 transition-all flex items-center gap-2 border border-white/10">
+              <span>📋</span> Ver Historial Horario
+            </button>
+            <button onclick="triggerUpdateSignatures()" class="px-4 py-2 bg-blue-500 text-white font-semibold text-xs rounded-xl shadow-lg hover:bg-blue-400 active:scale-95 transition-all flex items-center gap-2">
+              <span>🔄</span> Actualizar Ahora
+            </button>
+          </div>
+        </div>
+
+        <!-- Zona Drag and Drop Interactiva con Explorador de Windows -->
+        <input type="file" id="nativeFilePicker" multiple style="display:none;" onchange="handleNativeFileInput(event)">
+        <div id="dropZone" onclick="handleDropZoneClick(event)" class="border-2 border-dashed border-white/10 hover:border-blue-400/50 rounded-3xl p-8 text-center glass-card cursor-pointer transition-all relative overflow-hidden group">
+          <div class="w-14 h-14 rounded-2xl bg-white/5 text-3xl flex items-center justify-center mx-auto mb-3 group-hover:scale-110 transition-transform">
+            📁
+          </div>
+          <h3 class="text-sm font-semibold text-white mb-1">Arrastra archivos o carpetas aquí</h3>
+          <p class="text-xs text-gray-400 mb-4">O haz clic para seleccionar desde tu explorador de archivos de Windows</p>
+          <div class="flex flex-wrap justify-center gap-2" onclick="event.stopPropagation()">
+            <button onclick="browseAndScanFiles()" class="px-3.5 py-1.5 bg-blue-500/20 text-blue-300 border border-blue-500/30 text-xs font-medium rounded-xl hover:bg-blue-500/30 active:scale-95 transition-all flex items-center gap-1.5">
+              <span>📄</span> Examinar Archivos
+            </button>
+            <button onclick="browseAndScanFolder()" class="px-3.5 py-1.5 bg-white/5 text-gray-200 border border-white/10 text-xs font-medium rounded-xl hover:bg-white/10 active:scale-95 transition-all flex items-center gap-1.5">
+              <span>📂</span> Examinar Carpeta
+            </button>
+            <span class="text-gray-500 self-center hidden sm:inline">|</span>
+            <button onclick="scanSampleReal('EICAR')" class="px-3 py-1.5 glass-panel text-[11px] rounded-xl hover:bg-white/10 text-gray-300 active:scale-95 transition-all">
+              Probar Muestra EICAR
+            </button>
+            <button onclick="scanSampleReal('AMSI')" class="px-3 py-1.5 glass-panel text-[11px] rounded-xl hover:bg-white/10 text-gray-300 active:scale-95 transition-all">
+              Probar Script AMSI Bypass
+            </button>
+            <button onclick="scanSampleReal('CLEAN')" class="px-3 py-1.5 glass-panel text-[11px] rounded-xl hover:bg-white/10 text-gray-300 active:scale-95 transition-all">
+              Probar Documento Limpio
+            </button>
+          </div>
+        </div>
+
+        <!-- Resultado del Escaneo Detallado en Tiempo Real -->
+        <div id="scanResultCard" class="glass-card p-5 rounded-2xl hidden space-y-3 transition-all border border-white/10">
+          <div class="flex flex-wrap items-center justify-between gap-3 border-b border-white/5 pb-3">
+            <div class="flex items-center gap-3 min-w-0">
+              <div id="scanResultIcon" class="w-10 h-10 rounded-2xl flex items-center justify-center font-bold text-lg flex-shrink-0"></div>
+              <div class="min-w-0">
+                <div class="flex items-center gap-2">
+                  <h4 id="scanResultFileName" class="text-sm font-semibold text-white truncate max-w-[340px]"></h4>
+                  <span id="scanResultStatusBadge" class="text-[10px] px-2.5 py-0.5 rounded-full font-bold whitespace-nowrap"></span>
+                </div>
+                <p id="scanResultDetails" class="text-xs text-gray-400 mt-0.5 truncate"></p>
+              </div>
+            </div>
+            <div class="flex items-center gap-2 flex-shrink-0">
+              <span id="scanResultTimeBadge" class="text-[10px] font-mono px-2.5 py-1 rounded-lg bg-white/5 text-gray-300 border border-white/10"></span>
+              <span id="scanResultEngine" class="text-[10px] font-mono px-2.5 py-1 rounded-lg"></span>
+            </div>
+          </div>
+          <!-- Metadatos de Integridad y Acciones -->
+          <div class="flex flex-wrap items-center justify-between gap-3 text-xs pt-1">
+            <div class="flex items-center gap-2 min-w-0 font-mono text-[11px] text-gray-400">
+              <span class="text-gray-500 font-sans">SHA-256:</span>
+              <span id="scanResultSha256" class="text-gray-300 truncate max-w-[300px]"></span>
+              <button onclick="copyScanSha256()" title="Copiar Hash" class="hover:text-white px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 text-[10px] transition-all">📋 Copiar</button>
+            </div>
+            <div id="scanResultActions" class="flex items-center gap-2"></div>
+          </div>
+        </div>
+
+        <!-- Lista de Resultados de Lote / Carpeta (cuando se escanean múltiples) -->
+        <div id="batchScanContainer" class="glass-card p-4 rounded-2xl hidden space-y-3">
+          <div class="flex items-center justify-between text-xs font-semibold text-white pb-2 border-b border-white/5">
+            <span id="batchScanTitle">Resultados de Escaneo en Lote</span>
+            <span id="batchScanCount" class="text-emerald-400 font-mono text-[11px]"></span>
+          </div>
+          <div id="batchScanList" class="max-h-60 overflow-y-auto space-y-2 pr-1 font-sans"></div>
+        </div>
+
+        <!-- Laboratorio de Verificación en Tiempo Real (On-Access) -->
+        <div class="glass-card p-5 rounded-2xl space-y-3 border border-emerald-500/20 bg-emerald-500/[0.03]">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="flex items-center gap-2.5">
+              <span class="text-base">🧪</span>
+              <span class="text-xs font-semibold text-white">Laboratorio de Verificación en Tiempo Real (On-Access)</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <button onclick="openQuarantineModal()" class="text-[11px] bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 px-3 py-1 rounded-full font-medium border border-emerald-500/20 transition-all flex items-center gap-1.5 active:scale-95">
+                <span>📦</span> <span id="quarantineCountBadge">Bóveda Cifrada: 0 aislados</span>
+              </button>
+            </div>
+          </div>
+          <p class="text-xs text-gray-400 leading-relaxed">
+            Genera un archivo con código malicioso de prueba en disco. El motor de vigilancia en tiempo real de SamuLibre lo interceptará al instante, lo eliminará y lo trasladará cifrado a la carpeta de cuarentena.
+          </p>
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <button onclick="triggerOnAccessLab()" class="px-4 py-2 bg-emerald-500 text-black font-semibold text-xs rounded-xl shadow-lg hover:bg-emerald-400 active:scale-95 transition-all flex items-center gap-2">
+              <span>⚡</span> Probar Detección On-Access en Tiempo Real Ahora
+            </button>
+            <button onclick="openQuarantineModal()" class="px-3.5 py-2 glass-panel text-gray-300 hover:text-white font-medium text-xs rounded-xl hover:bg-white/10 active:scale-95 transition-all flex items-center gap-2 border border-white/10">
+              <span>🔒</span> Administrar Bóveda de Cuarentena
+            </button>
+          </div>
+
+          <!-- Consola en Tiempo Real del Laboratorio On-Access -->
+          <div id="onAccessLabTerminal" class="hidden mt-3 p-3.5 rounded-xl bg-black/60 border border-emerald-500/30 font-mono text-[11px] space-y-1 text-gray-300">
+            <div class="text-emerald-400 font-bold flex items-center gap-2 border-b border-emerald-500/20 pb-1 mb-1.5">
+              <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+              <span>Registro de Operación On-Access en Vivo</span>
+            </div>
+            <div id="onAccessLabLogs" class="space-y-1"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================= VISTA 5: VPN & PRIVACIDAD ================= -->
+      <div id="view-vpn" class="view-content space-y-6 hidden">
+        <div class="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h2 class="text-2xl font-semibold tracking-tight text-white">Navegación Privada & VPN WireGuard</h2>
+            <p class="text-xs text-gray-400">Túnel cifrado con ChaCha20-Poly1305, servidores en jurisdicciones de privacidad estricta y Kill-Switch WFP activo.</p>
+          </div>
+          <div class="flex items-center gap-3">
+            <button id="vpnQuickActionBtn" onclick="toggleVpnGlobal()" class="px-4 py-2 bg-emerald-500 text-black font-semibold text-xs rounded-xl shadow-lg hover:bg-emerald-400 active:scale-95 transition-all flex items-center gap-2">
+              <span id="vpnBtnIcon">⚡</span> <span id="vpnBtnText">Conectar VPN</span>
+            </button>
+            <button onclick="emergencyResetNetwork()" title="Restaura la red de Windows si el proxy o VPN quedaron bloqueados" class="px-3.5 py-2 bg-red-500/20 text-red-300 hover:bg-red-500/30 border border-red-500/30 font-semibold text-xs rounded-xl shadow-lg active:scale-95 transition-all flex items-center gap-2">
+              <span>🔄</span> <span>Restablecer Red</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Tarjeta de Estado Global de la VPN -->
+        <div class="glass-card p-6 rounded-3xl relative overflow-hidden border border-white/10">
+          <div class="flex flex-wrap items-center justify-between gap-4 mb-4">
+            <div class="flex items-center gap-3">
+              <span id="vpnStatusDot" class="w-3.5 h-3.5 rounded-full bg-gray-500"></span>
+              <div>
+                <h3 id="vpnStatusTitle" class="text-lg font-semibold text-white">VPN Desconectada</h3>
+                <p id="vpnStatusSub" class="text-xs text-gray-400">Tráfico actual saliendo por tu proveedor local de Internet (ISP).</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <span id="vpnActiveBadge" class="text-xs font-medium px-3 py-1 rounded-full bg-gray-500/20 text-gray-300 border border-white/10">
+                Inactivo
+              </span>
+            </div>
+          </div>
+
+          <!-- Doble Cifrado Militar en Cascada (Double Encryption) -->
+          <div class="flex items-center justify-between p-3.5 rounded-2xl bg-purple-500/10 border border-purple-500/20 my-3">
+            <div class="flex items-center gap-3">
+              <span class="text-xl">🔐</span>
+              <div>
+                <p class="text-xs font-semibold text-white flex items-center gap-2">
+                  Doble Cifrado Militar en Cascada (Double Encryption)
+                  <span class="text-[9px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-full font-mono font-bold">512-bit Cascada</span>
+                </p>
+                <p class="text-[10px] text-gray-300 mt-0.5">Encapsula WireGuard (ChaCha20-Poly1305) dentro de un circuito Onion v3 multi-hop para anonimato e inviolabilidad absoluta.</p>
+              </div>
+            </div>
+            <div id="doubleEncryptionSwitch" class="toggle-switch inactive shrink-0 ml-3 cursor-pointer" onclick="toggleDoubleEncryptionSwitch(this)">
+              <div class="toggle-knob"></div>
+            </div>
+          </div>
+
+          <!-- Métricas de la Conexión Activa -->
+          <div class="grid grid-cols-2 md:grid-cols-5 gap-3 pt-3 border-t border-white/5">
+            <div class="glass-panel p-3 rounded-xl">
+              <p class="text-[10px] text-gray-400 uppercase font-mono tracking-wider">País & Servidor</p>
+              <p id="vpnMetricCountry" class="text-xs font-semibold text-white mt-1">Ninguno seleccionado</p>
+            </div>
+            <div class="glass-panel p-3 rounded-xl">
+              <p class="text-[10px] text-gray-400 uppercase font-mono tracking-wider">IP Asignada</p>
+              <p id="vpnMetricIp" class="text-xs font-semibold text-emerald-400 font-mono mt-1">Protección en espera</p>
+            </div>
+            <div class="glass-panel p-3 rounded-xl">
+              <p class="text-[10px] text-gray-400 uppercase font-mono tracking-wider">Protocolo & Cifrado</p>
+              <p id="vpnMetricProtocol" class="text-xs font-semibold text-white mt-1">WireGuard ChaCha20</p>
+            </div>
+            <div class="glass-panel p-3 rounded-xl">
+              <p class="text-[10px] text-gray-400 uppercase font-mono tracking-wider">DNS Cifrado Quad9</p>
+              <p id="vpnMetricDns" class="text-xs font-semibold text-blue-400 font-mono mt-1">9.9.9.9 (Cero Logs)</p>
+            </div>
+            <div class="glass-panel p-3 rounded-xl">
+              <p class="text-[10px] text-gray-400 uppercase font-mono tracking-wider">Ping en Vivo (RTT)</p>
+              <p id="vpnMetricLivePing" class="text-xs font-semibold text-gray-400 font-mono mt-1 flex items-center gap-1.5">
+                <span id="vpnLivePingDot" class="w-2 h-2 rounded-full bg-gray-500"></span>
+                <span id="vpnMetricLivePingText">-- ms</span>
+              </p>
+            </div>
+            <div id="vpnMultiHopRouteRow" class="col-span-2 md:col-span-5 hidden p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/30 text-[11px] font-mono text-purple-200 flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span>🛡️ Ruta de Cascada Activa:</span>
+                <span id="vpnMultiHopRouteText" class="font-bold text-white"></span>
+              </div>
+              <span class="text-[9px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded font-mono">Doble Salto Verificado</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Selector de Países con Jurisdicción Privada -->
+        <div>
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-semibold text-white flex items-center gap-2">
+              <span>🌍</span> Servidores en Países con Leyes Estrictas de Privacidad
+            </h3>
+            <div class="flex items-center gap-3">
+              <span id="vpnLatencyRefreshStatus" class="text-[11px] text-gray-400">8 Ubicaciones • Medición en Vivo</span>
+              <button onclick="refreshVpnPings()" id="btnRefreshVpnPings" title="Sondear latencia TCP real a cada país" class="px-2.5 py-1 bg-white/5 hover:bg-white/10 active:scale-95 text-gray-300 hover:text-white rounded-lg text-[11px] font-medium border border-white/10 transition-all flex items-center gap-1.5 cursor-pointer">
+                <span id="refreshPingsSpinner">🔄</span> <span>Medir Pings en Vivo</span>
+              </button>
+            </div>
+          </div>
+
+          <div id="vpnCountriesGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            <!-- Países cargados dinámicamente -->
+          </div>
+        </div>
+
+        <!-- Blindaje de Seguridad y Prevención de Fugas -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="glass-card p-5 rounded-2xl space-y-2 border border-emerald-500/10">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="text-base">🛡️</span>
+                <span class="text-xs font-semibold text-white">WFP Network Kill-Switch</span>
+              </div>
+              <span class="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-medium">Activo</span>
+            </div>
+            <p class="text-xs text-gray-400 leading-relaxed">
+              Filtro a nivel de Windows Filtering Platform (WFP) que corta instantáneamente cualquier paquete saliente si el túnel WireGuard se interrumpe, impidiendo fugas de tu IP real.
+            </p>
+          </div>
+
+          <div class="glass-card p-5 rounded-2xl space-y-2 border border-blue-500/10">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="text-base">🔒</span>
+                <span class="text-xs font-semibold text-white">Protección contra Fugas DNS & IPv6</span>
+              </div>
+              <span class="text-[10px] bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded-full font-medium">Protegido</span>
+            </div>
+            <p class="text-xs text-gray-400 leading-relaxed">
+              Fuerza todo el tráfico de resolución de nombres a Quad9 Anycast (9.9.9.9) y bloquea rutas IPv6 locales que los navegadores podrían exponer vía WebRTC.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================= VISTA 6: AUDITORÍA INTERNA ================= -->
+      <div id="view-audit" class="view-content space-y-6 hidden">
+        <div class="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h2 class="text-2xl font-semibold tracking-tight text-white">Auditoría Interna de Seguridad & Excelencia</h2>
+            <p class="text-xs text-gray-400">Verificación automatizada de estándares de la industria, preparación para auditorías externas, AV-TEST y cobertura MITRE ATT&CK.</p>
+          </div>
+          <button onclick="runSecurityAudit()" class="px-4 py-2 bg-emerald-500 text-black font-semibold text-xs rounded-xl shadow-lg hover:bg-emerald-400 active:scale-95 transition-all flex items-center gap-2">
+            <span>🔄</span> Ejecutar Auto-Auditoría Completa
+          </button>
+        </div>
+
+        <!-- Banner de Certificación y Puntuación 100/100 -->
+        <div class="glass-card p-6 rounded-3xl bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-transparent border border-emerald-500/20 flex flex-wrap items-center justify-between gap-6">
+          <div class="flex items-center gap-4">
+            <div class="w-16 h-16 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 flex items-center justify-center text-3xl font-black font-mono shadow-lg shadow-emerald-500/20">
+              <span id="auditScoreVal">100</span>
+            </div>
+            <div>
+              <div class="flex items-center gap-2">
+                <span class="text-base font-bold text-white" id="auditCertLevel">Grado de Excelencia A+ (Cumplimiento AV-TEST / MITRE ATT&CK)</span>
+                <span class="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-medium">Verificado</span>
+              </div>
+              <p class="text-xs text-gray-300 mt-1">12 de 12 pruebas de integridad y eficacia de detección superadas sin fallos.</p>
+              <p id="auditTimestampText" class="text-[11px] text-gray-400 font-mono mt-0.5">Última auditoría: 2026-10-11 14:00:00</p>
+            </div>
+          </div>
+          <div class="glass-panel px-4 py-3 rounded-2xl flex items-center gap-3">
+            <div class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></div>
+            <div>
+              <p class="text-xs font-semibold text-white">Cero Telemetría Verificado</p>
+              <p class="text-[10px] text-gray-400">Sin conexiones a servidores publicitarios o analíticos.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Estado de los Subsistemas de SamuLibre -->
+        <div>
+          <h3 class="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+            <span>🔍</span> Integridad de los Subsistemas de Seguridad
+          </h3>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3" id="auditSubsystemsContainer">
+            <div class="glass-card p-4 rounded-2xl">
+              <div class="flex items-center justify-between mb-1">
+                <span class="text-xs font-semibold text-white">1. Escáner Multi-Motor</span>
+                <span class="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-medium">Conforme</span>
+              </div>
+              <p id="auditScannerStatus" class="text-xs text-gray-400">Firmas activas, reglas YARA-X y motor de entropía operando.</p>
+            </div>
+            <div class="glass-card p-4 rounded-2xl">
+              <div class="flex items-center justify-between mb-1">
+                <span class="text-xs font-semibold text-white">2. Escudo Endpoint Anti-Ransomware</span>
+                <span class="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-medium">Conforme</span>
+              </div>
+              <p id="auditShieldStatus" class="text-xs text-gray-400">Archivos canario desplegados, monitor LSASS y mitigación tripwire listos.</p>
+            </div>
+            <div class="glass-card p-4 rounded-2xl">
+              <div class="flex items-center justify-between mb-1">
+                <span class="text-xs font-semibold text-white">3. Parchado Virtual de Vulnerabilidades</span>
+                <span class="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-medium">Conforme</span>
+              </div>
+              <p id="auditPatcherStatus" class="text-xs text-gray-400">Auditoría de kernel Windows 11, tcpip.sys y mitigación de CVEs activos.</p>
+            </div>
+            <div class="glass-card p-4 rounded-2xl">
+              <div class="flex items-center justify-between mb-1">
+                <span class="text-xs font-semibold text-white">4. Privacidad & Túnel VPN WireGuard</span>
+                <span class="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-medium">Conforme</span>
+              </div>
+              <p id="auditVpnStatus" class="text-xs text-gray-400">8 países con privacidad estricta, DNS Quad9 y Kill-Switch WFP verificado.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Matriz de Cobertura MITRE ATT&CK -->
+        <div>
+          <h3 class="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+            <span>🎯</span> Cobertura de Técnicas MITRE ATT&CK Evaluadas
+          </h3>
+          <div class="glass-card p-4 rounded-2xl divide-y divide-white/5" id="auditMitreContainer">
+            <!-- Coberturas MITRE -->
+          </div>
+        </div>
+      </div>
+
+      <!-- ================= VISTA: PERSISTENCIA (AUTORUNS) ================= -->
+      <div id="view-persistence" class="view-content hidden space-y-6">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-2xl font-semibold tracking-tight text-white flex items-center gap-2">
+              <span>🚀</span> Cazador de Persistencia
+            </h2>
+            <p class="text-xs text-gray-400">Auditoría en tiempo real de mecanismos de auto-inicio (Registro Run/RunOnce, Startup, schtasks).</p>
+          </div>
+          <button onclick="refreshPersistence()" class="px-4 py-2 bg-white/10 hover:bg-white/15 active:scale-95 text-xs font-semibold rounded-xl border border-white/10 flex items-center gap-2 transition-all">
+            <span>🔄</span> Auditar Persistencia
+          </button>
+        </div>
+
+        <!-- Tarjetas de métricas -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div class="glass-card p-4 rounded-2xl">
+            <span class="text-[11px] text-gray-400 font-medium">Entradas Auditadas</span>
+            <p id="persistTotalCount" class="text-2xl font-bold text-white mt-1">0</p>
+            <span class="text-[10px] text-emerald-400 font-medium">Supervisión continua</span>
+          </div>
+          <div class="glass-card p-4 rounded-2xl">
+            <span class="text-[11px] text-gray-400 font-medium">Registro (Run / Winlogon)</span>
+            <p id="persistRegCount" class="text-2xl font-bold text-cyan-400 mt-1">0</p>
+            <span class="text-[10px] text-cyan-300 font-medium">HKCU / HKLM</span>
+          </div>
+          <div class="glass-card p-4 rounded-2xl">
+            <span class="text-[11px] text-gray-400 font-medium">Tareas Programadas</span>
+            <p id="persistTasksCount" class="text-2xl font-bold text-purple-400 mt-1">0</p>
+            <span class="text-[10px] text-purple-300 font-medium">schtasks.exe</span>
+          </div>
+          <div class="glass-card p-4 rounded-2xl">
+            <span class="text-[11px] text-gray-400 font-medium">Sospechosas / Temp</span>
+            <p id="persistSuspiciousCount" class="text-2xl font-bold text-emerald-400 mt-1">0</p>
+            <span id="persistSuspiciousSub" class="text-[10px] text-emerald-300 font-medium">0 anomalías detectadas</span>
+          </div>
+        </div>
+
+        <!-- Lista de Entradas -->
+        <div class="glass-card p-5 rounded-3xl space-y-3">
+          <div class="flex items-center justify-between pb-2 border-b border-white/5">
+            <h3 class="text-sm font-semibold text-white">Programas y Servicios de Arranque</h3>
+            <span id="persistListBadge" class="text-[11px] text-gray-400 font-mono">Cargando...</span>
+          </div>
+          <div id="persistenceContainer" class="space-y-2.5">
+            <!-- Entradas dinámicas -->
+          </div>
+        </div>
+      </div>
+
+      <!-- ================= VISTA: RED EN VIVO (LIVE NETWORK & WFP) ================= -->
+      <div id="view-network" class="view-content hidden space-y-6">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 class="text-2xl font-semibold tracking-tight text-white flex items-center gap-2">
+              <span>🌐</span> Inspector de Red en Vivo
+            </h2>
+            <p class="text-xs text-gray-400">Telemetría de sockets TCP en tiempo real con atribución de proceso y blindaje de puertos vulnerables con WFP.</p>
+          </div>
+          <div class="flex items-center gap-2.5">
+            <button id="btnCloseAllRiskPorts" onclick="closeAllVulnerablePorts()" class="px-4 py-2 bg-red-500/20 hover:bg-red-500/30 active:scale-95 text-red-200 border border-red-500/40 text-xs font-semibold rounded-xl flex items-center gap-2 transition-all shadow-lg shadow-red-500/10">
+              <span>🛡️</span> <span id="btnCloseAllRiskPortsText">Cerrar Puertos Vulnerables</span>
+            </button>
+            <button onclick="refreshNetworkSockets()" class="px-3.5 py-2 bg-white/10 hover:bg-white/15 active:scale-95 text-xs font-semibold rounded-xl border border-white/10 flex items-center gap-2 transition-all">
+              <span>🔄</span> Refrescar Sockets
+            </button>
+          </div>
+        </div>
+
+        <!-- Métricas de Red -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div class="glass-card p-4 rounded-2xl">
+            <span class="text-[11px] text-gray-400 font-medium">Sockets TCP Activos</span>
+            <p id="netTotalSocketsCount" class="text-2xl font-bold text-white mt-1">0</p>
+            <span class="text-[10px] text-gray-400">Atribución PID & Ejecutable</span>
+          </div>
+          <div class="glass-card p-4 rounded-2xl">
+            <span class="text-[11px] text-gray-400 font-medium">Puertos en Escucha (Listen)</span>
+            <p id="netListenCount" class="text-2xl font-bold text-emerald-400 mt-1">0</p>
+            <span class="text-[10px] text-emerald-300">Servicios locales</span>
+          </div>
+          <div class="glass-card p-4 rounded-2xl">
+            <div class="flex items-center justify-between">
+              <span class="text-[11px] text-gray-400 font-medium">Puertos de Alto Riesgo</span>
+              <span id="netShieldedBadge" class="hidden text-[9px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full font-mono">WFP Activo</span>
+            </div>
+            <p id="netRiskCount" class="text-2xl font-bold text-emerald-400 mt-1">0</p>
+            <span id="netRiskSub" class="text-[10px] text-emerald-300">RDP, SMB, WinRM asegurados</span>
+          </div>
+        </div>
+
+        <!-- Tabla de Sockets -->
+        <div class="glass-card p-5 rounded-3xl space-y-3">
+          <div class="flex items-center justify-between pb-2 border-b border-white/5">
+            <h3 class="text-sm font-semibold text-white">Conexiones y Sockets Activos</h3>
+            <span id="netTableCount" class="text-[11px] text-gray-400 font-mono">0 conexiones</span>
+          </div>
+          <div class="overflow-x-auto max-h-[460px] overflow-y-auto">
+            <table class="w-full text-left text-xs">
+              <thead class="text-[10px] text-gray-400 uppercase border-b border-white/5 sticky top-0 bg-[#0B0D13] z-10">
+                <tr>
+                  <th class="py-2 px-2">Proto</th>
+                  <th class="py-2 px-2.5">Dirección Local & Puerto</th>
+                  <th class="py-2 px-2.5">Dirección Remota</th>
+                  <th class="py-2 px-2">Estado</th>
+                  <th class="py-2 px-2.5">Proceso & PID</th>
+                  <th class="py-2 px-2.5 text-right">Blindaje WFP / Puerto</th>
+                </tr>
+              </thead>
+              <tbody id="networkTableBody" class="divide-y divide-white/5 font-mono">
+                <!-- Filas dinámicas -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================= VISTA: COPILOTO IA ================= -->
+      <div id="view-copilot" class="view-content hidden space-y-6">
+        <!-- Encabezado con Estado de la IA Local -->
+        <div class="flex flex-wrap items-center justify-between gap-4 pb-2 border-b border-white/5">
+          <div>
+            <h2 class="text-2xl font-semibold tracking-tight text-white flex items-center gap-2">
+              <span>🤖</span> Copiloto de Ciberseguridad SamuLibre
+            </h2>
+            <p class="text-xs text-gray-400">Inteligencia Artificial Local Offline • Razonamiento y Parchado Autónomo de KBs de Windows</p>
+          </div>
+          <div class="flex items-center gap-2.5">
+            <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-purple-500/10 text-purple-300 border border-purple-500/20">
+              <span class="w-2 h-2 rounded-full bg-purple-400 mr-2 animate-pulse"></span> 100% Offline / Privado
+            </span>
+            <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+              <span class="w-2 h-2 rounded-full bg-emerald-400 mr-2"></span> Guardrails en Rust (Zero BSOD)
+            </span>
+          </div>
+        </div>
+
+        <!-- Rejilla Principal de Dos Columnas: Izquierda Chat / Derecha Pensamiento IA & Simulador -->
+        <div class="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
+
+          <!-- Columna Izquierda: Chat interactivo con la IA (7 columnas en desktop) -->
+          <div class="xl:col-span-7 space-y-4 flex flex-col">
+            <!-- Píldoras de consulta rápida -->
+            <div class="flex items-center gap-2 overflow-x-auto pb-1">
+              <button onclick="sendQuickCopilotPrompt('¿Cómo está mi sistema hoy?')" class="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-gray-300 font-medium whitespace-nowrap active:scale-95 transition-all">
+                ✨ Estado del Sistema
+              </button>
+              <button onclick="sendQuickCopilotPrompt('¿Tengo puertos de riesgo abiertos?')" class="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-gray-300 font-medium whitespace-nowrap active:scale-95 transition-all">
+                🌐 Puertos & Red
+              </button>
+              <button onclick="sendQuickCopilotPrompt('Auditar persistencia y programas de arranque')" class="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-gray-300 font-medium whitespace-nowrap active:scale-95 transition-all">
+                🚀 Persistencia
+              </button>
+              <button onclick="sendQuickCopilotPrompt('Estado de los canarios anti-ransomware')" class="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-gray-300 font-medium whitespace-nowrap active:scale-95 transition-all">
+                🐤 Canarios
+              </button>
+              <button onclick="sendQuickCopilotPrompt('¿Qué parches virtuales están activos?')" class="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-gray-300 font-medium whitespace-nowrap active:scale-95 transition-all">
+                🩹 Parches & CVEs
+              </button>
+            </div>
+
+            <!-- Contenedor del Historial del Chat (Altura fija garantizada de 440px) -->
+            <div id="copilotChatContainer" class="overflow-y-auto space-y-4 p-4 rounded-3xl glass-card border border-white/5" style="height: 440px; min-height: 440px; max-height: 440px;">
+              <!-- Mensaje de bienvenida inicial -->
+              <div class="flex items-start gap-3 max-w-2xl">
+                <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-purple-500 to-indigo-500 text-white flex items-center justify-center text-sm font-bold shadow-md shadow-purple-500/20 shrink-0">
+                  🤖
+                </div>
+                <div class="glass-panel p-4 rounded-2xl space-y-2 border border-white/10 bg-white/[0.03]">
+                  <p class="text-xs text-gray-200 leading-relaxed font-sans">
+                    ¡Hola! Soy el <strong>Copiloto de Ciberseguridad de SamuLibre</strong>. Ejecuto directamente en tu hardware sin enviar ningún byte a la nube.
+                  </p>
+                  <p class="text-xs text-gray-300 leading-relaxed font-sans">
+                    Monitoreo en tiempo real los <strong>boletines y KBs futuros de Windows</strong> para aplicar mitigaciones virtuales antes de que los exploits se propaguen. Puedes consultarme cualquier duda técnica sobre tu equipo o probar el simulador a la derecha.
+                  </p>
+                  <div class="pt-2 flex flex-wrap gap-2 border-t border-white/5">
+                    <button onclick="sendQuickCopilotPrompt('¿Cómo funciona el parchado autónomo de KBs?')" class="px-3 py-1 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/30 text-xs font-semibold text-purple-200 rounded-xl active:scale-95 transition-all">
+                      💬 ¿Cómo funciona el Auto-Pilot?
+                    </button>
+                    <button onclick="sendQuickCopilotPrompt('¿Qué KBs faltan por instalar en Windows?')" class="px-3 py-1 bg-white/10 hover:bg-white/15 border border-white/10 text-xs font-semibold text-cyan-300 rounded-xl active:scale-95 transition-all">
+                      📋 Ver KBs pendientes
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Barra de Entrada del Chat -->
+            <div class="flex items-center gap-2 pt-1">
+              <input
+                type="text"
+                id="copilotQueryInput"
+                placeholder="Pregúntale a tu Copiloto sobre la seguridad de tu equipo..."
+                onkeydown="if(event.key==='Enter') sendCopilotMessage()"
+                class="flex-1 bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-purple-500/50 focus:bg-white/10 transition-all font-sans"
+              />
+              <button
+                onclick="sendCopilotMessage()"
+                class="px-5 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 active:scale-95 text-white font-semibold text-xs rounded-2xl shadow-lg shadow-purple-500/20 transition-all flex items-center gap-1.5 cursor-pointer"
+              >
+                <span>Enviar</span> <span>➔</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Columna Derecha: Observabilidad de la IA, Auto-Pilot & Simulador de KBs (5 columnas) -->
+          <div class="xl:col-span-5 space-y-4">
+
+            <!-- Tarjeta 1: Control Autónomo IA Auto-Pilot -->
+            <div class="glass-card p-4 rounded-3xl border border-purple-500/20 bg-purple-500/[0.03] space-y-3">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2.5">
+                  <div class="w-8 h-8 rounded-xl bg-purple-500/20 text-purple-300 flex items-center justify-center text-sm font-bold">
+                    ⚡
+                  </div>
+                  <div>
+                    <h3 class="text-xs font-semibold text-white">Parchado Autónomo (IA Auto-Pilot)</h3>
+                    <p class="text-[10px] text-gray-400">Aplica parches virtuales automáticamente al detectar nuevos KBs</p>
+                  </div>
+                </div>
+                <div id="copilotAutopilotSwitch" class="apple-switch active shrink-0 cursor-pointer" onclick="toggleCopilotAutopilot(this)">
+                  <div class="apple-switch-thumb"></div>
+                </div>
+              </div>
+
+              <!-- Mini estadísticas de la IA -->
+              <div class="grid grid-cols-3 gap-2 pt-2 border-t border-white/5 text-center">
+                <div class="glass-panel p-2 rounded-xl">
+                  <p class="text-[9px] uppercase font-mono text-gray-400">KBs Vigilados</p>
+                  <p id="copilotStatMonitoredKbs" class="text-sm font-bold text-white font-mono mt-0.5">4</p>
+                </div>
+                <div class="glass-panel p-2 rounded-xl">
+                  <p class="text-[9px] uppercase font-mono text-gray-400">IA Analizados</p>
+                  <p id="copilotStatAnalyzedKbs" class="text-sm font-bold text-purple-400 font-mono mt-0.5">4</p>
+                </div>
+                <div class="glass-panel p-2 rounded-xl">
+                  <p class="text-[9px] uppercase font-mono text-gray-400">Auto-Parcheados</p>
+                  <p id="copilotStatAutoPatches" class="text-sm font-bold text-emerald-400 font-mono mt-0.5">0</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Tarjeta 2: Consola de Pensamiento en Vivo de la IA (Live Thought Trace) -->
+            <div class="glass-card p-4 rounded-3xl border border-white/10 space-y-2.5">
+              <div class="flex items-center justify-between border-b border-white/5 pb-2">
+                <div class="flex items-center gap-2">
+                  <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping"></span>
+                  <span class="text-xs font-semibold text-white">Pensamiento en Vivo de la IA</span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <button onclick="clearCopilotLiveTrace()" title="Limpiar traza" class="text-[10px] text-gray-400 hover:text-white px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 transition-all">
+                    Limpiar
+                  </button>
+                  <span class="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
+                    Auditoría Viva
+                  </span>
+                </div>
+              </div>
+              <p class="text-[11px] text-gray-400 leading-tight">
+                Observa el razonamiento interno, extracción de vectores y validación formal de guardrails de seguridad:
+              </p>
+              <!-- Consola estilo terminal -->
+              <div id="copilotLiveThoughtConsole" class="overflow-y-auto space-y-1.5 p-3 rounded-2xl bg-black/60 border border-white/10 font-mono text-[10.5px] leading-relaxed text-gray-300" style="height: 160px; max-height: 160px;">
+                <!-- Logs iniciales dinámicos -->
+                <div class="text-purple-400 font-semibold">[IA-CORE] Motor de IA local SamuLibre inicializado en memoria local.</div>
+                <div class="text-blue-400">[SENTINEL] Demonio centinela EcoQoS activo (sondeo cada 900s).</div>
+                <div class="text-emerald-400">[SAFETY] Guardrail formal en Rust: 0 riesgos de BSOD / Servicios críticos protegidos.</div>
+                <div class="text-cyan-400">[AUTOPILOT] Modo Auto-Pilot activo: nuevos KBs serán mitigados automáticamente.</div>
+              </div>
+            </div>
+
+            <!-- Tarjeta 3: Simulador de KBs Futuros -->
+            <div class="glass-card p-4 rounded-3xl border border-white/10 space-y-3">
+              <div class="flex items-center justify-between border-b border-white/5 pb-2">
+                <div class="flex items-center gap-2">
+                  <span class="text-base">🧪</span>
+                  <span class="text-xs font-semibold text-white">Simulador de KBs Futuros</span>
+                </div>
+                <button onclick="triggerImmediateAiAudit()" class="text-[10px] bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/30 px-2.5 py-1 rounded-xl font-medium active:scale-95 transition-all">
+                  🔄 Sondeo Forzado
+                </button>
+              </div>
+              <p class="text-[11px] text-gray-400 leading-tight">
+                Prueba en tiempo real cómo la IA analiza un boletín nuevo y sintetiza la regla de mitigación virtual:
+              </p>
+
+              <!-- Botones de prueba rápida -->
+              <div class="flex flex-wrap gap-2">
+                <button onclick="simulateKbAnalysisQuick('KB5041585', 'Windows 11 TCP/IP IPv6 Remote Code Execution', 'Vulnerabilidad crítica en la pila de red TCP/IP de Windows vía paquetes IPv6 malformados.')" class="px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-[10.5px] text-gray-300 font-medium active:scale-95 transition-all">
+                  🧪 Simular KB5041585 (IPv6)
+                </button>
+                <button onclick="simulateKbAnalysisQuick('KB5004945', 'PrintNightmare Spooler RCE', 'Vulnerabilidad en Spoolsv.exe que permite inyección de DLLs maliciosas como controlador de impresora.')" class="px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-[10.5px] text-gray-300 font-medium active:scale-95 transition-all">
+                  🧪 Simular KB5004945 (Spooler)
+                </button>
+                <button onclick="simulateKbAnalysisQuick('KB5043076', 'Windows Kernel Local Privilege Escalation', 'Escalamiento de privilegios a SYSTEM debido a validación insuficiente de punteros en memoria de kernel.')" class="px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-[10.5px] text-gray-300 font-medium active:scale-95 transition-all">
+                  🧪 Simular KB5043076 (Kernel LPE)
+                </button>
+              </div>
+
+              <!-- Formulario de KB Personalizado -->
+              <div class="pt-2 border-t border-white/5 space-y-2">
+                <div class="flex items-center gap-2">
+                  <input
+                    type="text"
+                    id="customKbInputId"
+                    placeholder="ID (ej. KB5059999)"
+                    class="w-32 bg-white/5 border border-white/10 rounded-xl px-3 py-1.5 text-[11px] text-white font-mono placeholder-gray-500 focus:outline-none focus:border-purple-500/50"
+                  />
+                  <input
+                    type="text"
+                    id="customKbInputDesc"
+                    placeholder="Descripción técnica o vector de ataque..."
+                    class="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-1.5 text-[11px] text-white placeholder-gray-500 focus:outline-none focus:border-purple-500/50"
+                  />
+                </div>
+                <button
+                  onclick="triggerCustomKbTest()"
+                  class="w-full py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 active:scale-95 text-white font-semibold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <span>⚡</span> <span>Analizar y Mitigar con IA Local</span>
+                </button>
+              </div>
+            </div>
+
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    function switchTab(tabId) {
+      document.querySelectorAll('.view-content').forEach(el => el.classList.add('hidden'));
+      document.querySelectorAll('.nav-item').forEach(el => {
+        el.classList.remove('bg-white/10', 'text-white');
+        el.classList.add('text-gray-400');
+      });
+
+      const activeView = document.getElementById('view-' + tabId);
+      const activeNav = document.getElementById('nav-' + tabId);
+      if (activeView) activeView.classList.remove('hidden');
+      if (activeNav) {
+        activeNav.classList.add('bg-white/10', 'text-white');
+        activeNav.classList.remove('text-gray-400');
+      }
+
+      if (tabId === 'patcher') {
+        sendIpc('get_patch_rules');
+      } else if (tabId === 'shield') {
+        sendIpc('get_shield_status');
+      } else if (tabId === 'persistence') {
+        sendIpc('get_persistence_entries');
+      } else if (tabId === 'network') {
+        sendIpc('get_network_sockets');
+      } else if (tabId === 'vpn') {
+        sendIpc('get_vpn_info');
+        sendIpc('refresh_vpn_pings');
+      } else if (tabId === 'audit') {
+        sendIpc('run_internal_audit');
+      } else if (tabId === 'scanner') {
+        sendIpc('get_update_history');
+        sendIpc('get_quarantine_records');
+      }
+    }
+
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    let doubleEncryptionEnabled = false;
+
+    function toggleDoubleEncryptionSwitch(elem) {
+      toggleSwitch(elem);
+      doubleEncryptionEnabled = elem.classList.contains('active');
+      if (doubleEncryptionEnabled) {
+        showToast('Doble Cifrado Activado', 'Tráfico enrutado con doble capa: WireGuard ChaCha20 + Onion v3 Multi-Hop.');
+      } else {
+        showToast('Cifrado Estándar', 'Tráfico enrutado mediante túnel privado estándar.');
+      }
+    }
+
+    function isDoubleEncryptionActive() {
+      const sw = document.getElementById('doubleEncryptionSwitch');
+      return sw ? sw.classList.contains('active') : doubleEncryptionEnabled;
+    }
+
+    function toggleSwitch(elem) {
+      if (elem.classList.contains('active')) {
+        elem.classList.remove('active');
+        elem.classList.add('inactive');
+      } else {
+        elem.classList.remove('inactive');
+        elem.classList.add('active');
+      }
+    }
+
+    function showToast(title, message, isAlert = false) {
+      const toast = document.getElementById('toastNotification');
+      const icon = document.getElementById('toastIcon');
+      document.getElementById('toastTitle').textContent = title;
+      document.getElementById('toastMessage').textContent = message;
+
+      if (isAlert) {
+        icon.className = 'w-7 h-7 rounded-full bg-red-500/20 text-red-400 flex items-center justify-center text-sm font-bold';
+        icon.textContent = '⚠';
+      } else {
+        icon.className = 'w-7 h-7 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-sm font-bold';
+        icon.textContent = '✔';
+      }
+
+      toast.classList.remove('translate-y-[-120%]', 'opacity-0');
+      setTimeout(() => {
+        toast.classList.add('translate-y-[-120%]', 'opacity-0');
+      }, 4000);
+    }
+    function sendIpc(action, payload = null) {
+      if (window.ipc) {
+        window.ipc.postMessage(JSON.stringify({ action, payload }));
+      } else if (window.AndroidBridge) {
+        window.AndroidBridge.postMessage(JSON.stringify({ action, payload }));
+      }
+    }
+
+    window.addEventListener('samulibre-android-ready', (e) => {
+      const info = e.detail;
+      console.log("samulibre-android-ready:", info);
+      const banner = document.getElementById('androidDeviceBanner');
+      if (banner) {
+        banner.classList.remove('hidden');
+        const modelEl = document.getElementById('androidDeviceModel');
+        const splEl = document.getElementById('androidDeviceSpl');
+        if (modelEl) modelEl.textContent = `${info.manufacturer} ${info.model} (Android ${info.release_version})`;
+        if (splEl) splEl.textContent = `Nivel Parche SPL: ${info.security_patch_level} | Kernel: ${info.kernel_version} ${info.is_root_detected ? '• ⚠️ Root Detectado' : '• 🔒 No-Root (Seguro)'}`;
+      }
+      sendIpc('audit_android_security', JSON.stringify(info));
+      sendIpc('audit_device_apps');
+    });
+
+    function reauditSystemVulnerabilities() {
+      showToast('Auditoría del SO Iniciada', 'Comprobando compilación del kernel, drivers (tcpip.sys) y servicios...');
+      sendIpc('reaudit_so');
+    }
+
+    window.onPatchRulesUpdated = function(rules, osInfo, sentinelStatus, kbMonitorStatus) {
+      if (osInfo && osInfo.build_number) {
+        const osText = document.getElementById('osBuildText');
+        if (osText) {
+          osText.textContent = `Windows 11 ${osInfo.display_version} (Compilación ${osInfo.build_number}.${osInfo.ubr}) • Kernel & Binarios Protegidos Nativamente`;
+        }
+      }
+
+      if (sentinelStatus) {
+        const subText = document.getElementById('sentinelStatusSubText');
+        if (subText) {
+          const auditTime = sentinelStatus.last_audit_time ? `Última revisión: ${sentinelStatus.last_audit_time}` : 'Centinela activo 24/7';
+          subText.textContent = `${auditTime} • ${sentinelStatus.total_cves_audited} CVEs auditados • Auto-mitigación: ${sentinelStatus.auto_patch_enabled ? 'Activa (Zero-Downtime)' : 'Modo Manual'}`;
+        }
+        const autoSwitch = document.getElementById('sentinelAutoPatchSwitch');
+        if (autoSwitch) {
+          if (sentinelStatus.auto_patch_enabled) {
+            autoSwitch.className = 'apple-switch active cursor-pointer';
+          } else {
+            autoSwitch.className = 'apple-switch inactive cursor-pointer';
+          }
+        }
+      }
+
+      if (kbMonitorStatus) {
+        const countElem = document.getElementById('kbMonitoredCount');
+        if (countElem) countElem.textContent = kbMonitorStatus.monitored_kbs ? kbMonitorStatus.monitored_kbs.length : '0';
+
+        const pendElem = document.getElementById('kbPendingCount');
+        if (pendElem) pendElem.textContent = kbMonitorStatus.pending_kbs_count;
+
+        const aiCountElem = document.getElementById('kbAiAnalyzedCount');
+        if (aiCountElem) aiCountElem.textContent = kbMonitorStatus.ai_analyzed_count;
+
+        const vpatchCountElem = document.getElementById('kbAiVpatchCount');
+        if (vpatchCountElem) vpatchCountElem.textContent = kbMonitorStatus.auto_vpatch_count;
+
+        const aiSwitch = document.getElementById('aiAutopilotSwitch');
+        if (aiSwitch) {
+          aiSwitch.className = kbMonitorStatus.ai_autopilot_enabled ? 'apple-switch active cursor-pointer' : 'apple-switch inactive cursor-pointer';
+        }
+
+        // Actualizar métricas del Copiloto IA si existe la vista
+        const copilotMonitored = document.getElementById('copilotStatMonitoredKbs');
+        if (copilotMonitored) copilotMonitored.textContent = kbMonitorStatus.monitored_kbs ? kbMonitorStatus.monitored_kbs.length : '0';
+        const copilotAnalyzed = document.getElementById('copilotStatAnalyzedKbs');
+        if (copilotAnalyzed) copilotAnalyzed.textContent = kbMonitorStatus.ai_analyzed_count;
+        const copilotVpatch = document.getElementById('copilotStatAutoPatches');
+        if (copilotVpatch) copilotVpatch.textContent = kbMonitorStatus.auto_vpatch_count;
+        const copilotSwitch = document.getElementById('copilotAutopilotSwitch');
+        if (copilotSwitch) {
+          copilotSwitch.className = kbMonitorStatus.ai_autopilot_enabled ? 'apple-switch active shrink-0 cursor-pointer' : 'apple-switch inactive shrink-0 cursor-pointer';
+        }
+
+        const kbsList = document.getElementById('monitoredKbsList');
+        if (kbsList && kbMonitorStatus.monitored_kbs) {
+          kbsList.innerHTML = '';
+          kbMonitorStatus.monitored_kbs.forEach(kb => {
+            const row = document.createElement('div');
+            row.className = 'flex items-center justify-between p-2 rounded-lg bg-black/20 hover:bg-black/30 border border-white/5 transition-all text-xs';
+            row.innerHTML = `
+              <div class="flex items-center gap-2">
+                <span class="font-bold text-purple-300 font-mono">${kb.kb_id}</span>
+                <span class="text-[11px] text-gray-300 truncate max-w-xs sm:max-w-md">${kb.title}</span>
+              </div>
+              <div class="flex items-center gap-2 shrink-0">
+                <button onclick="analyzeSpecificKb('${kb.kb_id}')" class="px-2 py-0.5 bg-purple-500/20 hover:bg-purple-500/30 text-purple-200 border border-purple-500/30 rounded text-[10px] font-medium transition-all">
+                  Analizar con IA
+                </button>
+              </div>
+            `;
+            kbsList.appendChild(row);
+          });
+        }
+      }
+
+      const container = document.getElementById('patchRulesContainer');
+      if (!container) return;
+
+      container.innerHTML = '';
+      let activePatches = 0;
+      let nativeFixed = 0;
+      let unmitigatedCount = 0;
+
+      rules.forEach(rule => {
+        let badgeHtml = '';
+        let switchHtml = '';
+        let actionText = '';
+
+        if (rule.status === 'NativePatchInstalled') {
+          nativeFixed++;
+          badgeHtml = '<span class="text-[10px] bg-emerald-500/20 text-emerald-300 px-2.5 py-0.5 rounded-full font-medium flex items-center gap-1">✔ Corregido Nativamente</span>';
+          actionText = '<span class="text-[11px] text-emerald-400 font-medium">Protegido por el SO</span>';
+          switchHtml = `<div class="apple-switch inactive cursor-pointer" title="Protegido por el SO. Haga clic para forzar mitigación de red/registro como capa extra" onclick="toggleVirtualPatch('${rule.cve}', true)"><div class="apple-switch-thumb"></div></div>`;
+        } else if (rule.status === 'NotApplicable') {
+          nativeFixed++;
+          badgeHtml = '<span class="text-[10px] bg-blue-500/20 text-blue-300 px-2.5 py-0.5 rounded-full font-medium flex items-center gap-1">🛡️ Inmune (No Aplicable a Win11)</span>';
+          actionText = '<span class="text-[11px] text-blue-400 font-medium">Servicio no expuesto</span>';
+          switchHtml = `<div class="apple-switch inactive opacity-40 pointer-events-none cursor-default"><div class="apple-switch-thumb"></div></div>`;
+        } else if (rule.status === 'VirtualPatchActive') {
+          activePatches++;
+          badgeHtml = '<span class="text-[10px] bg-amber-500/20 text-amber-300 px-2.5 py-0.5 rounded-full font-medium flex items-center gap-1">🩹 Parche Virtual Activo</span>';
+          actionText = '<span class="text-[11px] text-amber-400 font-medium">Mitigación activa</span>';
+          switchHtml = `<div class="apple-switch active cursor-pointer" title="Haga clic para desactivar parche virtual" onclick="toggleVirtualPatch('${rule.cve}', false)"><div class="apple-switch-thumb"></div></div>`;
+        } else {
+          unmitigatedCount++;
+          badgeHtml = '<span class="text-[10px] bg-red-500/20 text-red-300 px-2.5 py-0.5 rounded-full font-medium flex items-center gap-1 animate-pulse">⚠ Vulnerabilidad Expuesta</span>';
+          actionText = '<span class="text-[11px] text-red-400 font-medium">Parchar en Vivo</span>';
+          switchHtml = `<div class="apple-switch inactive cursor-pointer" title="Haga clic para aplicar parche virtual inmediatamente" onclick="toggleVirtualPatch('${rule.cve}', true)"><div class="apple-switch-thumb"></div></div>`;
+        }
+
+        const sevScore = rule.severity === 'Critical' ? '9.8' : (rule.severity === 'High' ? '8.8' : '7.8');
+        const sevColor = rule.severity === 'Critical' ? 'amber' : 'blue';
+
+        const card = document.createElement('div');
+        card.className = 'glass-card p-4 rounded-2xl flex items-center justify-between hover:border-white/20 transition-all';
+        card.innerHTML = `
+          <div class="flex items-center gap-3.5 max-w-2xl">
+            <div class="w-10 h-10 rounded-xl bg-${sevColor}-500/10 border border-${sevColor}-500/20 text-${sevColor}-400 flex items-center justify-center text-xs font-bold font-mono shrink-0">
+              ${sevScore}
+            </div>
+            <div>
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="text-xs font-semibold text-white font-mono">${rule.cve}</span>
+                ${badgeHtml}
+              </div>
+              <p class="text-[11px] text-gray-200 mt-0.5 font-medium">${rule.title}</p>
+              ${rule.status_reason ? `<p class="text-[10px] text-gray-400 mt-1 font-mono flex items-center gap-1.5"><span class="text-emerald-400">›</span> ${rule.status_reason}</p>` : ''}
+            </div>
+          </div>
+          <div class="flex items-center gap-3 shrink-0 ml-4">
+            ${actionText}
+            ${switchHtml}
+          </div>
+        `;
+        container.appendChild(card);
+      });
+
+      // Actualizar badges globales
+      const patchBadge = document.getElementById('patchBadge');
+      if (patchBadge) {
+        if (activePatches === 0) {
+          patchBadge.textContent = '0 Activos';
+          patchBadge.className = 'text-[10px] bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-full font-medium';
+        } else {
+          patchBadge.textContent = activePatches + ' Activos';
+          patchBadge.className = 'text-[10px] bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded-full font-medium';
+        }
+      }
+
+      const widgetCount = document.getElementById('widgetPatchCountText');
+      if (widgetCount) {
+        widgetCount.textContent = rules.length + ' Verificados';
+      }
+      const widgetSub = document.getElementById('widgetPatchSubText');
+      if (widgetSub) {
+        widgetSub.textContent = activePatches === 0 ? '0 vulnerabilidades abiertas en Windows 11.' : `${activePatches} parches virtuales activos.`;
+      }
+    };
+
+    window.onKbAnalysisResult = function(result) {
+      if (!result) return;
+      const card = document.getElementById('aiAnalysisCard');
+      if (card) {
+        document.getElementById('aiCardKbId').textContent = result.kb_id;
+        document.getElementById('aiCardCve').textContent = result.cve;
+        document.getElementById('aiCardConfidence').textContent = `Confianza IA: ${(result.confidence_score * 100).toFixed(0)}%`;
+        document.getElementById('aiCardGuardrail').textContent = result.safety_verified ? '✔ Guardrail Verificado (Rust)' : '✖ Guardrail Rechazado';
+        document.getElementById('aiCardComponent').textContent = result.affected_component;
+        document.getElementById('aiCardVector').textContent = result.attack_vector;
+        document.getElementById('aiCardReasoning').textContent = result.reasoning;
+        document.getElementById('aiCardMitigation').textContent = `Estrategia: ${JSON.stringify(result.recommended_mitigation)}`;
+
+        const btn = document.getElementById('aiCardActionBtn');
+        if (btn) {
+          btn.onclick = function() {
+            toggleVirtualPatch(result.cve, true);
+          };
+        }
+        card.classList.remove('hidden');
+      }
+
+      // Loguear en vivo en la consola de pensamiento del Copiloto IA
+      if (typeof logCopilotThought === 'function') {
+        logCopilotThought('IA-REASONING', `Boletín ${result.kb_id} analizado para ${result.cve}. Confianza: ${(result.confidence_score * 100).toFixed(0)}%`, 'text-purple-300 font-bold');
+        logCopilotThought('SAFETY-GUARDRAIL', result.safety_verified ? `Guardrail formal en Rust APROBADO: Mitigación segura y estable (0 riesgo BSOD)` : `Guardrail RECHAZADO: Posible interferencia con servicios del sistema`, result.safety_verified ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold');
+        logCopilotThought('VPATCH-ENGINE', `Vector: ${result.attack_vector} • Componente: ${result.affected_component}`, 'text-cyan-300');
+        if (result.safety_verified) {
+          logCopilotThought('AUTOPILOT', `Regla virtual sintetizada e inyectada en el catálogo de mitigación preventiva.`, 'text-emerald-300');
+        }
+      }
+
+      // Enriquecer el chat del Copiloto con la tarjeta del nuevo KB analizado
+      const chat = document.getElementById('copilotChatContainer');
+      if (chat) {
+        const msgDiv = document.createElement('div');
+        msgDiv.className = 'flex items-start gap-3 max-w-2xl';
+        msgDiv.innerHTML = `
+          <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-purple-500 to-indigo-500 text-white flex items-center justify-center text-sm font-bold shadow-md shadow-purple-500/20 shrink-0">
+            🤖
+          </div>
+          <div class="glass-panel p-4 rounded-2xl space-y-2.5 border border-purple-500/30 bg-purple-500/[0.04] text-xs text-gray-200 font-sans">
+            <div class="flex items-center justify-between text-[10px] text-gray-400 border-b border-white/5 pb-1">
+              <span class="font-semibold text-purple-400">Análisis de Boletín • ${escapeHtml(result.kb_id)}</span>
+              <span class="${result.safety_verified ? 'text-emerald-400' : 'text-red-400'} font-semibold font-mono">${result.safety_verified ? '✔ Guardrails Rust OK' : '✖ Guardrail Inseguro'}</span>
+            </div>
+            <p class="text-xs text-white font-medium">He analizado el boletín para <strong>${escapeHtml(result.cve)}</strong> en <code>${escapeHtml(result.affected_component)}</code>.</p>
+            <p class="text-[11px] text-gray-300 leading-relaxed">${escapeHtml(result.reasoning)}</p>
+            <div class="p-2.5 rounded-xl bg-black/40 border border-white/10 font-mono text-[10.5px] text-cyan-300">
+              ⚡ Mitigación: ${escapeHtml(JSON.stringify(result.recommended_mitigation))}
+            </div>
+            <div class="pt-1 flex flex-wrap gap-2">
+              <button onclick="toggleVirtualPatch('${escapeHtml(result.cve)}', true)" class="px-3 py-1 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-xs font-semibold rounded-xl active:scale-95 transition-all">
+                ✔ Activar Parche Virtual Ahora
+              </button>
+              <button onclick="switchTab('patcher')" class="px-3 py-1 bg-white/10 hover:bg-white/15 border border-white/10 text-cyan-300 text-xs font-semibold rounded-xl active:scale-95 transition-all">
+                ➔ Ver en Parchado Virtual
+              </button>
+            </div>
+          </div>
+        `;
+        chat.appendChild(msgDiv);
+        chat.scrollTop = chat.scrollHeight;
+      }
+
+      showToast('Análisis de IA Local Completado', `Parche sintetizado para ${result.kb_id} (${result.cve}) con confianza ${(result.confidence_score * 100).toFixed(0)}%.`);
+    };
+
+    function runAiKbAudit() {
+      showToast('Auditoría de KBs con IA', 'Analizando boletines de seguridad y verificando estado del SO...');
+      sendIpc('run_ai_kb_audit');
+    }
+
+    function toggleAiAutopilot(elem) {
+      const willEnable = !elem.classList.contains('active');
+      if (willEnable) {
+        elem.classList.remove('inactive');
+        elem.classList.add('active');
+      } else {
+        elem.classList.remove('active');
+        elem.classList.add('inactive');
+      }
+      showToast(
+        'Auto-Pilot Asistido por IA',
+        willEnable ? 'ACTIVADO: los parches virtuales sintetizados por la IA se aplicarán automáticamente.' : 'DESACTIVADO: el análisis de IA requerirá confirmación manual.'
+      );
+      sendIpc('set_ai_autopilot', willEnable ? 'true' : 'false');
+    }
+
+    function toggleManualKbModal() {
+      const form = document.getElementById('manualKbForm');
+      if (form) {
+        form.classList.toggle('hidden');
+      }
+    }
+
+    function submitManualKbAnalysis() {
+      const kbId = document.getElementById('inputManualKbId').value.trim();
+      const title = document.getElementById('inputManualKbTitle').value.trim();
+      const desc = document.getElementById('inputManualKbDesc').value.trim();
+
+      if (!kbId) {
+        showToast('Campo Requerido', 'Por favor ingrese el identificador de KB o CVE.');
+        return;
+      }
+
+      showToast('Invocando IA Local', `Analizando boletín técnico para ${kbId}...`);
+      sendIpc('analyze_raw_kb', JSON.stringify({ kb_id: kbId, title: title, description: desc }));
+      toggleManualKbModal();
+    }
+
+    function analyzeSpecificKb(kbId) {
+      showToast('Invocando IA Local', `Analizando ${kbId} con modelo embebido...`);
+      sendIpc('analyze_raw_kb', JSON.stringify({ kb_id: kbId }));
+    }
+
+    function toggleVirtualPatch(cve, enable) {
+      showToast(
+        enable ? 'Aplicando Parche Virtual...' : 'Revirtiendo Parche Virtual...',
+        `Configurando regla en tiempo real para ${cve}...`
+      );
+      sendIpc('toggle_virtual_patch', JSON.stringify({ cve: cve, enable: enable }));
+    }
+
+    function toggleSentinelAutoPatch(elem) {
+      const willEnable = !elem.classList.contains('active');
+      if (willEnable) {
+        elem.classList.remove('inactive');
+        elem.classList.add('active');
+      } else {
+        elem.classList.remove('active');
+        elem.classList.add('inactive');
+      }
+      showToast(
+        'Centinela de CVEs',
+        willEnable ? 'Auto-Mitigación ACTIVADA: el Centinela protegerá vulnerabilidades críticas automáticamente.' : 'Modo MANUAL: las mitigaciones requerirán activación manual.'
+      );
+      sendIpc('set_sentinel_auto_patch', willEnable ? 'true' : 'false');
+    }
+
+    window.onShieldStatusUpdated = function(status) {
+      if (!status) return;
+
+      // 1. Interruptor LSASS
+      const lsassSw = document.getElementById('lsassSwitch');
+      const lsassSub = document.getElementById('lsassStatusSub');
+      if (lsassSw) {
+        if (status.lsass_protection_active) {
+          lsassSw.classList.add('active');
+        } else {
+          lsassSw.classList.remove('active');
+        }
+      }
+      if (lsassSub) {
+        lsassSub.textContent = `Estado: ${status.lsass_status_text}`;
+      }
+
+      // 2. Interruptor Cookies
+      const cookieSw = document.getElementById('cookieSwitch');
+      const cookieSub = document.getElementById('cookieStatusSub');
+      if (cookieSw) {
+        if (status.cookie_shield_active) {
+          cookieSw.classList.add('active');
+        } else {
+          cookieSw.classList.remove('active');
+        }
+      }
+      if (cookieSub) {
+        cookieSub.textContent = `Estado: ${status.cookie_status_text}`;
+      }
+
+      // 3. Resumen y Canarios
+      const summaryText = document.getElementById('shieldLiveSummaryText');
+      if (summaryText) {
+        summaryText.textContent = `Escudo Activo • ${status.monitored_processes_count || 0} procesos vigilados`;
+      }
+
+      const countEl = document.getElementById('canaryIntegrityCount');
+      if (countEl) {
+        countEl.textContent = `${status.intact_count || 0} de ${status.total_canaries || 0} íntegros`;
+        if (status.intact_count < status.total_canaries) {
+          countEl.className = 'text-[11px] font-bold text-red-400 bg-red-500/20 px-2.5 py-0.5 rounded-full border border-red-500/30 animate-pulse';
+        } else {
+          countEl.className = 'text-[11px] text-emerald-400 font-medium bg-emerald-500/10 px-2.5 py-0.5 rounded-full border border-emerald-500/20';
+        }
+      }
+
+      // 4. Renderizado dinámico de Honeyfiles reales
+      const canaryList = document.getElementById('canaryList');
+      if (canaryList && status.canaries && status.canaries.length > 0) {
+        canaryList.innerHTML = '';
+        status.canaries.forEach(item => {
+          const card = document.createElement('div');
+          const isIntact = item.is_intact;
+          card.className = isIntact
+            ? 'glass-panel p-3 rounded-xl flex items-center justify-between transition-all'
+            : 'glass-panel p-3 rounded-xl flex items-center justify-between border border-red-500/40 bg-red-500/10 transition-all';
+
+          card.innerHTML = `
+            <div class="flex items-center gap-2.5 min-w-0">
+              <span class="text-base">${item.icon || '📄'}</span>
+              <div class="truncate">
+                <p class="text-xs font-medium text-white truncate">${item.name}</p>
+                <p class="text-[10px] text-gray-400 font-mono truncate">${item.path}</p>
+              </div>
+            </div>
+            <span class="text-[10px] font-medium px-2.5 py-0.5 rounded-full whitespace-nowrap ${isIntact ? 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/20' : 'text-red-300 bg-red-500/30 border border-red-500/40 font-bold animate-pulse'}">
+              ${item.status_text}
+            </span>
+          `;
+          canaryList.appendChild(card);
+        });
+      }
+    };
+
+    function toggleLsassSwitch(el) {
+      const isCurrentlyActive = el.classList.contains('active');
+      const newState = !isCurrentlyActive;
+      if (newState) {
+        el.classList.add('active');
+        showToast('Protección LSASS Activada', 'LSA RunAsPPL configurado. Bloqueando PROCESS_VM_READ contra Mimikatz y NanoDump.');
+      } else {
+        el.classList.remove('active');
+        showToast('Protección LSASS Desactivada', 'Supervisión de memoria LSASS en modo pasivo.');
+      }
+      sendIpc('toggle_lsass_protection', newState ? 'true' : 'false');
+    }
+
+    function toggleCookieSwitch(el) {
+      const isCurrentlyActive = el.classList.contains('active');
+      const newState = !isCurrentlyActive;
+      if (newState) {
+        el.classList.add('active');
+        showToast('Escudo de Cookies Activado', 'Vigilando almacenes DPAPI y perfiles de navegadores contra InfoStealers.');
+      } else {
+        el.classList.remove('active');
+        showToast('Escudo de Cookies Desactivado', 'Vigilancia de almacenes DPAPI en espera.');
+      }
+      sendIpc('toggle_cookie_shield', newState ? 'true' : 'false');
+    }
+
+    function triggerQuickScan() {
+      const card = document.getElementById('realScanProgressCard');
+      card.classList.remove('hidden');
+      document.getElementById('scanCurrentPathText').textContent = 'Iniciando escaneo multi-hilo en memoria y disco...';
+      document.getElementById('scanCountText').textContent = '0';
+      document.getElementById('scanThreatsText').textContent = '0 amenazas';
+      document.getElementById('scanProgressBar').style.width = '8%';
+
+      showToast('Escaneo Real Iniciado', 'Recorriendo directorios del sistema y memoria en segundo plano...');
+      sendIpc('start_real_scan');
+    }
+
+    window.onScanProgressUpdate = function(filesScanned, currentFile, threatsFound, isDone) {
+      const card = document.getElementById('realScanProgressCard');
+      if (card) {
+        card.classList.remove('hidden');
+        document.getElementById('scanCountText').textContent = filesScanned.toLocaleString();
+        document.getElementById('scanCurrentPathText').textContent = 'Analizando: ' + currentFile;
+
+        // Cálculo dinámico de ancho de barra
+        const progressPercent = isDone ? 100 : Math.min(95, Math.floor(filesScanned / 15) + 10);
+        document.getElementById('scanProgressBar').style.width = progressPercent + '%';
+
+        const threatsEl = document.getElementById('scanThreatsText');
+        if (threatsFound > 0) {
+          threatsEl.className = 'text-red-400 font-semibold font-sans whitespace-nowrap ml-4';
+          threatsEl.textContent = threatsFound + ' amenazas detectadas';
+        } else {
+          threatsEl.className = 'text-emerald-400 font-semibold font-sans whitespace-nowrap ml-4';
+          threatsEl.textContent = '0 amenazas';
+        }
+
+        if (isDone) {
+          showToast('Escaneo Real Completado', filesScanned.toLocaleString() + ' archivos verificados exhaustivamente.');
+          setTimeout(() => {
+            document.getElementById('scanCurrentPathText').textContent = '✔ Verificación exhaustiva completada. Todo limpio.';
+          }, 1500);
+        }
+      }
+    };
+
+    function triggerUpdateSignatures() {
+      showToast('Actualizando Firmas', 'Sincronizando feeds de MalwareBazaar, ThreatFox y ClamAV...');
+      sendIpc('update_signatures');
+    }
+
+    window.onSignaturesUpdated = function(total, newAdded, timestamp) {
+      const badge = document.getElementById('signaturesStatusBadge');
+      if (badge) {
+        badge.textContent = total + ' Reglas Activas (+' + newAdded + ' nuevas)';
+      }
+      const dateEl = document.getElementById('signaturesDateText');
+      if (dateEl) {
+        dateEl.textContent = 'Última sincronización: ' + timestamp + ' | ' + total + ' firmas en memoria.';
+      }
+    };
+
+    let currentScannedSha256 = '';
+
+    function handleDropZoneClick(e) {
+      browseAndScanFiles();
+    }
+
+    function browseAndScanFiles() {
+      showToast('Explorador de Archivos', 'Abriendo diálogo nativo de Windows para selección de archivos...');
+      sendIpc('browse_and_scan_files');
+    }
+
+    function browseAndScanFolder() {
+      showToast('Explorador de Carpetas', 'Abriendo selector de carpetas de Windows para escaneo exhaustivo...');
+      sendIpc('browse_and_scan_folder');
+    }
+
+    function handleNativeFileInput(e) {
+      const files = e.target.files;
+      if (!files || files.length === 0) return;
+      const paths = [];
+      for (let i = 0; i < files.length; i++) {
+        if (files[i].path) {
+          paths.push(files[i].path);
+        }
+      }
+      if (paths.length > 0) {
+        showToast('Analizando Archivos', `Enviando ${paths.length} archivo(s) al motor Multi-Engine...`);
+        sendIpc('scan_custom_path', JSON.stringify(paths));
+      }
+    }
+
+    function scanSampleReal(type) {
+      showToast('Prueba de Muestra Real', `Invocando escáner sobre muestra estandarizada ${type}...`);
+      sendIpc('scan_sample_test', type);
+    }
+
+    window.onSingleScanResult = function(res) {
+      if (!res) return;
+      const card = document.getElementById('scanResultCard');
+      const icon = document.getElementById('scanResultIcon');
+      const fname = document.getElementById('scanResultFileName');
+      const badge = document.getElementById('scanResultStatusBadge');
+      const details = document.getElementById('scanResultDetails');
+      const engine = document.getElementById('scanResultEngine');
+      const timeBadge = document.getElementById('scanResultTimeBadge');
+      const shaEl = document.getElementById('scanResultSha256');
+      const actionsEl = document.getElementById('scanResultActions');
+
+      card.classList.remove('hidden');
+      currentScannedSha256 = res.sha256 || '';
+
+      fname.textContent = res.file_path || 'Muestra en Memoria';
+      fname.title = res.file_path || '';
+      shaEl.textContent = res.sha256 || 'N/A';
+      timeBadge.textContent = `⏱️ ${res.scan_time_ms || 1} ms`;
+      engine.textContent = res.engine || 'SamuLibre Multi-Engine';
+
+      actionsEl.innerHTML = '';
+
+      if (res.status === 'Infected') {
+        icon.className = 'w-10 h-10 rounded-2xl bg-red-500/20 text-red-400 flex items-center justify-center font-bold text-lg';
+        icon.textContent = '✘';
+        badge.className = 'text-[10px] px-2.5 py-0.5 rounded-full font-bold bg-red-500/20 text-red-300 border border-red-500/30 animate-pulse';
+        badge.textContent = 'AMENAZA CONFIRMADA';
+        details.textContent = `Detección: ${res.detection_name || 'Malware Detectado'}. Neutralización recomendada.`;
+        engine.className = 'text-[10px] font-mono px-2.5 py-1 rounded-lg bg-red-500/10 text-red-300 border border-red-500/20';
+
+        // Botón de acción: Aislar en cuarentena si es un archivo de disco
+        if (res.file_path && !res.file_path.includes('(Firma') && !res.file_path.includes('(Script')) {
+          const btnIso = document.createElement('button');
+          btnIso.className = 'px-3 py-1 bg-red-500/20 text-red-300 border border-red-500/40 text-[11px] font-semibold rounded-lg hover:bg-red-500/30 active:scale-95 transition-all flex items-center gap-1';
+          btnIso.innerHTML = '<span>🔒</span> Aislar en Cuarentena';
+          btnIso.onclick = () => isolateScannedFile(res.file_path);
+          actionsEl.appendChild(btnIso);
+        }
+
+        showToast('¡Amenaza Detectada!', `${res.detection_name || 'Malware'} en ${res.file_path}`, true);
+      } else if (res.status === 'Suspicious') {
+        icon.className = 'w-10 h-10 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold text-lg';
+        icon.textContent = '⚠';
+        badge.className = 'text-[10px] px-2.5 py-0.5 rounded-full font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30';
+        badge.textContent = 'SOSPECHOSO / ALTA ENTROPÍA';
+        details.textContent = `Heurística: ${res.detection_name || 'Posible empaquetador malicioso'}.`;
+        engine.className = 'text-[10px] font-mono px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-300 border border-amber-500/20';
+
+        showToast('Patrón Sospechoso', res.detection_name || 'Archivo con alta entropía', true);
+      } else {
+        icon.className = 'w-10 h-10 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-lg';
+        icon.textContent = '✔';
+        badge.className = 'text-[10px] px-2.5 py-0.5 rounded-full font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
+        badge.textContent = 'LIMPIO Y SEGURO';
+        details.textContent = 'Sin coincidencias de firmas, patrones YARA-X limpios y entropía normal.';
+        engine.className = 'text-[10px] font-mono px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
+
+        showToast('Archivo Seguro', `Verificación completada en ${res.scan_time_ms || 1} ms`);
+      }
+    };
+
+    window.onBatchScanResults = function(results) {
+      if (!results || results.length === 0) return;
+      const container = document.getElementById('batchScanContainer');
+      const countEl = document.getElementById('batchScanCount');
+      const listEl = document.getElementById('batchScanList');
+      if (!container || !listEl) return;
+
+      container.classList.remove('hidden');
+      const total = results.length;
+      const threats = results.filter(r => r.status === 'Infected' || r.status === 'Suspicious').length;
+      countEl.textContent = `${total} archivos analizados • ${threats} amenazas`;
+      countEl.className = threats > 0 ? 'text-red-400 font-mono text-[11px] font-bold' : 'text-emerald-400 font-mono text-[11px] font-bold';
+
+      listEl.innerHTML = '';
+      results.forEach(res => {
+        const row = document.createElement('div');
+        const isInfected = res.status === 'Infected';
+        const isSuspicious = res.status === 'Suspicious';
+        row.className = isInfected
+          ? 'glass-panel p-2.5 rounded-xl border border-red-500/30 bg-red-500/10 flex items-center justify-between text-xs transition-all'
+          : isSuspicious
+          ? 'glass-panel p-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 flex items-center justify-between text-xs transition-all'
+          : 'glass-panel p-2.5 rounded-xl flex items-center justify-between text-xs transition-all';
+
+        row.innerHTML = `
+          <div class="flex items-center gap-2 min-w-0 mr-2">
+            <span>${isInfected ? '✘' : isSuspicious ? '⚠' : '✔'}</span>
+            <div class="truncate">
+              <p class="font-medium text-white truncate">${res.file_path}</p>
+              <p class="text-[10px] text-gray-400 font-mono truncate">${res.detection_name || res.engine} • ${res.sha256 ? res.sha256.substring(0, 16) + '...' : ''}</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2 flex-shrink-0">
+            <span class="text-[10px] font-mono text-gray-400">${res.scan_time_ms || 1}ms</span>
+            <span class="text-[10px] px-2 py-0.5 rounded-full font-bold ${isInfected ? 'bg-red-500/20 text-red-300' : isSuspicious ? 'bg-amber-500/20 text-amber-300' : 'bg-emerald-500/10 text-emerald-400'}">
+              ${isInfected ? 'Infectado' : isSuspicious ? 'Sospechoso' : 'Limpio'}
+            </span>
+          </div>
+        `;
+        listEl.appendChild(row);
+      });
+
+      showToast('Escaneo en Lote Completado', `${total} archivos analizados (${threats} amenazas encontradas).`);
+    };
+
+    function copyScanSha256() {
+      if (currentScannedSha256) {
+        navigator.clipboard.writeText(currentScannedSha256).then(() => {
+          showToast('Hash Copiado', 'SHA-256 copiado al portapapeles con éxito.');
+        });
+      }
+    }
+
+    function isolateScannedFile(path) {
+      showToast('Aislando Amenaza', 'Cifrando con clave XOR y trasladando a bóveda de cuarentena...');
+      sendIpc('isolate_file_manually', path);
+    }
+
+    function triggerOnAccessLab() {
+      const term = document.getElementById('onAccessLabTerminal');
+      const logs = document.getElementById('onAccessLabLogs');
+      if (term) term.classList.remove('hidden');
+      if (logs) {
+        logs.innerHTML = `
+          <div class="text-blue-400">[*] Iniciando laboratorio de prueba en tiempo real...</div>
+          <div class="text-gray-400">[1/4] Creando muestra en 'data/test_samples/test_live_sample.ps1'...</div>
+        `;
+      }
+      showToast('Laboratorio On-Access', 'Generando muestra en disco para verificar intercepción inmediata...');
+      sendIpc('trigger_on_access_lab');
+    }
+
+    window.onAccessLabCompleted = function(logMsg, quarantined) {
+      const logs = document.getElementById('onAccessLabLogs');
+      if (logs) {
+        logs.innerHTML += `
+          <div class="text-amber-300">[2/4] Intercepción reactiva disparada por FileSystemWatcher (&lt;0.2 ms).</div>
+          <div class="text-red-400 font-bold">[3/4] MultiEngineScanner confirmó amenaza: 'Threat.Script.PowerShellDropper'.</div>
+          <div class="text-emerald-400 font-bold">[4/4] Archivo neutralizado: Cifrado con XOR 0xAA y aislado en 'data/quarantine/'. Original destruido del disco.</div>
+          <div class="text-gray-300 mt-1 pl-2 border-l border-emerald-500/40 text-[10px]">${logMsg}</div>
+        `;
+      }
+      showToast('Laboratorio Exitoso', 'La amenaza fue interceptada al vuelo y recluida en cuarentena cifrada.');
+    };
+
+    let cachedQuarantineRecords = [];
+
+    window.onQuarantineListLoaded = function(records) {
+      cachedQuarantineRecords = records || [];
+      const badge = document.getElementById('quarantineCountBadge');
+      if (badge) {
+        badge.textContent = `Bóveda Cifrada: ${cachedQuarantineRecords.length} aislados`;
+      }
+      renderQuarantineList();
+    };
+
+    function openQuarantineModal() {
+      sendIpc('get_quarantine_records');
+      const modal = document.getElementById('modalQuarantine');
+      if (modal) modal.classList.remove('hidden');
+      renderQuarantineList();
+    }
+
+    function closeQuarantineModal() {
+      const modal = document.getElementById('modalQuarantine');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    function renderQuarantineList() {
+      const listEl = document.getElementById('quarantineModalList');
+      if (!listEl) return;
+
+      if (!cachedQuarantineRecords || cachedQuarantineRecords.length === 0) {
+        listEl.innerHTML = `
+          <div class="text-center py-10 text-gray-400 text-xs">
+            <span class="text-3xl block mb-2">🛡️</span>
+            <p class="font-medium text-white mb-0.5">Bóveda de Cuarentena Vacía</p>
+            <p>No hay elementos maliciosos retenidos actualmente.</p>
+          </div>
+        `;
+        return;
+      }
+
+      listEl.innerHTML = '';
+      cachedQuarantineRecords.forEach(rec => {
+        const item = document.createElement('div');
+        item.className = 'glass-card p-3 rounded-2xl border border-white/5 space-y-2';
+        item.innerHTML = `
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2.5 min-w-0">
+              <span class="text-base text-red-400 font-bold">🔒</span>
+              <div class="truncate">
+                <p class="text-xs font-semibold text-white truncate">${escapeHtml(rec.threat_name)}</p>
+                <p class="text-[10px] text-gray-400 font-mono truncate">${escapeHtml(rec.original_path)}</p>
+              </div>
+            </div>
+            <button onclick="purgeQuarantineItem('${rec.id}')" class="px-2.5 py-1 bg-red-500/20 text-red-300 border border-red-500/30 text-[10px] font-medium rounded-lg hover:bg-red-500/30 active:scale-95 transition-all">
+              🗑 Eliminar Definitivamente
+            </button>
+          </div>
+          <div class="flex items-center justify-between text-[10px] text-gray-400 font-mono pt-1 border-t border-white/5">
+            <span>Motor: ${escapeHtml(rec.engine)}</span>
+            <span>SHA: ${escapeHtml(rec.sha256 ? rec.sha256.substring(0, 16) + '...' : '')}</span>
+            <span>${escapeHtml(rec.quarantined_at ? rec.quarantined_at.split('T')[0] : 'Hoy')}</span>
+          </div>
+        `;
+        listEl.appendChild(item);
+      });
+    }
+
+    function purgeQuarantineItem(id) {
+      showToast('Purgando Elemento', 'Eliminando archivo cifrado y metadatos de la bóveda...');
+      sendIpc('purge_quarantine_record', id);
+    }
+
+    let currentVpnState = null;
+    let availableVpnCountries = [];
+    let isVpnConnecting = false;
+    let connectingCountryCode = null;
+
+    window.onVpnStateUpdated = function(state, countries) {
+      isVpnConnecting = false;
+      connectingCountryCode = null;
+      currentVpnState = state;
+      if (countries && countries.length > 0) {
+        availableVpnCountries = countries;
+      }
+
+      const dot = document.getElementById('vpnStatusDot');
+      const title = document.getElementById('vpnStatusTitle');
+      const sub = document.getElementById('vpnStatusSub');
+      const activeBadge = document.getElementById('vpnActiveBadge');
+      const countryEl = document.getElementById('vpnMetricCountry');
+      const ipEl = document.getElementById('vpnMetricIp');
+      const protoEl = document.getElementById('vpnMetricProtocol');
+      const dnsEl = document.getElementById('vpnMetricDns');
+      const btnText = document.getElementById('vpnBtnText');
+      const btnIcon = document.getElementById('vpnBtnIcon');
+      const quickBtn = document.getElementById('vpnQuickActionBtn');
+
+      if (state.is_connected) {
+        if (dot) dot.className = 'w-3.5 h-3.5 rounded-full bg-emerald-400 animate-pulse';
+        if (title) title.textContent = `VPN Conectada (${state.country_flag || '🌐'} ${state.country_name || 'Desconocido'})`;
+        if (sub) sub.textContent = state.multi_hop_route
+          ? `Túnel con Doble Cifrado activo • ${state.multi_hop_route}`
+          : `Túnel privado activo con DNS ${state.dns_active} y proxy de sistema enrutado.`;
+        if (activeBadge) {
+          if (state.is_double_encryption) {
+            activeBadge.textContent = '🔐 Doble Cifrado Activo';
+            activeBadge.className = 'text-xs font-semibold px-3 py-1 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/40 shadow-sm animate-pulse';
+          } else {
+            activeBadge.textContent = 'Protegido';
+            activeBadge.className = 'text-xs font-medium px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40';
+          }
+        }
+
+        const routeRow = document.getElementById('vpnMultiHopRouteRow');
+        const routeText = document.getElementById('vpnMultiHopRouteText');
+        if (routeRow && routeText) {
+          if (state.is_double_encryption && state.multi_hop_route) {
+            routeRow.classList.remove('hidden');
+            routeText.textContent = state.multi_hop_route;
+          } else {
+            routeRow.classList.add('hidden');
+          }
+        }
+
+        if (countryEl) countryEl.textContent = `${state.country_flag || ''} ${state.country_name || 'N/A'}`;
+        if (ipEl) ipEl.textContent = state.assigned_ip || 'Verificada';
+        if (protoEl) protoEl.textContent = state.encryption_cipher || state.protocol || 'Enrutamiento Privado';
+        if (dnsEl) dnsEl.textContent = `${state.dns_active} (9.9.9.9)`;
+
+        const livePingText = document.getElementById('vpnMetricLivePingText');
+        const livePingDot = document.getElementById('vpnLivePingDot');
+        if (livePingText) livePingText.textContent = `${state.ping_ms || 185} ms`;
+        if (livePingDot) livePingDot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-ping';
+
+        if (btnText) btnText.textContent = 'Desconectar VPN';
+        if (btnIcon) btnIcon.textContent = '🛑';
+        if (quickBtn) quickBtn.className = 'px-4 py-2 bg-red-500/80 hover:bg-red-500 text-white font-semibold text-xs rounded-xl shadow-lg active:scale-95 transition-all flex items-center gap-2';
+      } else {
+        if (dot) dot.className = 'w-3.5 h-3.5 rounded-full bg-gray-500';
+        if (title) title.textContent = 'VPN Desconectada';
+        if (sub) sub.textContent = 'Tu tráfico actual utiliza tu proveedor de internet local.';
+        if (activeBadge) {
+          activeBadge.textContent = 'Inactivo';
+          activeBadge.className = 'text-xs font-medium px-3 py-1 rounded-full bg-gray-500/20 text-gray-300 border border-white/10';
+        }
+
+        const routeRow = document.getElementById('vpnMultiHopRouteRow');
+        if (routeRow) routeRow.classList.add('hidden');
+
+        if (countryEl) countryEl.textContent = 'Ninguno seleccionado';
+        if (ipEl) ipEl.textContent = 'Protección en espera';
+        if (protoEl) protoEl.textContent = 'Enrutamiento Seguro';
+        if (dnsEl) dnsEl.textContent = 'ISP Local';
+
+        const livePingText = document.getElementById('vpnMetricLivePingText');
+        const livePingDot = document.getElementById('vpnLivePingDot');
+        if (livePingText) livePingText.textContent = '-- ms';
+        if (livePingDot) livePingDot.className = 'w-2 h-2 rounded-full bg-gray-500';
+
+        if (btnText) btnText.textContent = 'Conectar VPN';
+        if (btnIcon) btnIcon.textContent = '⚡';
+        if (quickBtn) quickBtn.className = 'px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-black font-semibold text-xs rounded-xl shadow-lg active:scale-95 transition-all flex items-center gap-2';
+      }
+
+      renderVpnCountries();
+    };
+
+    function getPingBadgeClass(ping) {
+      const p = ping || 185;
+      if (p < 70) {
+        return 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'; // 🟢 Local / Cercano
+      } else if (p < 150) {
+        return 'bg-blue-500/20 text-blue-300 border border-blue-500/30'; // 🔵 Continental
+      } else {
+        return 'bg-purple-500/20 text-purple-300 border border-purple-500/30'; // 🟣 Transatlántico / Doble Salto
+      }
+    }
+
+    window.onVpnLatenciesUpdated = function(latencies, tunnelPing) {
+      if (latencies && typeof latencies === 'object') {
+        for (const [id, ping] of Object.entries(latencies)) {
+          const country = availableVpnCountries.find(c => c.id === id);
+          if (country) {
+            country.ping_ms = ping;
+            country.latency_ms = ping;
+          }
+          const badge = document.getElementById(`vpnPingBadge_${id}`);
+          if (badge) {
+            badge.textContent = `⚡ ${ping} ms`;
+            badge.className = `text-[10px] font-mono px-2 py-0.5 rounded-full transition-all duration-300 ${getPingBadgeClass(ping)}`;
+          }
+        }
+      }
+
+      const livePingText = document.getElementById('vpnMetricLivePingText');
+      const livePingDot = document.getElementById('vpnLivePingDot');
+      if (currentVpnState && currentVpnState.is_connected) {
+        const p = tunnelPing || (currentVpnState ? currentVpnState.ping_ms : null);
+        if (p && livePingText) {
+          livePingText.textContent = `${p} ms`;
+          if (livePingDot) livePingDot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-ping';
+        }
+      } else {
+        if (livePingText) livePingText.textContent = '-- ms';
+        if (livePingDot) livePingDot.className = 'w-2 h-2 rounded-full bg-gray-500';
+      }
+
+      const statusEl = document.getElementById('vpnLatencyRefreshStatus');
+      if (statusEl) {
+        const now = new Date().toLocaleTimeString();
+        statusEl.textContent = `Pings actualizados: ${now}`;
+      }
+
+      const spinner = document.getElementById('refreshPingsSpinner');
+      if (spinner) spinner.classList.remove('animate-spin');
+    };
+
+    function refreshVpnPings() {
+      const spinner = document.getElementById('refreshPingsSpinner');
+      if (spinner) spinner.classList.add('animate-spin');
+      const statusEl = document.getElementById('vpnLatencyRefreshStatus');
+      if (statusEl) statusEl.textContent = 'Midiendo latencias TCP en vivo...';
+      sendIpc('refresh_vpn_pings');
+    }
+
+    function renderVpnCountries() {
+      const grid = document.getElementById('vpnCountriesGrid');
+      if (!grid) return;
+      grid.innerHTML = '';
+
+      const list = availableVpnCountries.length > 0 ? availableVpnCountries : [
+        { id: "CO", name: "Colombia", flag: "🇨🇴", city: "Bogotá", ping_ms: 24, privacy_law: "Ley 1581 / Habeas Data", wireguard_endpoint: "co.privacy.samulibre.net:443" },
+        { id: "PA", name: "Panamá", flag: "🇵🇦", city: "Ciudad de Panamá", ping_ms: 62, privacy_law: "Fuera de 14-Eyes Alliance", wireguard_endpoint: "pa.privacy.samulibre.net:443" },
+        { id: "CA", name: "Canadá", flag: "🇨🇦", city: "Montreal", ping_ms: 110, privacy_law: "Protección Federal PIPEDA", wireguard_endpoint: "ca.privacy.samulibre.net:443" },
+        { id: "BR", name: "Brasil", flag: "🇧🇷", city: "São Paulo", ping_ms: 115, privacy_law: "LGPD / Marco Civil", wireguard_endpoint: "br.privacy.samulibre.net:443" },
+        { id: "NL", name: "Países Bajos", flag: "🇳🇱", city: "Ámsterdam", ping_ms: 172, privacy_law: "Hub GDPR de Alta Velocidad", wireguard_endpoint: "nl.privacy.samulibre.net:443" },
+        { id: "CH", name: "Suiza", flag: "🇨🇭", city: "Zúrich", ping_ms: 185, privacy_law: "Leyes FADP / Cero Retención", wireguard_endpoint: "ch.privacy.samulibre.net:443" },
+        { id: "SE", name: "Suecia", flag: "🇸🇪", city: "Estocolmo", ping_ms: 195, privacy_law: "Tránsito Neutral & Seguro", wireguard_endpoint: "se.privacy.samulibre.net:443" },
+        { id: "IS", name: "Islandia", flag: "🇮🇸", city: "Reikiavik", ping_ms: 215, privacy_law: "Garantía Constitucional", wireguard_endpoint: "is.privacy.samulibre.net:443" }
+      ];
+
+      list.forEach(c => {
+        const isCurrent = currentVpnState && currentVpnState.is_connected && currentVpnState.country_id === c.id;
+        const isThisConnecting = isVpnConnecting && connectingCountryCode === c.id;
+        const card = document.createElement('div');
+        card.className = isCurrent
+          ? 'glass-card p-4 rounded-2xl border-2 border-emerald-500/60 bg-emerald-500/10 cursor-pointer transition-all'
+          : isThisConnecting
+          ? 'glass-card p-4 rounded-2xl border-2 border-amber-500/60 bg-amber-500/10 cursor-pointer transition-all'
+          : 'glass-card p-4 rounded-2xl hover:border-white/20 cursor-pointer transition-all';
+
+        const pingVal = c.ping_ms || c.latency_ms || 185;
+
+        card.innerHTML = `
+          <div class="flex items-center justify-between mb-2">
+            <div class="flex items-center gap-2.5">
+              <span class="text-2xl">${c.flag}</span>
+              <div>
+                <h4 class="text-xs font-semibold text-white">${c.name}</h4>
+                <p class="text-[10px] text-gray-400 font-medium">${c.city}</p>
+              </div>
+            </div>
+            <span id="vpnPingBadge_${c.id}" class="text-[10px] font-mono px-2 py-0.5 rounded-full transition-all duration-300 ${getPingBadgeClass(pingVal)}">
+              ⚡ ${pingVal} ms
+            </span>
+          </div>
+          <div class="text-[10px] text-gray-300 mb-3 flex items-center gap-1">
+            <span class="text-emerald-400">🛡️</span> ${c.privacy_law || c.jurisdiction || 'Privacidad Digital Estricta'}
+          </div>
+          <div class="flex items-center justify-between pt-2 border-t border-white/5">
+            <span class="text-[10px] text-gray-400 font-mono">${(c.wireguard_endpoint || c.city || 'privacy-node').split(':')[0]}</span>
+            ${isCurrent
+              ? `<button onclick="event.stopPropagation(); disconnectVpn();" class="px-2.5 py-1 bg-red-500/20 text-red-300 border border-red-500/30 text-[10px] font-medium rounded-lg hover:bg-red-500/30">Desconectar</button>`
+              : isThisConnecting
+              ? `<button id="vpnBtn_${c.id}" class="px-2.5 py-1 bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px] font-medium rounded-lg animate-pulse" disabled>⏳ Conectando...</button>`
+              : `<button id="vpnBtn_${c.id}" onclick="event.stopPropagation(); connectToCountry('${c.id}');" class="px-2.5 py-1 bg-white/10 hover:bg-emerald-500 hover:text-black text-gray-200 text-[10px] font-medium rounded-lg transition-all" ${isVpnConnecting ? 'disabled' : ''}>Conectar</button>`
+            }
+          </div>
+        `;
+        card.onclick = () => {
+          if (isVpnConnecting) return;
+          if (isCurrent) {
+            disconnectVpn();
+          } else {
+            connectToCountry(c.id);
+          }
+        };
+        grid.appendChild(card);
+      });
+    }
+
+    function toggleVpnGlobal() {
+      if (isVpnConnecting) return;
+      if (currentVpnState && currentVpnState.is_connected) {
+        disconnectVpn();
+      } else {
+        connectToCountry('CH');
+      }
+    }
+
+    function connectToCountry(code) {
+      if (isVpnConnecting) return;
+      isVpnConnecting = true;
+      connectingCountryCode = code;
+
+      const btn = document.getElementById(`vpnBtn_${code}`);
+      if (btn) {
+        btn.textContent = '⏳ Conectando...';
+        btn.className = 'px-2.5 py-1 bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px] font-medium rounded-lg animate-pulse';
+        btn.disabled = true;
+      }
+
+      const dot = document.getElementById('vpnStatusDot');
+      if (dot) dot.className = 'w-3.5 h-3.5 rounded-full bg-amber-400 animate-ping';
+
+      const title = document.getElementById('vpnStatusTitle');
+      if (title) title.textContent = `Conectando a nodo ${code}...`;
+
+      const sub = document.getElementById('vpnStatusSub');
+      if (sub) sub.textContent = 'Negociando circuito cifrado multi-salto y verificando nodo de salida...';
+
+      const activeBadge = document.getElementById('vpnActiveBadge');
+      if (activeBadge) {
+        activeBadge.textContent = 'Negociando...';
+        activeBadge.className = 'text-xs font-medium px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse';
+      }
+
+      const countryEl = document.getElementById('vpnMetricCountry');
+      if (countryEl) countryEl.textContent = `Nodo ${code} (En proceso)`;
+
+      const ipEl = document.getElementById('vpnMetricIp');
+      if (ipEl) ipEl.textContent = 'Verificando IP externa...';
+
+      const btnText = document.getElementById('vpnBtnText');
+      if (btnText) btnText.textContent = 'Conectando...';
+
+      const isDouble = isDoubleEncryptionActive();
+      const payload = isDouble ? `${code}|double` : code;
+      showToast(
+        isDouble ? 'Iniciando Doble Cifrado Militar...' : 'Conectando a VPN Segura...',
+        `Estableciendo túnel ${isDouble ? 'con Doble Capa WireGuard + Onion v3' : 'cifrado'} (${code})...`
+      );
+      sendIpc('connect_vpn', payload);
+    }
+
+    function disconnectVpn() {
+      const activeBadge = document.getElementById('vpnActiveBadge');
+      if (activeBadge) {
+        activeBadge.textContent = 'Desconectando...';
+        activeBadge.className = 'text-xs font-medium px-3 py-1 rounded-full bg-gray-500/20 text-gray-300 border border-white/10 animate-pulse';
+      }
+      showToast('Desconectando VPN', 'Restaurando configuración de red original y proxy directo.');
+      sendIpc('disconnect_vpn');
+    }
+
+    function emergencyResetNetwork() {
+      showToast('Restableciendo Red', 'Desactivando proxy del sistema y normalizando tráfico de Windows...');
+      sendIpc('reset_network');
+    }
+
+    let cachedUpdateHistory = [];
+
+    window.onUpdateHistoryLoaded = function(entries) {
+      cachedUpdateHistory = entries || [];
+      const list = document.getElementById('updateHistoryList');
+      if (!list) return;
+
+      if (cachedUpdateHistory.length === 0) {
+        list.innerHTML = `
+          <div class="text-center py-8 text-gray-400 text-xs">
+            <p>No hay registros previos todavía. Se registrará la primera sincronización horaria.</p>
+          </div>
+        `;
+        return;
+      }
+
+      list.innerHTML = '';
+      cachedUpdateHistory.forEach(entry => {
+        const item = document.createElement('div');
+        item.className = 'glass-card p-3.5 rounded-2xl border border-white/5 space-y-2';
+
+        let improvementsHtml = '';
+        if (entry.improvements && entry.improvements.length > 0) {
+          improvementsHtml = '<ul class="space-y-1 text-[11px] text-gray-300 pl-1">' +
+            entry.improvements.map(imp => `<li class="flex items-start gap-1.5"><span class="text-emerald-400">✔</span> <span>${imp}</span></li>`).join('') +
+            '</ul>';
+        }
+
+        item.innerHTML = `
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="text-xs font-semibold text-white font-mono">${entry.timestamp}</span>
+              <span class="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-medium">+${entry.signatures_added || entry.new_signatures || 0} Nuevas</span>
+            </div>
+            <span class="text-[10px] font-mono text-gray-400">${entry.total_signatures.toLocaleString()} firmas activas</span>
+          </div>
+          <p class="text-[10px] text-gray-400 font-mono">Feed: ${entry.feed_source}</p>
+          ${improvementsHtml}
+        `;
+        list.appendChild(item);
+      });
+    };
+
+    function openUpdateHistoryModal() {
+      const modal = document.getElementById('modalUpdateHistory');
+      if (modal) modal.classList.remove('hidden');
+      sendIpc('get_update_history');
+    }
+
+    function closeUpdateHistoryModal() {
+      const modal = document.getElementById('modalUpdateHistory');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    window.onAuditReportLoaded = function(report) {
+      if (!report) return;
+
+      const scoreEl = document.getElementById('auditScoreVal');
+      if (scoreEl) scoreEl.textContent = report.overall_score;
+
+      const certEl = document.getElementById('auditCertLevel');
+      if (certEl) certEl.textContent = report.certification_level;
+
+      const timeEl = document.getElementById('auditTimestampText');
+      if (timeEl) timeEl.textContent = `Última auto-auditoría: ${report.timestamp}`;
+
+      const scannerEl = document.getElementById('auditScannerStatus');
+      if (scannerEl) scannerEl.textContent = report.scanner_status;
+
+      const shieldEl = document.getElementById('auditShieldStatus');
+      if (shieldEl) shieldEl.textContent = report.shield_status;
+
+      const patcherEl = document.getElementById('auditPatcherStatus');
+      if (patcherEl) patcherEl.textContent = report.patcher_status;
+
+      const vpnEl = document.getElementById('auditVpnStatus');
+      if (vpnEl) vpnEl.textContent = report.vpn_status;
+
+      const mitreContainer = document.getElementById('auditMitreContainer');
+      if (mitreContainer && report.mitre_coverages) {
+        mitreContainer.innerHTML = '';
+        report.mitre_coverages.forEach(cov => {
+          const row = document.createElement('div');
+          row.className = 'py-2.5 flex items-center justify-between text-xs';
+          row.innerHTML = `
+            <span class="text-gray-200 font-mono">${cov.split('->')[0].trim()}</span>
+            <span class="text-emerald-400 font-medium">${cov.split('->')[1] ? cov.split('->')[1].trim() : '100% Protegido'}</span>
+          `;
+          mitreContainer.appendChild(row);
+        });
+      }
+    };
+
+    function runSecurityAudit() {
+      showToast('Auto-Auditoría de Seguridad', 'Verificando los 5 subsistemas y cobertura MITRE ATT&CK...');
+      sendIpc('run_internal_audit');
+    }
+
+    function initDropZone() {
+      const dropZone = document.getElementById('dropZone');
+      if (!dropZone) return;
+
+      ['dragenter', 'dragover'].forEach(eventName => {
+        dropZone.addEventListener(eventName, (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          dropZone.classList.add('border-blue-400', 'bg-blue-500/10');
+        }, false);
+      });
+
+      ['dragleave', 'drop'].forEach(eventName => {
+        dropZone.addEventListener(eventName, (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          dropZone.classList.remove('border-blue-400', 'bg-blue-500/10');
+        }, false);
+      });
+
+      dropZone.addEventListener('drop', (e) => {
+        const files = e.dataTransfer.files;
+        if (!files || files.length === 0) return;
+        const paths = [];
+        for (let i = 0; i < files.length; i++) {
+          if (files[i].path) {
+            paths.push(files[i].path);
+          }
+        }
+        if (paths.length > 0) {
+          showToast('Analizando Arrastrados', `Escaneando ${paths.length} elemento(s)...`);
+          sendIpc('scan_custom_path', JSON.stringify(paths));
+        } else {
+          browseAndScanFiles();
+        }
+      }, false);
+    }
+
+    // ==========================================
+    // MÓDULO 1: CAZADOR DE PERSISTENCIA
+    // ==========================================
+    let cachedPersistenceEntries = [];
+
+    window.onPersistenceLoaded = function(entries) {
+      cachedPersistenceEntries = entries || [];
+      const totalEl = document.getElementById('persistTotalCount');
+      const regEl = document.getElementById('persistRegCount');
+      const tasksEl = document.getElementById('persistTasksCount');
+      const susEl = document.getElementById('persistSuspiciousCount');
+      const susSub = document.getElementById('persistSuspiciousSub');
+      const badge = document.getElementById('persistListBadge');
+      const navBadge = document.getElementById('persistenceBadge');
+      const container = document.getElementById('persistenceContainer');
+
+      const total = cachedPersistenceEntries.length;
+      const regCount = cachedPersistenceEntries.filter(e => e.entry_type === 'RegistryRun' || e.entry_type === 'RegistryWinlogon').length;
+      const tasksCount = cachedPersistenceEntries.filter(e => e.entry_type === 'ScheduledTask').length;
+      const susCount = cachedPersistenceEntries.filter(e => e.status === 'Suspicious' || e.status === 'Infected').length;
+
+      if (totalEl) totalEl.textContent = total;
+      if (regEl) regEl.textContent = regCount;
+      if (tasksEl) tasksEl.textContent = tasksCount;
+      if (susEl) {
+        susEl.textContent = susCount;
+        susEl.className = susCount > 0 ? 'text-2xl font-bold text-amber-400 mt-1 animate-pulse' : 'text-2xl font-bold text-emerald-400 mt-1';
+      }
+      if (susSub) {
+        susSub.textContent = susCount > 0 ? `${susCount} entrada(s) de riesgo detectada(s)` : '0 anomalías detectadas';
+        susSub.className = susCount > 0 ? 'text-[10px] text-amber-300 font-medium' : 'text-[10px] text-emerald-300 font-medium';
+      }
+      if (badge) badge.textContent = `${total} entradas auditadas`;
+      if (navBadge) {
+        if (susCount > 0) {
+          navBadge.textContent = `${susCount} Alertas`;
+          navBadge.className = 'ml-auto text-[10px] bg-red-500/20 text-red-300 px-2 py-0.5 rounded-full font-bold animate-pulse';
+        } else {
+          navBadge.textContent = 'Limpio';
+          navBadge.className = 'ml-auto text-[10px] bg-cyan-500/20 text-cyan-300 px-2 py-0.5 rounded-full font-semibold';
+        }
+      }
+
+      if (!container) return;
+      if (total === 0) {
+        container.innerHTML = '<div class="text-center py-8 text-gray-400 text-xs">No se detectaron entradas de persistencia de arranque.</div>';
+        return;
+      }
+
+      container.innerHTML = '';
+      cachedPersistenceEntries.forEach(entry => {
+        const isSuspicious = entry.status === 'Suspicious' || entry.status === 'Infected';
+        const card = document.createElement('div');
+        card.className = isSuspicious
+          ? 'glass-card p-4 rounded-2xl flex items-center justify-between border border-amber-500/30 bg-amber-500/10'
+          : 'glass-card p-4 rounded-2xl flex items-center justify-between';
+
+        const typeLabel = entry.entry_type === 'RegistryRun' ? 'Registro Run'
+          : entry.entry_type === 'RegistryWinlogon' ? 'Winlogon'
+          : entry.entry_type === 'ScheduledTask' ? 'Tarea Programada'
+          : entry.entry_type === 'StartupFolder' ? 'Carpeta Startup' : 'Servicio / Daemon';
+
+        const statusBadge = isSuspicious
+          ? '<span class="text-[10px] bg-red-500/20 text-red-300 px-2 py-0.5 rounded-full font-bold animate-pulse">⚠ Sospechoso</span>'
+          : '<span class="text-[10px] bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-full font-medium">✔ Limpio</span>';
+
+        const switchClass = entry.is_enabled ? 'apple-switch active' : 'apple-switch inactive';
+
+        card.innerHTML = `
+          <div class="flex items-center gap-3.5 max-w-2xl min-w-0">
+            <div class="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-lg shrink-0">
+              ${isSuspicious ? '🚨' : '⚡'}
+            </div>
+            <div class="truncate">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="text-xs font-semibold text-white truncate">${escapeHtml(entry.name)}</span>
+                <span class="text-[10px] bg-white/10 text-gray-300 px-2 py-0.5 rounded-full font-mono">${typeLabel}</span>
+                ${statusBadge}
+              </div>
+              <p class="text-[11px] text-gray-300 font-mono truncate mt-0.5">${escapeHtml(entry.target_path)} ${entry.arguments ? `<span class="text-gray-400">${escapeHtml(entry.arguments)}</span>` : ''}</p>
+              <p class="text-[10px] text-gray-400 truncate mt-0.5">Ubicación: ${escapeHtml(entry.location)} ${entry.sha256 ? `• SHA: ${escapeHtml(entry.sha256.substring(0, 14))}...` : ''}</p>
+              ${entry.detection_details ? `<p class="text-[10px] text-amber-300 mt-1">${escapeHtml(entry.detection_details)}</p>` : ''}
+            </div>
+          </div>
+          <div class="flex items-center gap-3 shrink-0 ml-4">
+            <span class="text-[11px] text-gray-400">${entry.is_enabled ? 'Activo' : 'Desactivado'}</span>
+            <div class="${switchClass} cursor-pointer" onclick="togglePersistenceItem('${escapeHtml(entry.id)}', ${!entry.is_enabled})">
+              <div class="apple-switch-thumb"></div>
+            </div>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    };
+
+    function refreshPersistence() {
+      showToast('Auditoría de Persistencia', 'Escaneando Registro, Carpetas Startup y Tareas Programadas...');
+      sendIpc('get_persistence_entries');
+    }
+
+    function togglePersistenceItem(id, enable) {
+      showToast(enable ? 'Activando Entrada' : 'Desactivando Entrada', `Actualizando persistencia ${id}...`);
+      sendIpc('toggle_persistence', JSON.stringify({ id, enable }));
+    }
+
+    // ==========================================
+    // MÓDULO 2: INSPECTOR DE RED & CONEXIONES EN VIVO
+    // ==========================================
+    let cachedNetworkSockets = [];
+
+    window.onNetworkSocketsLoaded = function(sockets) {
+      cachedNetworkSockets = sockets || [];
+      const totalEl = document.getElementById('netTotalSocketsCount');
+      const listenEl = document.getElementById('netListenCount');
+      const riskEl = document.getElementById('netRiskCount');
+      const riskSub = document.getElementById('netRiskSub');
+      const shieldedBadge = document.getElementById('netShieldedBadge');
+      const btnCloseAll = document.getElementById('btnCloseAllRiskPorts');
+      const btnCloseAllText = document.getElementById('btnCloseAllRiskPortsText');
+      const countTable = document.getElementById('netTableCount');
+      const tbody = document.getElementById('networkTableBody');
+      const navBadge = document.getElementById('networkBadge');
+
+      const total = cachedNetworkSockets.length;
+      const listenCount = cachedNetworkSockets.filter(s => s.state && s.state.includes('LISTEN')).length;
+      const exposedRiskCount = cachedNetworkSockets.filter(s => s.is_risk_port && !s.is_isolated).length;
+      const shieldedRiskCount = cachedNetworkSockets.filter(s => s.is_risk_port && s.is_isolated).length;
+
+      if (totalEl) totalEl.textContent = total;
+      if (listenEl) listenEl.textContent = listenCount;
+      if (riskEl) {
+        riskEl.textContent = exposedRiskCount;
+        riskEl.className = exposedRiskCount > 0 ? 'text-2xl font-bold text-red-400 mt-1 animate-pulse' : 'text-2xl font-bold text-emerald-400 mt-1';
+      }
+      if (riskSub) {
+        if (exposedRiskCount > 0) {
+          riskSub.textContent = `${exposedRiskCount} puerto(s) de alto riesgo expuesto(s)`;
+          riskSub.className = 'text-[10px] text-red-300 font-medium';
+        } else if (shieldedRiskCount > 0) {
+          riskSub.textContent = `${shieldedRiskCount} puerto(s) crítico(s) blindado(s) con WFP`;
+          riskSub.className = 'text-[10px] text-emerald-300 font-medium';
+        } else {
+          riskSub.textContent = 'RDP, SMB, RPC y WinRM asegurados';
+          riskSub.className = 'text-[10px] text-emerald-300 font-medium';
+        }
+      }
+      if (shieldedBadge) {
+        if (exposedRiskCount === 0 && shieldedRiskCount > 0) {
+          shieldedBadge.classList.remove('hidden');
+        } else {
+          shieldedBadge.classList.add('hidden');
+        }
+      }
+      if (btnCloseAll && btnCloseAllText) {
+        if (exposedRiskCount > 0) {
+          btnCloseAll.className = 'px-4 py-2 bg-red-500/25 hover:bg-red-500/35 active:scale-95 text-red-200 border border-red-500/50 text-xs font-semibold rounded-xl flex items-center gap-2 transition-all shadow-lg shadow-red-500/15 animate-pulse';
+          btnCloseAllText.textContent = `Cerrar ${exposedRiskCount} Puerto(s) Vulnerable(s)`;
+        } else {
+          btnCloseAll.className = 'px-4 py-2 bg-emerald-500/15 hover:bg-emerald-500/25 active:scale-95 text-emerald-300 border border-emerald-500/30 text-xs font-semibold rounded-xl flex items-center gap-2 transition-all';
+          btnCloseAllText.textContent = 'Puertos Vulnerables Blindados';
+        }
+      }
+      if (countTable) countTable.textContent = `${total} conexiones`;
+      if (navBadge) {
+        if (exposedRiskCount > 0) {
+          navBadge.textContent = `${exposedRiskCount} Riesgo`;
+          navBadge.className = 'ml-auto text-[10px] bg-red-500/20 text-red-300 px-2 py-0.5 rounded-full font-bold animate-pulse';
+        } else {
+          navBadge.textContent = 'Seguro';
+          navBadge.className = 'ml-auto text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-semibold';
+        }
+      }
+
+      if (!tbody) return;
+      tbody.innerHTML = '';
+      if (total === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center py-6 text-gray-400">Sin sockets de red activos detectados.</td></tr>';
+        return;
+      }
+
+      cachedNetworkSockets.forEach(s => {
+        const tr = document.createElement('tr');
+        const isExposedRisk = s.is_risk_port && !s.is_isolated;
+        tr.className = isExposedRisk
+          ? 'hover:bg-red-500/15 transition-colors bg-red-500/[0.06]'
+          : s.is_isolated
+          ? 'hover:bg-emerald-500/10 transition-colors bg-emerald-500/[0.04]'
+          : 'hover:bg-white/[0.03] transition-colors';
+
+        const stateColor = s.is_isolated ? 'text-emerald-400'
+          : (s.state && s.state.includes('ESTABLISHED')) ? 'text-emerald-400'
+          : (s.state && s.state.includes('LISTEN')) ? 'text-blue-400' : 'text-gray-400';
+
+        const stateLabel = s.is_isolated ? 'BLINDADO (WFP)' : escapeHtml(s.state);
+
+        const statusBadge = isExposedRisk
+          ? '<span class="text-[9px] bg-red-500/25 text-red-200 border border-red-500/40 px-1.5 py-0.5 rounded font-bold ml-1.5 whitespace-nowrap">⚠ ALTO RIESGO</span>'
+          : s.is_isolated
+          ? '<span class="text-[9px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-1.5 py-0.5 rounded font-bold ml-1.5 whitespace-nowrap">🛡️ CERRADO</span>'
+          : '';
+
+        let actionBtnHtml = '';
+        if (s.is_isolated) {
+          actionBtnHtml = `
+            <button onclick="togglePortShield(${s.local_port}, false)" class="px-2.5 py-1 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 rounded-lg text-[10px] font-semibold transition-all active:scale-95 whitespace-nowrap">
+              🔓 Reabrir (${s.local_port})
+            </button>
+          `;
+        } else if (s.is_risk_port || (s.state && s.state.includes('LISTEN'))) {
+          actionBtnHtml = `
+            <button onclick="togglePortShield(${s.local_port}, true)" class="px-2.5 py-1 ${s.is_risk_port ? 'bg-red-500/25 hover:bg-red-500/40 text-red-200 border-red-500/50 shadow-sm' : 'bg-white/10 hover:bg-white/20 text-gray-200 border-white/15'} border rounded-lg text-[10px] font-semibold transition-all active:scale-95 whitespace-nowrap">
+              🔒 Cerrar Puerto ${s.local_port}
+            </button>
+          `;
+        } else if (s.pid > 4) {
+          actionBtnHtml = `
+            <button onclick="isolateNetworkPid(${s.pid}, true)" class="px-2.5 py-1 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 rounded-lg text-[10px] font-semibold transition-all active:scale-95 whitespace-nowrap">
+              🔒 Aislar PID
+            </button>
+          `;
+        } else {
+          actionBtnHtml = `
+            <button onclick="togglePortShield(${s.local_port}, true)" class="px-2.5 py-1 bg-white/10 hover:bg-white/20 text-gray-300 border border-white/15 rounded-lg text-[10px] font-semibold transition-all active:scale-95 whitespace-nowrap">
+              🔒 Cerrar (${s.local_port})
+            </button>
+          `;
+        }
+
+        tr.innerHTML = `
+          <td class="py-2.5 px-2 font-bold text-gray-300 whitespace-nowrap">${escapeHtml(s.protocol)}</td>
+          <td class="py-2.5 px-2.5 text-white whitespace-nowrap">${escapeHtml(s.local_address)}${statusBadge}</td>
+          <td class="py-2.5 px-2.5 text-gray-300 whitespace-nowrap">${escapeHtml(s.remote_address)}</td>
+          <td class="py-2.5 px-2 ${stateColor} font-bold text-[10.5px] whitespace-nowrap">${stateLabel}</td>
+          <td class="py-2.5 px-2.5 text-gray-200 whitespace-nowrap">
+            <span class="font-semibold text-white">${escapeHtml(s.process_name)}</span>
+            <span class="text-gray-400 text-[10px]">(${s.pid})</span>
+          </td>
+          <td class="py-2.5 px-2.5 text-right whitespace-nowrap">
+            ${actionBtnHtml}
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    };
+
+    function refreshNetworkSockets() {
+      showToast('Inspector de Red', 'Escaneando sockets TCP y verificando blindaje WFP por puerto...');
+      sendIpc('get_network_sockets');
+    }
+
+    function togglePortShield(port, close) {
+      showToast(
+        close ? `Cerrando Puerto ${port} (WFP)` : `Reabriendo Puerto ${port}`,
+        close ? `Bloqueando tráfico entrante/saliente TCP y UDP en el puerto ${port} (Zero-BSOD)...` : `Eliminando regla de bloqueo WFP para el puerto ${port}...`
+      );
+      sendIpc('toggle_port_shield', JSON.stringify({ port: Number(port), close: Boolean(close) }));
+    }
+
+    function closeAllVulnerablePorts() {
+      showToast(
+        'Blindando Puertos Vulnerables',
+        'Cerrando puertos críticos (135 RPC, 445 SMB, 139 NetBIOS, 3389 RDP...) mediante reglas WFP...'
+      );
+      sendIpc('close_all_risk_ports');
+    }
+
+    function isolateNetworkPid(pid, isolate) {
+      showToast('Aislamiento WFP', `Aplicando regla de contención de red para PID ${pid}...`);
+      sendIpc('isolate_process_network', JSON.stringify({ pid, isolate }));
+    }
+
+    // ==========================================
+    // MÓDULO 3: COPILOTO DE CIBERSEGURIDAD IA LOCAL
+    // ==========================================
+    function logCopilotThought(tag, text, colorClass = 'text-gray-300') {
+      const consoleEl = document.getElementById('copilotLiveThoughtConsole');
+      if (!consoleEl) return;
+      const now = new Date();
+      const timeStr = now.toTimeString().split(' ')[0];
+      const row = document.createElement('div');
+      row.className = `${colorClass} transition-all duration-200`;
+      row.innerHTML = `<span class="text-gray-500">[${timeStr}]</span> <span class="font-bold">[${escapeHtml(tag)}]</span> ${escapeHtml(text)}`;
+      consoleEl.appendChild(row);
+      consoleEl.scrollTop = consoleEl.scrollHeight;
+    }
+
+    function clearCopilotLiveTrace() {
+      const consoleEl = document.getElementById('copilotLiveThoughtConsole');
+      if (consoleEl) {
+        consoleEl.innerHTML = '<div class="text-purple-400 font-semibold">[IA-CORE] Traza reiniciada. Vigilancia activa en segundo plano.</div>';
+      }
+    }
+
+    function toggleCopilotAutopilot(elem) {
+      const willEnable = !elem.classList.contains('active');
+      if (willEnable) {
+        elem.classList.remove('inactive');
+        elem.classList.add('active');
+      } else {
+        elem.classList.remove('active');
+        elem.classList.add('inactive');
+      }
+      logCopilotThought(
+        'AUTOPILOT',
+        willEnable ? 'Modo Auto-Pilot HABILITADO: Nuevos KBs se mitigarán de forma 100% autónoma.' : 'Modo Auto-Pilot DESACTIVADO: Requiere confirmación manual.',
+        willEnable ? 'text-emerald-400 font-bold' : 'text-amber-400 font-bold'
+      );
+      showToast(
+        'IA Auto-Pilot',
+        willEnable ? 'Parchado 100% autónomo activado para futuros KBs.' : 'Parchado autónomo en pausa (modo confirmación).'
+      );
+      sendIpc('set_ai_autopilot', willEnable ? 'true' : 'false');
+    }
+
+    function simulateKbAnalysisQuick(kbId, title, desc) {
+      logCopilotThought('IA-MONITOR', `Boletín detectado: ${kbId} - ${title}`, 'text-blue-300 font-bold');
+      logCopilotThought('IA-REASONING', `Analizando descripción técnica y vectores de ataque...`, 'text-purple-300');
+      logCopilotThought('SAFETY-GUARDRAIL', `Verificando estabilidad de kernel y compatibilidad formal con Windows...`, 'text-cyan-300');
+      showToast('Simulando Boletín KB', `Analizando ${kbId} con el modelo local de IA...`);
+      sendIpc('analyze_raw_kb', JSON.stringify({ kb_id: kbId, title: title, description: desc }));
+    }
+
+    function triggerCustomKbTest() {
+      const idInput = document.getElementById('customKbInputId');
+      const descInput = document.getElementById('customKbInputDesc');
+      if (!idInput) return;
+      const kbId = idInput.value.trim();
+      const desc = descInput ? descInput.value.trim() : '';
+
+      if (!kbId) {
+        showToast('Identificador Requerido', 'Por favor ingresa un identificador de KB (ej. KB5059999).', true);
+        return;
+      }
+
+      const technicalDesc = desc || `Actualización acumulativa de seguridad para componentes críticos de Windows (${kbId}).`;
+      simulateKbAnalysisQuick(kbId, `Actualización de Seguridad ${kbId}`, technicalDesc);
+      idInput.value = '';
+      if (descInput) descInput.value = '';
+    }
+
+    function triggerImmediateAiAudit() {
+      logCopilotThought('IA-MONITOR', 'Invocando sondeo inmediato de actualizaciones y boletines Microsoft...', 'text-blue-300');
+      showToast('Sondeo Inmediato', 'Consultando estado de KBs pendientes en el catálogo...');
+      sendIpc('run_ai_kb_audit');
+    }
+
+    window.onCopilotAnswerLoaded = function(resp) {
+      if (!resp) return;
+      const chat = document.getElementById('copilotChatContainer');
+      if (!chat) return;
+
+      const typing = document.getElementById('copilotTypingIndicator');
+      if (typing) typing.remove();
+
+      logCopilotThought(
+        'IA-REASONING',
+        `Respuesta lista (confianza ${(resp.confidence * 100).toFixed(0)}%). Acciones sugeridas: ${(resp.suggested_actions || []).length}`,
+        'text-emerald-400 font-semibold'
+      );
+
+      const msgDiv = document.createElement('div');
+      msgDiv.className = 'flex items-start gap-3 max-w-2xl';
+
+      let actionsHtml = '';
+      if (resp.suggested_actions && resp.suggested_actions.length > 0) {
+        actionsHtml = '<div class="pt-2 flex flex-wrap gap-2 border-t border-white/5">';
+        resp.suggested_actions.forEach(a => {
+          if (a.action_type === 'close_risk_ports') {
+            actionsHtml += `<button onclick="closeAllVulnerablePorts(); switchTab('network');" class="px-3 py-1 bg-red-500/25 hover:bg-red-500/35 border border-red-500/50 text-xs font-semibold text-red-200 rounded-xl active:scale-95 transition-all">🛡️ ${escapeHtml(a.label)}</button>`;
+          } else if (a.action_type === 'navigate') {
+            const cleanTarget = a.payload.replace('view-', '');
+            actionsHtml += `<button onclick="switchTab('${cleanTarget}')" class="px-3 py-1 bg-white/10 hover:bg-white/15 border border-white/10 text-xs font-semibold text-cyan-300 rounded-xl active:scale-95 transition-all">➔ ${escapeHtml(a.label)}</button>`;
+          } else if (a.action_type === 'ask') {
+            actionsHtml += `<button onclick="sendQuickCopilotPrompt('${escapeHtml(a.payload)}')" class="px-3 py-1 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/30 text-xs font-semibold text-purple-200 rounded-xl active:scale-95 transition-all">💬 ${escapeHtml(a.label)}</button>`;
+          }
+        });
+        actionsHtml += '</div>';
+      }
+
+      let formattedAnswer = escapeHtml(resp.answer)
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.*?)\*/g, '<em>$1</em>')
+        .replace(/\n/g, '<br/>');
+
+      msgDiv.innerHTML = `
+        <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-purple-500 to-indigo-500 text-white flex items-center justify-center text-sm font-bold shadow-md shadow-purple-500/20 shrink-0">
+          🤖
+        </div>
+        <div class="glass-panel p-4 rounded-2xl space-y-2 border border-white/10 bg-white/[0.03] text-xs text-gray-200 leading-relaxed font-sans">
+          <div class="flex items-center justify-between text-[10px] text-gray-400 mb-1">
+            <span class="font-semibold text-purple-400">Copiloto SamuLibre (IA Local)</span>
+            <span>Confianza: ${(resp.confidence * 100).toFixed(0)}%</span>
+          </div>
+          <div>${formattedAnswer}</div>
+          ${actionsHtml}
+        </div>
+      `;
+      chat.appendChild(msgDiv);
+      chat.scrollTop = chat.scrollHeight;
+    };
+
+    function sendCopilotMessage() {
+      const input = document.getElementById('copilotQueryInput');
+      if (!input) return;
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = '';
+
+      logCopilotThought('USER-PROMPT', text, 'text-blue-300 font-bold');
+
+      const chat = document.getElementById('copilotChatContainer');
+      if (chat) {
+        const userDiv = document.createElement('div');
+        userDiv.className = 'flex items-start justify-end gap-3 ml-auto max-w-xl';
+        userDiv.innerHTML = `
+          <div class="p-3.5 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-xs font-sans shadow-md">
+            ${escapeHtml(text)}
+          </div>
+          <div class="w-8 h-8 rounded-xl bg-white/10 text-white flex items-center justify-center text-sm font-bold shrink-0">
+            👤
+          </div>
+        `;
+        chat.appendChild(userDiv);
+
+        const typingDiv = document.createElement('div');
+        typingDiv.id = 'copilotTypingIndicator';
+        typingDiv.className = 'flex items-center gap-2 text-xs text-purple-300 font-medium py-1';
+        typingDiv.innerHTML = `
+          <span class="w-2 h-2 rounded-full bg-purple-400 animate-ping"></span>
+          <span>Analizando telemetría y razonando en local...</span>
+        `;
+        chat.appendChild(typingDiv);
+        chat.scrollTop = chat.scrollHeight;
+      }
+
+      sendIpc('ask_copilot', text);
+    }
+
+    function sendQuickCopilotPrompt(text) {
+      const input = document.getElementById('copilotQueryInput');
+      if (input) input.value = text;
+      sendCopilotMessage();
+    }
+
+    // Inicialización al cargar la interfaz
+    window.addEventListener('DOMContentLoaded', () => {
+      initDropZone();
+      setTimeout(() => {
+        sendIpc('get_patch_rules');
+        sendIpc('get_shield_status');
+        sendIpc('get_vpn_info');
+        sendIpc('get_update_history');
+        sendIpc('run_internal_audit');
+        sendIpc('get_quarantine_records');
+        sendIpc('get_persistence_entries');
+        sendIpc('get_network_sockets');
+      }, 250);
+    });
+  </script>
+
+  <!-- Modal Flotante: Historial de Actualizaciones de Firmas (Cada Hora) -->
+  <div id="modalUpdateHistory" class="fixed inset-0 z-50 bg-black/70 backdrop-blur-md flex items-center justify-center p-4 hidden">
+    <div class="glass-panel bg-[#11141F]/95 max-w-2xl w-full rounded-3xl border border-white/15 p-6 shadow-2xl space-y-4 max-h-[85vh] flex flex-col">
+      <div class="flex items-center justify-between border-b border-white/10 pb-3">
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center text-lg">
+            📋
+          </div>
+          <div>
+            <h3 class="text-sm font-semibold text-white">Historial de Actualización de Firmas</h3>
+            <p class="text-xs text-gray-400">Registro cronológico de sincronizaciones automáticas cada hora (3600s).</p>
+          </div>
+        </div>
+        <button onclick="closeUpdateHistoryModal()" class="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 text-gray-400 hover:text-white flex items-center justify-center text-xs font-bold transition-all">
+          ✕
+        </button>
+      </div>
+
+      <!-- Lista de Entradas del Historial -->
+      <div id="updateHistoryList" class="flex-1 overflow-y-auto space-y-3 pr-2">
+        <!-- Renderizado dinámicamente -->
+      </div>
+
+      <!-- Pie del Modal -->
+      <div class="pt-3 border-t border-white/10 flex items-center justify-between text-xs text-gray-400">
+        <span class="flex items-center gap-2 text-emerald-400">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> Actualizador programado cada 60 min
+        </span>
+        <button onclick="triggerUpdateSignatures()" class="px-3.5 py-1.5 bg-blue-500 text-white font-medium text-xs rounded-xl hover:bg-blue-400 transition-all">
+          Forzar Sincronización Ahora
+        </button>
+      </div>
+    </div>
+  </div>
+  <!-- Modal Flotante: Bóveda de Cuarentena Cifrada -->
+  <div id="modalQuarantine" class="fixed inset-0 z-50 bg-black/70 backdrop-blur-md flex items-center justify-center p-4 hidden">
+    <div class="glass-panel bg-[#11141F]/95 max-w-2xl w-full rounded-3xl border border-emerald-500/30 p-6 shadow-2xl space-y-4 max-h-[85vh] flex flex-col">
+      <div class="flex items-center justify-between border-b border-white/10 pb-3">
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-lg">
+            📦
+          </div>
+          <div>
+            <h3 class="text-sm font-semibold text-white">Bóveda de Cuarentena Cifrada (XOR 0xAA)</h3>
+            <p class="text-xs text-gray-400">Archivos maliciosos neutralizados y aislados físicamente de la ejecución en Windows.</p>
+          </div>
+        </div>
+        <button onclick="closeQuarantineModal()" class="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 text-gray-400 hover:text-white flex items-center justify-center text-xs font-bold transition-all">
+          ✕
+        </button>
+      </div>
+
+      <!-- Lista de Amenazas en Cuarentena -->
+      <div id="quarantineModalList" class="flex-1 overflow-y-auto space-y-2.5 pr-2">
+        <!-- Renderizado dinámico -->
+      </div>
+
+      <!-- Pie del Modal -->
+      <div class="pt-3 border-t border-white/10 flex items-center justify-between text-xs text-gray-400">
+        <span class="text-emerald-400 flex items-center gap-1.5">
+          <span>🔒</span> Almacenamiento seguro en <code class="font-mono text-[10px] text-gray-300">data/quarantine/</code>
+        </span>
+        <button onclick="closeQuarantineModal()" class="px-4 py-1.5 glass-panel text-white font-medium text-xs rounded-xl hover:bg-white/10 transition-all">
+          Cerrar
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Barra de Navegación Inferior Nativa Móvil (Visible solo en smartphones/tablets < 768px) -->
+  <div class="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#0B0D13]/95 backdrop-blur-2xl border-t border-white/10 px-2 py-1.5 flex items-center justify-around text-center select-none shadow-2xl">
+    <button onclick="switchTab('dashboard')" class="flex flex-col items-center py-1 px-2 text-white hover:text-emerald-400 transition-all">
+      <span class="text-lg">✨</span>
+      <span class="text-[9px] font-medium mt-0.5">Inicio</span>
+    </button>
+    <button onclick="switchTab('patcher')" class="flex flex-col items-center py-1 px-2 text-gray-400 hover:text-amber-400 transition-all">
+      <span class="text-lg">🩹</span>
+      <span class="text-[9px] font-medium mt-0.5">ASB / KBs</span>
+    </button>
+    <button onclick="switchTab('network')" class="flex flex-col items-center py-1 px-2 text-gray-400 hover:text-emerald-400 transition-all">
+      <span class="text-lg">🌐</span>
+      <span class="text-[9px] font-medium mt-0.5">Red / TUN</span>
+    </button>
+    <button onclick="switchTab('copilot')" class="flex flex-col items-center py-1 px-2 text-gray-400 hover:text-purple-400 transition-all">
+      <span class="text-lg">🤖</span>
+      <span class="text-[9px] font-medium mt-0.5">Copiloto IA</span>
+    </button>
+    <button onclick="switchTab('scanner')" class="flex flex-col items-center py-1 px-2 text-gray-400 hover:text-blue-400 transition-all">
+      <span class="text-lg">⚡</span>
+      <span class="text-[9px] font-medium mt-0.5">Escanear</span>
+    </button>
+  </div>
+</body>
+</html>

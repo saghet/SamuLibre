@@ -1,0 +1,23 @@
+[package]
+name = "samulibre-android"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+samulibre-core = { path = "../samulibre-core" }
+samulibre-types = { path = "../samulibre-types" }
+samulibre-shield = { path = "../samulibre-shield" }
+samulibre-patcher = { path = "../samulibre-patcher" }
+samulibre-scanner = { path = "../samulibre-scanner" }
+samulibre-ai = { path = "../samulibre-ai" }
+jni = "0.21"
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+once_cell = "1.19"

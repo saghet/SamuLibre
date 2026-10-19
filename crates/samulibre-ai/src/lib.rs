@@ -73,6 +73,21 @@ impl SafetyGuardrailVerifier {
                     return Err(anyhow!("Parámetro sysctl de kernel no admitido: {}", parameter));
                 }
             }
+            MitigationStrategy::AndroidTunPacketFilter { filter_name, .. } => {
+                if filter_name.is_empty() {
+                    return Err(anyhow!("Nombre de filtro TUN vacío"));
+                }
+            }
+            MitigationStrategy::AndroidPermissionRevoke { permission, rationale, .. } => {
+                if permission.is_empty() || rationale.is_empty() {
+                    return Err(anyhow!("Regla de revocación de permisos Android incompleta"));
+                }
+            }
+            MitigationStrategy::AndroidOverlayGuard { target_package, reason } => {
+                if target_package.is_empty() || reason.is_empty() {
+                    return Err(anyhow!("Regla Anti-Overlay Android incompleta"));
+                }
+            }
         }
 
         Ok(())

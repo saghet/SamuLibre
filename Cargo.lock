@@ -2275,6 +2275,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "samulibre-android"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "jni",
+ "once_cell",
+ "samulibre-ai",
+ "samulibre-core",
+ "samulibre-patcher",
+ "samulibre-scanner",
+ "samulibre-shield",
+ "samulibre-types",
+ "serde",
+ "serde_json",
+ "tracing",
+]
+
+[[package]]
 name = "samulibre-cli"
 version = "0.2.0"
 dependencies = [

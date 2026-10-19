@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">SamuLibre</string>
+    <string name="vpn_service_title">SamuLibre Virtual Shield Activo</string>
+    <string name="vpn_service_desc">Filtrado local de paquetes TUN e inspección anti-malware activa.</string>
+</resources>
