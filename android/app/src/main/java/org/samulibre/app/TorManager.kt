@@ -76,7 +76,15 @@ object TorManager {
             val intent = Intent(context, TorService::class.java).apply {
                 action = TorService.ACTION_START
             }
-            context.startService(intent)
+            try {
+                androidx.core.content.ContextCompat.startForegroundService(context, intent)
+            } catch (se: Throwable) {
+                try {
+                    context.startService(intent)
+                } catch (se2: Throwable) {
+                    Log.w(TAG, "No fue posible iniciar TorService: ${se2.message}")
+                }
+            }
 
             monitorJob?.cancel()
             monitorJob = CoroutineScope(Dispatchers.IO).launch {
@@ -106,8 +114,8 @@ object TorManager {
                     }
                 }
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error iniciando TorService: ${e.message}", e)
+        } catch (t: Throwable) {
+            Log.e(TAG, "Error seguro iniciando TorService: ${t.message}", t)
             onStatus(false, null)
         }
     }

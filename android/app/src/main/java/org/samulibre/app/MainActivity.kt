@@ -30,6 +30,11 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // CrashGuard: Evitar cierres inesperados forzosos del sistema en Android
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            android.util.Log.e("SamuLibre_CrashGuard", "Excepción no capturada en ${thread.name}: ${throwable.message}", throwable)
+        }
+
         // Inicializar SamuLibre Native Core en hilo secundario
         CoroutineScope(Dispatchers.IO).launch {
             val dataDir = applicationContext.filesDir.absolutePath
@@ -186,25 +191,39 @@ class MainActivity : AppCompatActivity() {
                     val countryCode = payload.split("|").firstOrNull() ?: "CH"
 
                     runOnUiThread {
-                        startVpnService(SamuVpnService.ACTION_START_PROXY_VPN, TorManager.HTTP_PROXY_PORT)
-                        TorManager.startTorForCountry(this@MainActivity, countryCode) { ready, verifiedIp ->
-                            val vpnIntent = Intent(this@MainActivity, SamuVpnService::class.java).apply {
-                                this.action = SamuVpnService.ACTION_START_PROXY_VPN
-                                putExtra(SamuVpnService.EXTRA_PROXY_PORT, TorManager.HTTP_PROXY_PORT)
-                            }
-                            startService(vpnIntent)
+                        try {
+                            startVpnService(SamuVpnService.ACTION_START_PROXY_VPN, TorManager.HTTP_PROXY_PORT)
+                            TorManager.startTorForCountry(this@MainActivity, countryCode) { ready, verifiedIp ->
+                                try {
+                                    val vpnIntent = Intent(this@MainActivity, SamuVpnService::class.java).apply {
+                                        this.action = SamuVpnService.ACTION_START_PROXY_VPN
+                                        putExtra(SamuVpnService.EXTRA_PROXY_PORT, TorManager.HTTP_PROXY_PORT)
+                                    }
+                                    startService(vpnIntent)
 
-                            if (verifiedIp != null) {
-                                val js = "if(window.currentVpnState){ window.currentVpnState.assigned_ip = '$verifiedIp'; const el = document.getElementById('vpnMetricIp'); if(el) el.textContent = '$verifiedIp'; }"
-                                webView.evaluateJavascript(js, null)
+                                    if (verifiedIp != null) {
+                                        val js = "if(window.currentVpnState){ window.currentVpnState.assigned_ip = '$verifiedIp'; const el = document.getElementById('vpnMetricIp'); if(el) el.textContent = '$verifiedIp'; }"
+                                        webView.evaluateJavascript(js, null)
+                                    }
+                                } catch (t2: Throwable) {
+                                    android.util.Log.e("SamuLibre", "Error aplicando proxy VPN: ${t2.message}", t2)
+                                }
                             }
+                        } catch (t: Throwable) {
+                            android.util.Log.e("SamuLibre", "Error seguro en connect_vpn: ${t.message}", t)
                         }
                     }
                     return NativeBridge.dispatchIpc(jsonString)
                 }
 
                 if (action == "disconnect_vpn") {
-                    runOnUiThread { stopVpnService() }
+                    runOnUiThread { 
+                        try {
+                            stopVpnService() 
+                        } catch (t: Throwable) {
+                            android.util.Log.e("SamuLibre", "Error en disconnect_vpn: ${t.message}", t)
+                        }
+                    }
                     return NativeBridge.dispatchIpc(jsonString)
                 }
 
@@ -218,10 +237,11 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 NativeBridge.dispatchIpc(jsonString)
-            } catch (e: Exception) {
+            } catch (t: Throwable) {
+                android.util.Log.e("SamuLibre", "Excepción capturada en WebAppInterface: ${t.message}", t)
                 JSONObject().apply {
                     put("success", false)
-                    put("error", e.message)
+                    put("error", t.message)
                 }.toString()
             }
         }

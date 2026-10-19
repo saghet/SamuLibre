@@ -51,6 +51,17 @@
                 android:value="SamuLibre Zero-Root Virtual Patching TUN Packet Filter" />
         </service>
 
+        <!-- Servicio Tor Multi-Salto para Salida VPN Internacional en Android 14+ -->
+        <service
+            android:name="org.torproject.jni.TorService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse"
+            tools:replace="android:foregroundServiceType">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="SamuLibre Mobile Tor Multi-Hop Privacy Egress Engine" />
+        </service>
+
         <!-- Centinela de Instalación de APKs (Anti-Sideloading Malware) -->
         <receiver
             android:name=".PackageReceiver"
