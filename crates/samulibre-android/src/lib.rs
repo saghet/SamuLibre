@@ -286,6 +286,181 @@ fn execute_ipc_action(req: &IpcRequest) -> IpcResponse {
             }
         }
 
+        "get_vpn_info" => {
+            let (state, countries) = if let Ok(vpn) = core.vpn.lock() {
+                (vpn.get_state(), vpn.get_available_countries())
+            } else {
+                (core.get_vpn_state(), Vec::new())
+            };
+            IpcResponse {
+                success: true,
+                action: req.action.clone(),
+                data: Some(serde_json::json!({
+                    "state": state,
+                    "countries": countries
+                })),
+                error: None,
+            }
+        }
+
+        "refresh_vpn_pings" => {
+            let latencies = core.refresh_vpn_latencies();
+            IpcResponse {
+                success: true,
+                action: req.action.clone(),
+                data: serde_json::to_value(&latencies).ok(),
+                error: None,
+            }
+        }
+
+        "connect_vpn" => {
+            let payload = req.payload.as_deref().unwrap_or("CH");
+            let parts: Vec<&str> = payload.split('|').collect();
+            let country_id = parts[0];
+            let double = parts.get(1).map(|&s| s == "double").unwrap_or(false);
+            let _ = core.connect_vpn_ext(country_id, false, double);
+            let (state, countries) = if let Ok(vpn) = core.vpn.lock() {
+                (vpn.get_state(), vpn.get_available_countries())
+            } else {
+                (core.get_vpn_state(), Vec::new())
+            };
+            IpcResponse {
+                success: true,
+                action: req.action.clone(),
+                data: Some(serde_json::json!({
+                    "state": state,
+                    "countries": countries
+                })),
+                error: None,
+            }
+        }
+
+        "disconnect_vpn" => {
+            let _ = core.disconnect_vpn();
+            let (state, countries) = if let Ok(vpn) = core.vpn.lock() {
+                (vpn.get_state(), vpn.get_available_countries())
+            } else {
+                (core.get_vpn_state(), Vec::new())
+            };
+            IpcResponse {
+                success: true,
+                action: req.action.clone(),
+                data: Some(serde_json::json!({
+                    "state": state,
+                    "countries": countries
+                })),
+                error: None,
+            }
+        }
+
+        "get_patch_rules" | "reaudit_so" => {
+            if let Ok(patcher) = core.patcher.lock() {
+                let rules = patcher.get_rules();
+                let asbs = patcher.monitored_asbs.clone();
+                IpcResponse {
+                    success: true,
+                    action: req.action.clone(),
+                    data: Some(serde_json::json!({
+                        "rules": rules,
+                        "asb_advisories": asbs,
+                        "is_android": true,
+                        "sentinel_status": {
+                            "total_cves_audited": rules.len(),
+                            "auto_patch_enabled": true,
+                            "last_audit_time": chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
+                        }
+                    })),
+                    error: None,
+                }
+            } else {
+                IpcResponse {
+                    success: false,
+                    action: req.action.clone(),
+                    data: None,
+                    error: Some("Error accediendo a reglas ASB del patcher".to_string()),
+                }
+            }
+        }
+
+        "get_shield_status" => {
+            let status = core.get_shield_status();
+            IpcResponse {
+                success: true,
+                action: req.action.clone(),
+                data: serde_json::to_value(&status).ok(),
+                error: None,
+            }
+        }
+
+        "get_network_sockets" => {
+            let sockets = core.get_network_sockets();
+            let closed_ports = if let Ok(shield) = core.shield.lock() {
+                shield.get_closed_ports()
+            } else {
+                Vec::new()
+            };
+            IpcResponse {
+                success: true,
+                action: req.action.clone(),
+                data: Some(serde_json::json!({
+                    "sockets": sockets,
+                    "closed_ports": closed_ports
+                })),
+                error: None,
+            }
+        }
+
+        "run_internal_audit" => {
+            let report = core.run_internal_security_audit();
+            IpcResponse {
+                success: true,
+                action: req.action.clone(),
+                data: serde_json::to_value(&report).ok(),
+                error: None,
+            }
+        }
+
+        "get_update_history" => {
+            let history = core.get_signature_update_history();
+            IpcResponse {
+                success: true,
+                action: req.action.clone(),
+                data: serde_json::to_value(&history).ok(),
+                error: None,
+            }
+        }
+
+        "update_signatures_now" => {
+            let (new_count, total) = if let Ok(mut scanner) = core.scanner.lock() {
+                if let Ok(rep) = scanner.update_signatures() {
+                    (rep.new_added, rep.total_signatures)
+                } else {
+                    (0, scanner.signature_count())
+                }
+            } else {
+                (0, 0)
+            };
+            IpcResponse {
+                success: true,
+                action: req.action.clone(),
+                data: Some(serde_json::json!({
+                    "new_signatures": new_count,
+                    "total_signatures": total
+                })),
+                error: None,
+            }
+        }
+
+        "get_quarantine_records" => {
+            let records = core.get_quarantined_records();
+            IpcResponse {
+                success: true,
+                action: req.action.clone(),
+                data: serde_json::to_value(&records).ok(),
+                error: None,
+            }
+        }
+
         "scan_custom_path" => {
             if let Some(path_str) = &req.payload {
                 let p = Path::new(path_str);

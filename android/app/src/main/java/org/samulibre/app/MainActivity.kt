@@ -89,14 +89,23 @@ class MainActivity : AppCompatActivity() {
             (function() {
                 window.isAndroidApp = true;
                 window.androidSecurityInfo = $deviceInfo;
-                if (!window.ipc) {
-                    window.ipc = {
-                        postMessage: function(msg) {
-                            var str = typeof msg === 'string' ? msg : JSON.stringify(msg);
-                            return window.AndroidBridge.postMessage(str);
+                window.ipc = {
+                    postMessage: function(msg) {
+                        var str = typeof msg === 'string' ? msg : JSON.stringify(msg);
+                        var rawRes = window.AndroidBridge.postMessage(str);
+                        if (rawRes) {
+                            try {
+                                var res = JSON.parse(rawRes);
+                                if (window.dispatchAndroidIpcCallback) {
+                                    window.dispatchAndroidIpcCallback(res);
+                                }
+                            } catch(e) {
+                                console.error("IPC dispatch error:", e);
+                            }
                         }
-                    };
-                }
+                        return rawRes;
+                    }
+                };
                 console.log("SamuLibre Android Environment Injected Successfully.");
                 if (window.dispatchEvent) {
                     window.dispatchEvent(new CustomEvent('samulibre-android-ready', { detail: window.androidSecurityInfo }));
@@ -131,6 +140,13 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun stopVpnService() {
+        val serviceIntent = Intent(this, SamuVpnService::class.java).apply {
+            action = SamuVpnService.ACTION_STOP
+        }
+        startService(serviceIntent)
+    }
+
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == vpnRequestCode && resultCode == Activity.RESULT_OK) {
@@ -154,6 +170,16 @@ class MainActivity : AppCompatActivity() {
                         put("success", true)
                         put("message", "Solicitando autorización de VpnService")
                     }.toString()
+                }
+
+                if (action == "connect_vpn") {
+                    runOnUiThread { startVpnService() }
+                    return NativeBridge.dispatchIpc(jsonString)
+                }
+
+                if (action == "disconnect_vpn") {
+                    runOnUiThread { stopVpnService() }
+                    return NativeBridge.dispatchIpc(jsonString)
                 }
 
                 if (action == "audit_device_apps") {
