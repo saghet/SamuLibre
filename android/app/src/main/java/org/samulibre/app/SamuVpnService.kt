@@ -40,7 +40,7 @@ class SamuVpnService : VpnService() {
         when (intent?.action) {
             ACTION_STOP -> stopVpn()
             ACTION_START_PROXY_VPN -> {
-                val port = intent.getIntExtra(EXTRA_PROXY_PORT, TorManager.HTTP_PROXY_PORT)
+                val port = intent.getIntExtra(EXTRA_PROXY_PORT, TorManager.activeHttpPort)
                 startVpn(port)
             }
             else -> startVpn(null)
@@ -71,6 +71,14 @@ class SamuVpnService : VpnService() {
             val builder = Builder().apply {
                 addAddress("10.200.0.2", 32)
                 addRoute("10.200.0.0", 24)
+                if (proxyPort != null) {
+                    try {
+                        addDnsServer("9.9.9.9")
+                        addDnsServer("149.112.112.112")
+                    } catch (e: Exception) {
+                        // fallback
+                    }
+                }
                 setSession(if (proxyPort != null) "SamuLibre Multi-Hop Privacy VPN" else "SamuLibre Zero-Root Virtual Shield")
                 setMtu(1500)
                 setBlocking(false)

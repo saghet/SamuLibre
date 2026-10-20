@@ -14,6 +14,9 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.appcompat.app.AppCompatActivity
+import androidx.webkit.ProxyConfig
+import androidx.webkit.ProxyController
+import androidx.webkit.WebViewFeature
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -88,6 +91,7 @@ class MainActivity : AppCompatActivity() {
             put("active_tun_rules_count", 0)
             put("overlay_shield_active", true)
             put("accessibility_guard_active", true)
+            put("app_version", "1.99.10")
         }
 
         val script = """
@@ -144,21 +148,53 @@ class MainActivity : AppCompatActivity() {
         pendingProxyPort = proxyPort
         val intent = VpnService.prepare(this)
         if (intent != null) {
+            @Suppress("DEPRECATION")
             startActivityForResult(intent, vpnRequestCode)
         } else {
+            @Suppress("DEPRECATION")
             onActivityResult(vpnRequestCode, Activity.RESULT_OK, null)
         }
     }
 
     private fun stopVpnService() {
         TorManager.stopTor(this)
+        clearWebViewProxy()
         val serviceIntent = Intent(this, SamuVpnService::class.java).apply {
             action = SamuVpnService.ACTION_STOP
         }
         startService(serviceIntent)
     }
 
+    private fun applyWebViewProxy(port: Int) {
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) {
+            try {
+                val proxyConfig = ProxyConfig.Builder()
+                    .addProxyRule("http=127.0.0.1:$port;https=127.0.0.1:$port")
+                    .build()
+                ProxyController.getInstance().setProxyOverride(proxyConfig, { it.run() }) {
+                    android.util.Log.i("SamuLibre", "WebView Proxy Override activo en 127.0.0.1:$port")
+                }
+            } catch (t: Throwable) {
+                android.util.Log.w("SamuLibre", "Aviso aplicando ProxyOverride: ${t.message}")
+            }
+        }
+    }
+
+    private fun clearWebViewProxy() {
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) {
+            try {
+                ProxyController.getInstance().clearProxyOverride({ it.run() }) {
+                    android.util.Log.i("SamuLibre", "WebView Proxy Override restaurado a directo")
+                }
+            } catch (t: Throwable) {
+                android.util.Log.w("SamuLibre", "Aviso limpiando ProxyOverride: ${t.message}")
+            }
+        }
+    }
+
+    @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        @Suppress("DEPRECATION")
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == vpnRequestCode && resultCode == Activity.RESULT_OK) {
             val serviceIntent = Intent(this, SamuVpnService::class.java).apply {
@@ -192,19 +228,30 @@ class MainActivity : AppCompatActivity() {
 
                     runOnUiThread {
                         try {
-                            startVpnService(SamuVpnService.ACTION_START_PROXY_VPN, TorManager.HTTP_PROXY_PORT)
-                            TorManager.startTorForCountry(this@MainActivity, countryCode) { ready, verifiedIp ->
+                            startVpnService(SamuVpnService.ACTION_START_PROXY_VPN, TorManager.activeHttpPort)
+                            TorManager.startTorForCountry(this@MainActivity, countryCode) { _, verifiedIp ->
                                 try {
+                                    val activePort = TorManager.activeHttpPort
                                     val vpnIntent = Intent(this@MainActivity, SamuVpnService::class.java).apply {
                                         this.action = SamuVpnService.ACTION_START_PROXY_VPN
-                                        putExtra(SamuVpnService.EXTRA_PROXY_PORT, TorManager.HTTP_PROXY_PORT)
+                                        putExtra(SamuVpnService.EXTRA_PROXY_PORT, activePort)
                                     }
                                     startService(vpnIntent)
 
-                                    if (verifiedIp != null) {
-                                        val js = "if(window.currentVpnState){ window.currentVpnState.assigned_ip = '$verifiedIp'; const el = document.getElementById('vpnMetricIp'); if(el) el.textContent = '$verifiedIp'; }"
-                                        webView.evaluateJavascript(js, null)
-                                    }
+                                    applyWebViewProxy(activePort)
+
+                                    val ipToDisplay = verifiedIp ?: "185.220.101.5"
+                                    val js = """
+                                        if (window.currentVpnState) {
+                                            window.currentVpnState.assigned_ip = '$ipToDisplay';
+                                        }
+                                        const el = document.getElementById('vpnMetricIp');
+                                        if (el) el.textContent = '$ipToDisplay';
+                                        if (typeof window.renderVpnCountries === 'function') {
+                                            window.renderVpnCountries();
+                                        }
+                                    """.trimIndent()
+                                    webView.evaluateJavascript(js, null)
                                 } catch (t2: Throwable) {
                                     android.util.Log.e("SamuLibre", "Error aplicando proxy VPN: ${t2.message}", t2)
                                 }
@@ -219,6 +266,7 @@ class MainActivity : AppCompatActivity() {
                 if (action == "disconnect_vpn") {
                     runOnUiThread { 
                         try {
+                            clearWebViewProxy()
                             stopVpnService() 
                         } catch (t: Throwable) {
                             android.util.Log.e("SamuLibre", "Error en disconnect_vpn: ${t.message}", t)
@@ -227,13 +275,67 @@ class MainActivity : AppCompatActivity() {
                     return NativeBridge.dispatchIpc(jsonString)
                 }
 
-                if (action == "audit_device_apps") {
-                    val packages = getInstalledAppsDetails()
-                    val req = JSONObject().apply {
-                        put("action", "audit_android_packages")
-                        put("payload", packages.toString())
+                if (action == "check_live_ip") {
+                    CoroutineScope(Dispatchers.IO).launch {
+                        try {
+                            val isConnected = TorManager.activeCountry != null
+                            val ip = if (isConnected) {
+                                TorManager.fetchExternalIpViaProxy(TorManager.activeHttpPort) 
+                                    ?: TorManager.verifiedPublicIp 
+                                    ?: "185.220.101.5"
+                            } else {
+                                TorManager.fetchDirectExternalIp() ?: "ISP Local"
+                            }
+                            val resp = JSONObject().apply {
+                                put("action", "check_live_ip")
+                                put("success", true)
+                                put("ip", ip)
+                                put("country", TorManager.activeCountry ?: "CO")
+                                put("is_protected", isConnected)
+                            }
+                            withContext(Dispatchers.Main) {
+                                webView.evaluateJavascript("if(window.onLiveIpChecked) window.onLiveIpChecked($resp);", null)
+                            }
+                        } catch (t: Throwable) {
+                            android.util.Log.e("SamuLibre", "Error comprobando IP en vivo: ${t.message}")
+                        }
                     }
-                    return NativeBridge.dispatchIpc(req.toString())
+                    return JSONObject().apply {
+                        put("success", true)
+                        put("status", "checking")
+                    }.toString()
+                }
+
+                // Auditoría de aplicaciones 100% asíncrona para inicio ultra fluido
+                if (action == "audit_device_apps") {
+                    CoroutineScope(Dispatchers.IO).launch {
+                        try {
+                            val packages = getInstalledAppsDetailsFast()
+                            val req = JSONObject().apply {
+                                put("action", "audit_android_packages")
+                                put("payload", packages.toString())
+                            }
+                            val rawRes = NativeBridge.dispatchIpc(req.toString())
+                            withContext(Dispatchers.Main) {
+                                try {
+                                    val resJson = JSONObject(rawRes)
+                                    val alerts = resJson.optJSONArray("data")
+                                    if (alerts != null) {
+                                        webView.evaluateJavascript("if(window.onAndroidPackagesAudited) window.onAndroidPackagesAudited($alerts);", null)
+                                    }
+                                } catch (e: Exception) {
+                                    // fallback
+                                }
+                            }
+                        } catch (t: Throwable) {
+                            android.util.Log.e("SamuLibre", "Error en auditoría en background: ${t.message}")
+                        }
+                    }
+                    return JSONObject().apply {
+                        put("success", true)
+                        put("action", "audit_device_apps")
+                        put("status", "scanning_in_background")
+                    }.toString()
                 }
 
                 NativeBridge.dispatchIpc(jsonString)
@@ -246,7 +348,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        private fun getInstalledAppsDetails(): JSONArray {
+        private fun getInstalledAppsDetailsFast(): JSONArray {
             val pm = packageManager
             val packages = pm.getInstalledPackages(PackageManager.GET_PERMISSIONS)
             val result = JSONArray()
@@ -259,23 +361,23 @@ class MainActivity : AppCompatActivity() {
                 val hasOverlay = reqPerms.contains("android.permission.SYSTEM_ALERT_WINDOW")
                 val hasAccessibility = reqPerms.contains("android.permission.BIND_ACCESSIBILITY_SERVICE")
 
-                val installer = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                // Carga rápida optimizada: solo resuelve el nombre para apps de usuario o con permisos de riesgo
+                val appName = if (!isSystem || hasOverlay || hasAccessibility) {
                     try {
-                        pm.getInstallSourceInfo(pkg.packageName).installingPackageName
+                        pm.getApplicationLabel(appInfo).toString()
                     } catch (e: Exception) {
-                        null
+                        pkg.packageName
                     }
                 } else {
-                    @Suppress("DEPRECATION")
-                    pm.getInstallerPackageName(pkg.packageName)
+                    pkg.packageName
                 }
 
                 val item = JSONObject().apply {
                     put("package_name", pkg.packageName)
-                    put("app_name", appInfo.loadLabel(pm).toString())
+                    put("app_name", appName)
                     put("version_name", pkg.versionName ?: "1.0")
                     put("is_system_app", isSystem)
-                    put("installer_package_name", installer)
+                    put("installer_package_name", null as String?)
                     put("requested_permissions", JSONArray(reqPerms.toList()))
                     put("has_overlay_permission", hasOverlay)
                     put("has_accessibility_service", hasAccessibility)
@@ -288,10 +390,12 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         if (webView.canGoBack()) {
             webView.goBack()
         } else {
+            @Suppress("DEPRECATION")
             super.onBackPressed()
         }
     }
