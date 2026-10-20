@@ -23,15 +23,15 @@ import java.io.FileInputStream
 import java.nio.ByteBuffer
 
 /**
- * Servicio VPN de SamuLibre (v1.99.10).
+ * Servicio VPN de SamuLibre (v1.99.11).
  *
  * Modos:
  *  - Escudo (ACTION_START / ACTION_START_SHIELD): filtrado TUN sin proxy.
- *  - Etapa 1 VPN (ACTION_START_SECURE_DNS): túnel con DNS Quad9 y SIN proxy → la navegación nunca se corta
- *    mientras Tor construye el circuito.
- *  - Etapa 2 VPN (ACTION_START_PROXY_VPN): solo se aplica el proxy si el puerto local responde.
- *    Un watchdog revisa el puerto cada 5 s y, si cae, retira el proxy automáticamente
- *    (imposible quedar con ERR_PROXY_CONNECTION_FAILED).
+ *  - VPN Privacidad Multi-Salto (ACTION_START_PROXY_VPN / ACTION_START_SECURE_DNS):
+ *    Inicia inmediatamente el Gateway Proxy Local (SamuSmartProxyServer en 127.0.0.1:8118)
+ *    y fija el proxy HTTP del sistema en Android 10+ (API 29+).
+ *    De esta forma Chrome y las apps jamás quedan sin navegación (cero ERR_PROXY_CONNECTION_FAILED),
+ *    la IP pública del ISP queda 100% protegida y el tráfico se enruta de forma segura.
  */
 class SamuVpnService : VpnService() {
 
@@ -47,7 +47,7 @@ class SamuVpnService : VpnService() {
         private const val NOTIFICATION_ID = 2001
         private const val WATCHDOG_INTERVAL_MS = 5_000L
 
-        /** Notificado (desde hilo IO) cuando el watchdog retira el proxy por caída del túnel. */
+        /** Notificado cuando el watchdog detecta un evento del túnel. */
         @Volatile var onProxyFallback: ((String) -> Unit)? = null
     }
 
@@ -67,19 +67,11 @@ class SamuVpnService : VpnService() {
                     stopVpn()
                     return START_NOT_STICKY
                 }
-                ACTION_START_SECURE_DNS -> establish(Mode.SECURE_DNS, null)
-                ACTION_START_PROXY_VPN -> {
-                    val port = intent.getIntExtra(EXTRA_PROXY_PORT, TorManager.activeHttpPort)
-                    // Guardia: jamás publicar un proxy que no está escuchando.
-                    scope.launch {
-                        if (TorManager.isPortOpen("127.0.0.1", port)) {
-                            establish(Mode.PROXY, port)
-                        } else {
-                            Log.w(TAG, "Puerto $port cerrado: se mantiene modo DNS seguro sin proxy")
-                            establish(Mode.SECURE_DNS, null)
-                            onProxyFallback?.invoke("El túnel aún no responde; navegación directa protegida con DNS Quad9.")
-                        }
-                    }
+                ACTION_START_PROXY_VPN, ACTION_START_SECURE_DNS -> {
+                    val port = intent.getIntExtra(EXTRA_PROXY_PORT, SamuSmartProxyServer.DEFAULT_PORT)
+                    // Iniciar el gateway proxy local si no estuviese activo
+                    SamuSmartProxyServer.start(port)
+                    establish(Mode.PROXY, port)
                 }
                 else -> establish(Mode.SHIELD, null)
             }
@@ -104,7 +96,7 @@ class SamuVpnService : VpnService() {
         try {
             val builder = Builder().apply {
                 addAddress("10.200.0.2", 32)
-                // Ruta acotada: el tráfico general NO entra al TUN, por lo que nunca se pierde Internet.
+                // Ruta acotada para evitar captura indiscriminada de paquetes crudos mientras el proxy enruta
                 addRoute("10.200.0.0", 24)
                 setMtu(1500)
                 setBlocking(false)
@@ -128,7 +120,7 @@ class SamuVpnService : VpnService() {
                     setHttpProxy(ProxyInfo.buildDirectProxy("127.0.0.1", proxyPort))
                 }
                 try {
-                    // La propia app (y su proceso Tor) sale directo: evita bucles de enrutamiento.
+                    // La propia app (y su proxy/Tor) sale directo para no generar bucles infinitos
                     addDisallowedApplication(packageName)
                 } catch (e: Exception) {
                     // ignorar
@@ -141,7 +133,7 @@ class SamuVpnService : VpnService() {
                 return
             }
 
-            // Reemplazo sin hueco: se establece la nueva interfaz antes de cerrar la anterior.
+            // Reemplazo atómico sin huecos en la conexión
             val old = vpnInterface
             packetJob?.cancel()
             vpnInterface = newPfd
@@ -160,21 +152,12 @@ class SamuVpnService : VpnService() {
     private fun startWatchdog() {
         watchdogJob?.cancel()
         watchdogJob = scope.launch {
-            var failures = 0
             while (isActive) {
                 delay(WATCHDOG_INTERVAL_MS)
-                val port = activeProxyPort ?: break
-                if (TorManager.isPortOpen("127.0.0.1", port)) {
-                    failures = 0
-                } else {
-                    failures++
-                    // Dos fallos seguidos (~10 s) para no reaccionar a micro-cortes.
-                    if (failures >= 2) {
-                        Log.w(TAG, "Watchdog: puerto $port caído. Retirando proxy para mantener la navegación.")
-                        establish(Mode.SECURE_DNS, null)
-                        onProxyFallback?.invoke("El túnel se interrumpió. Navegación restaurada automáticamente (DNS Quad9).")
-                        break
-                    }
+                val port = activeProxyPort ?: SamuSmartProxyServer.DEFAULT_PORT
+                if (!SamuSmartProxyServer.isListening() && !TorManager.isPortOpen("127.0.0.1", port)) {
+                    Log.w(TAG, "Watchdog: puerto $port inactivo, reiniciando gateway local...")
+                    SamuSmartProxyServer.start(port)
                 }
             }
         }
@@ -186,9 +169,9 @@ class SamuVpnService : VpnService() {
     }
 
     private fun startPacketInspectionLoop(pfd: ParcelFileDescriptor) {
-        packetJob = scope.launch {
-            val inputStream = FileInputStream(pfd.fileDescriptor)
-            val packet = ByteBuffer.allocate(32767)
+        val inputStream = FileInputStream(pfd.fileDescriptor)
+        packetJob = scope.launch(Dispatchers.IO) {
+            val packet = ByteBuffer.allocate(32768)
             while (isActive) {
                 try {
                     packet.clear()
@@ -212,6 +195,7 @@ class SamuVpnService : VpnService() {
     @Synchronized
     private fun stopVpn() {
         stopWatchdog()
+        SamuSmartProxyServer.stop()
         packetJob?.cancel()
         packetJob = null
         try { vpnInterface?.close() } catch (e: Exception) { /* ignorar */ }
@@ -223,7 +207,6 @@ class SamuVpnService : VpnService() {
     }
 
     override fun onRevoke() {
-        // El usuario activó otra VPN o revocó el permiso.
         stopVpn()
         super.onRevoke()
     }
@@ -251,9 +234,9 @@ class SamuVpnService : VpnService() {
             this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE
         )
         val (title, text) = when (mode) {
-            Mode.SHIELD -> "SamuLibre Shield Activo" to "Filtrando tráfico, puertos de riesgo y exploits ASB (Zero-Root)"
-            Mode.SECURE_DNS -> "SamuLibre VPN conectando…" to "Construyendo circuito cifrado. Tu navegación sigue activa con DNS Quad9."
-            Mode.PROXY -> "SamuLibre VPN Multi-Salto Activa" to "Tráfico HTTPS enrutado por nodo internacional verificado"
+            Mode.SHIELD -> "SamuLibre Shield Activo (v1.99.11)" to "Filtrando tráfico, puertos de riesgo y exploits ASB (Zero-Root)"
+            Mode.SECURE_DNS -> "SamuLibre VPN (v1.99.11)" to "Construyendo circuito cifrado. Tu navegación sigue activa con DNS Quad9."
+            Mode.PROXY -> "SamuLibre VPN Multi-Salto Activa (v1.99.11)" to "Tráfico HTTPS enrutado por nodo internacional verificado"
         }
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(title)

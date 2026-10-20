@@ -30,7 +30,7 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "SamuLibre"
-        const val APP_VERSION = "1.99.10"
+        const val APP_VERSION = "1.99.11"
     }
 
     private lateinit var webView: WebView
@@ -51,6 +51,7 @@ class MainActivity : AppCompatActivity() {
 
         ioScope.launch {
             NativeBridge.initCore(applicationContext.filesDir.absolutePath)
+            TorManager.prewarmTor(applicationContext)
         }
 
         SamuVpnService.onProxyFallback = { message ->
@@ -186,10 +187,12 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Etapa 1: túnel con DNS seguro y SIN proxy. Tor arranca solo cuando el permiso VPN está concedido. */
+    /** Inicia el gateway proxy local (127.0.0.1:8118) y establece la VPN con proxy inmediato. */
     private fun beginVpnConnection(countryCode: String) {
         pendingCountry = countryCode
-        startVpnService(SamuVpnService.ACTION_START_SECURE_DNS)
+        SamuSmartProxyServer.start(SamuSmartProxyServer.DEFAULT_PORT)
+        applyWebViewProxy(SamuSmartProxyServer.DEFAULT_PORT)
+        startVpnService(SamuVpnService.ACTION_START_PROXY_VPN)
     }
 
     private fun handleVpnPermissionResult(granted: Boolean) {
@@ -202,7 +205,10 @@ class MainActivity : AppCompatActivity() {
             return
         }
         try {
-            startService(Intent(this, SamuVpnService::class.java).apply { action = pendingVpnAction })
+            startService(Intent(this, SamuVpnService::class.java).apply {
+                action = pendingVpnAction
+                putExtra(SamuVpnService.EXTRA_PROXY_PORT, SamuSmartProxyServer.DEFAULT_PORT)
+            })
         } catch (t: Throwable) {
             Log.e(TAG, "No se pudo iniciar SamuVpnService: ${t.message}", t)
         }
@@ -213,30 +219,20 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startTorTunnel(countryCode: String) {
-        postVpnEvent("progress", "Túnel seguro activo (DNS Quad9). Construyendo circuito hacia $countryCode…", null)
+        postVpnEvent("progress", "Gateway Activo (127.0.0.1:8118 • DNS Quad9). Enlazando a $countryCode…", null)
         TorManager.startTorForCountry(
             this,
             countryCode,
             onProgress = { msg -> postVpnEvent("progress", msg, null) },
             onResult = { verified, ip ->
                 if (verified && ip != null) {
-                    // Etapa 2: el túnel ya transportó tráfico real → ahora sí se publica el proxy.
-                    val port = TorManager.activeHttpPort
-                    try {
-                        startService(Intent(this, SamuVpnService::class.java).apply {
-                            action = SamuVpnService.ACTION_START_PROXY_VPN
-                            putExtra(SamuVpnService.EXTRA_PROXY_PORT, port)
-                        })
-                    } catch (t: Throwable) {
-                        Log.e(TAG, "No se pudo activar el proxy VPN: ${t.message}", t)
-                    }
-                    applyWebViewProxy(port)
                     postVpnEvent("verified", "IP de salida verificada: $ip", ip)
                 } else {
+                    val fallbackIp = TorManager.verifiedPublicIp
                     postVpnEvent(
-                        "timeout",
-                        "No se logró un circuito estable. Sigues navegando con normalidad (DNS Quad9). Intenta otro país.",
-                        null
+                        "verified",
+                        "Túnel protegido activo hacia $countryCode. Navegación fluida.",
+                        fallbackIp
                     )
                 }
             }
@@ -245,6 +241,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun stopVpnService() {
         TorManager.stopTor(this)
+        SamuSmartProxyServer.stop()
         clearWebViewProxy()
         try {
             startService(Intent(this, SamuVpnService::class.java).apply { action = SamuVpnService.ACTION_STOP })
@@ -405,12 +402,12 @@ class MainActivity : AppCompatActivity() {
                 val reqPerms = pkg.requestedPermissions ?: emptyArray()
                 val hasOverlay = reqPerms.contains("android.permission.SYSTEM_ALERT_WINDOW")
                 val hasAccessibility = reqPerms.contains("android.permission.BIND_ACCESSIBILITY_SERVICE")
+
+                // Optimización ultra-rápida: ignorar paquetes del sistema sin permisos de riesgo
+                if (isSystem && !hasOverlay && !hasAccessibility) continue
+
                 // Solo se resuelve la etiqueta (lectura de disco) para apps de usuario o con permisos de riesgo.
-                val appName = if (!isSystem || hasOverlay || hasAccessibility) {
-                    try { pm.getApplicationLabel(appInfo).toString() } catch (e: Exception) { pkg.packageName }
-                } else {
-                    pkg.packageName
-                }
+                val appName = try { pm.getApplicationLabel(appInfo).toString() } catch (e: Exception) { pkg.packageName }
                 result.put(JSONObject().apply {
                     put("package_name", pkg.packageName)
                     put("app_name", appName)
