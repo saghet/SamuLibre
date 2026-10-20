@@ -4,6 +4,30 @@ Todas las mejoras notables, correcciones de errores y nuevas funcionalidades de 
 
 ---
 
+## [1.99.14] - 2026-10-20
+
+### 🚀 Novedades y Mejoras Principales
+- **Investigación Forense y Mitigación de Falsos Positivos en PDFs (`H=7.99`):**
+  - Análisis forense de archivos PDF con alta entropía de Shannon (ej. documentos escaneados e imágenes comprimidas vía `FlateDecode`).
+  - Corregido el motor de entropía `AI.Heuristic.PackedSuspiciousEntropy`: los documentos PDF/Office comprimidos legítimos ya no son clasificados erróneamente como malware empaquetado a menos que contengan scripts activos o disparadores de ejecución maliciosa (`/JavaScript`, `/Launch`, etc. catalogados bajo `Exploit.PDF.ActiveScriptOrLaunchTrigger`).
+- **Rastreo de Procedencia XDR Amigable para Usuarios Comunes:**
+  - Integrado rastreador nativo en Windows capaz de inspeccionar los flujos alternativos NTFS (`:Zone.Identifier`) para descubrir la URL de origen (`HostUrl`) y el sitio remitente (`ReferrerUrl`).
+  - Mapeo automático de procedencia comprensible: identifica descargas desde *"WhatsApp Web"*, *"Navegador Web (Chrome/Edge/Firefox)"*, *"Correo Electrónico"* o *"Equipo Local"*.
+  - Enriquecido el modelo de datos `ThreatRecord` y el historial persistente con los campos: `origin_source`, `origin_url`, `human_explanation` y `suggested_action`.
+- **Línea de Tiempo Visual en 3 Pasos y Explicación en Palabras Cotidianas:**
+  - Modal contextual emergente `modalThreatDecision` con una tarjeta interactiva de procedencia (XDR Amigable):
+    - **Paso 1:** 🌐 ¿De dónde vino? (ej. WhatsApp Web, Google Chrome).
+    - **Paso 2:** 📥 ¿Dónde aterrizó? (ej. Carpeta Descargas, Escritorio).
+    - **Paso 3:** 🔍 Diagnóstico claro (ej. Falso Positivo Seguro vs. Peligro Potencial).
+    - **💡 ¿Qué significa esto para ti?:** Explicación pedagógica sin jerga de ciberseguridad y sugerencia de acción clara para el usuario.
+- **Columna de Origen en el Historial de Amenazas:**
+  - Añadida la columna *"Origen (XDR)"* con badges distintivos en la tabla persistente de amenazas detectadas.
+- **Actualización de Versión:**
+  - Versión subida a **`v1.99.14`** visible en la esquina superior izquierda de la app tanto en escritorio como en móvil.
+  - APK de Android actualizado a `versionCode = 7` y `versionName = "1.99.14"`.
+
+---
+
 ## [1.99.13] - 2026-10-20
 
 ### 🚀 Novedades y Mejoras Principales

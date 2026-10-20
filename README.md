@@ -21,7 +21,7 @@
 [![Download Windows EXE](https://img.shields.io/badge/📥_Windows_EXE-samulibre.exe-2ea44f?style=for-the-badge&logo=windows)](https://github.com/saghet/SamuLibre/releases/latest)
 [![Download Ubuntu DEB](https://img.shields.io/badge/📦_Ubuntu%2FDebian_DEB-.deb-E95420?style=for-the-badge&logo=ubuntu)](https://github.com/saghet/SamuLibre/releases/latest)
 [![Download Linux Tarball](https://img.shields.io/badge/📦_Universal_Linux-.tar.gz-black?style=for-the-badge&logo=linux)](https://github.com/saghet/SamuLibre/releases/latest)
-[![Download Android APK](https://img.shields.io/badge/📱_Android_APK-v1.99.13-3DDC84?style=for-the-badge&logo=android)](https://github.com/saghet/SamuLibre/releases/latest)
+[![Download Android APK](https://img.shields.io/badge/📱_Android_APK-v1.99.14-3DDC84?style=for-the-badge&logo=android)](https://github.com/saghet/SamuLibre/releases/latest)
 
 <br/>
 
@@ -84,7 +84,7 @@ Unlike legacy antivirus software that hogs 300+ MB of RAM and uploads your perso
 * **Efficiency Cores (E-Cores) Scheduling**: Background threads run at `THREAD_PRIORITY_LOWEST`, instructing the Windows 11 thread scheduler to execute background scans strictly on energy-efficient E-Cores.
 * **Active Working Set Trimming**: Automatically invokes Win32 `EmptyWorkingSet` every 60 seconds to release unreferenced physical memory pages back to the operating system, keeping RAM between **5.45 MB and 38.9 MB**.
 
-### 6. 📱 Mobile Zero-Root Shield & Multi-Hop VPN (Android v1.99.12)
+### 6. 📱 Mobile Zero-Root Shield & Multi-Hop VPN (Android v1.99.14)
 * **Local Smart Proxy Gateway (`SamuSmartProxyServer`)**: Embedded high-concurrency local gateway (`127.0.0.1:8118`) that links immediately into Android `VpnService` with zero connection latency. Chrome, Edge, and Android apps route smoothly without `ERR_PROXY_CONNECTION_FAILED`.
 * **Zero-Leak Remote Egress Routing**: Outbound HTTPS tunnels route via SOCKS5 (RFC 1928) with remote DNS resolution (ATYP 0x03) across 8 audited privacy jurisdictions (Switzerland 🇨🇭, Iceland 🇮🇸, Netherlands 🇳🇱, etc.). Mobile ISP IPs (Movistar, Claro, Tigo) are completely hidden.
 * **Bundled GeoIP Database & Disk Consensus Caching**: Local `geoip` databases bundled in assets for reliable country exit node mapping. Consensus caching enables circuit re-connections in `< 2 seconds`.

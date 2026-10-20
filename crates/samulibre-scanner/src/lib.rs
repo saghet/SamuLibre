@@ -311,9 +311,24 @@ impl MultiEngineScanner {
             }
         }
 
-        // 3. Verificación de entropía con IA (sólo en ejecutables y scripts no comprimidos)
+        // 3. Verificación de entropía con IA y validación de documentos
         let is_archive_or_media = is_archive_or_media_file(path_ref);
-        if !is_archive_or_media && content.len() > 1024 * 10 {
+        let is_doc = is_document_file(path_ref);
+        let is_pdf = content.starts_with(b"%PDF") || path_ref.extension().and_then(|s| s.to_str()).map(|e| e.eq_ignore_ascii_case("pdf")).unwrap_or(false);
+
+        if is_pdf {
+            if is_suspicious_pdf(&content) {
+                return Ok(ScanResult {
+                    file_path: path_ref.to_string_lossy().to_string(),
+                    sha256: sha256_hash,
+                    status: FileScanStatus::Infected,
+                    detection_name: Some("Exploit.PDF.ActiveScriptOrLaunchTrigger".to_string()),
+                    engine: "DocumentShield/AI".to_string(),
+                    scan_time_ms: start.elapsed().as_millis() as u64,
+                });
+            }
+            // Si es un PDF legítimo sin scripts activos, no disparamos alerta de entropía falsa
+        } else if !is_archive_or_media && !is_doc && content.len() > 1024 * 10 {
             let sample_len = std::cmp::min(content.len(), 64 * 1024);
             let entropy = calculate_entropy(&content[..sample_len]);
             if entropy > 7.85 {
@@ -373,8 +388,23 @@ impl MultiEngineScanner {
             }
         }
 
-        // 3. Verificación de entropía con IA
-        if data.len() > 1024 * 10 {
+        // 3. Verificación de documentos y análisis de entropía con IA
+        let is_pdf = data.starts_with(b"%PDF") || Path::new(name_hint).extension().and_then(|s| s.to_str()).map(|e| e.eq_ignore_ascii_case("pdf")).unwrap_or(false);
+        let is_doc = is_document_file(Path::new(name_hint));
+        let is_archive_or_media = is_archive_or_media_file(Path::new(name_hint));
+
+        if is_pdf {
+            if is_suspicious_pdf(data) {
+                return ScanResult {
+                    file_path: name_hint.to_string(),
+                    sha256: sha256_hash,
+                    status: FileScanStatus::Infected,
+                    detection_name: Some("Exploit.PDF.ActiveScriptOrLaunchTrigger".to_string()),
+                    engine: "DocumentShield/AI".to_string(),
+                    scan_time_ms: start.elapsed().as_millis().max(1) as u64,
+                };
+            }
+        } else if !is_archive_or_media && !is_doc && data.len() > 1024 * 10 {
             let sample_len = std::cmp::min(data.len(), 64 * 1024);
             let entropy = calculate_entropy(&data[..sample_len]);
             if entropy > 7.85 {
@@ -632,6 +662,107 @@ fn is_archive_or_media_file(path: &Path) -> bool {
     )
 }
 
+pub fn is_document_file(path: &Path) -> bool {
+    let ext = match path.extension().and_then(|s| s.to_str()) {
+        Some(e) => e.to_lowercase(),
+        None => return false,
+    };
+    matches!(
+        ext.as_str(),
+        "pdf" | "docx" | "xlsx" | "pptx" | "odt" | "ods" | "odp" | "epub"
+    )
+}
+
+pub fn is_suspicious_pdf(data: &[u8]) -> bool {
+    contains_case_insensitive(data, b"/JavaScript")
+        || contains_case_insensitive(data, b"/JS")
+        || contains_case_insensitive(data, b"/Launch")
+        || contains_case_insensitive(data, b"/EmbeddedFiles")
+        || contains_case_insensitive(data, b"/OpenAction")
+}
+
+/// Extrae la procedencia (ADS Zone.Identifier en Windows) y genera una explicación simple en lenguaje humano estilo XDR
+pub fn extract_file_origin_and_story(path: &Path, threat_name: &str) -> (Option<String>, Option<String>, Option<String>, Option<String>) {
+    #[cfg(target_os = "windows")]
+    let (origin_source, origin_url) = {
+        let ads_path = format!("{}:Zone.Identifier", path.display());
+        if let Ok(content) = fs::read_to_string(&ads_path) {
+            let mut host_url = None;
+            for line in content.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with("HostUrl=") {
+                    host_url = Some(trimmed.trim_start_matches("HostUrl=").to_string());
+                    break;
+                }
+            }
+            if let Some(url) = host_url {
+                let friendly = if url.contains("web.whatsapp.com") {
+                    "WhatsApp Web (Mensajería)".to_string()
+                } else if url.contains("mail.google.com") {
+                    "Gmail (Correo electrónico)".to_string()
+                } else if url.contains("outlook.live.com") || url.contains("outlook.office.com") {
+                    "Microsoft Outlook (Correo)".to_string()
+                } else if url.contains("drive.google.com") {
+                    "Google Drive".to_string()
+                } else if url.contains("t.me") || url.contains("web.telegram.org") {
+                    "Telegram Web".to_string()
+                } else if url.contains("teams.microsoft.com") {
+                    "Microsoft Teams".to_string()
+                } else if url.contains("github.com") {
+                    "GitHub".to_string()
+                } else if let Some(domain) = url.split("://").nth(1).and_then(|s| s.split('/').next()) {
+                    format!("Descarga Web ({})", domain)
+                } else {
+                    "Descarga de Internet".to_string()
+                };
+                (Some(friendly), Some(url))
+            } else {
+                (Some("Descarga de Internet".to_string()), None)
+            }
+        } else {
+            (Some("Archivo local o creado en este equipo".to_string()), None)
+        }
+    };
+
+    #[cfg(not(target_os = "windows"))]
+    let (origin_source, origin_url) = (Some("Archivo local del sistema".to_string()), None);
+
+    let threat_lower = threat_name.to_lowercase();
+    let (explanation, action) = if threat_lower.contains("entropy") {
+        (
+            Some("La Inteligencia Artificial detectó que el archivo contiene imágenes escaneadas o datos muy comprimidos. Si es un documento legítimo, no contiene virus ni peligro alguno.".to_string()),
+            Some("Excluir (Falso Positivo)".to_string())
+        )
+    } else if threat_lower.contains("powershell") || threat_lower.contains("dropper") {
+        (
+            Some("Se detectó un script diseñado para ejecutar comandos ocultos en Windows y descargar programas no autorizados.".to_string()),
+            Some("Cuarentena Inmediata".to_string())
+        )
+    } else if threat_lower.contains("ransomware") || threat_lower.contains("shadow") {
+        (
+            Some("Este archivo intentó borrar las copias de seguridad de Windows, una técnica típica de virus de secuestro de archivos (Ransomware).".to_string()),
+            Some("Eliminar Permanentemente".to_string())
+        )
+    } else if threat_lower.contains("mimikatz") || threat_lower.contains("lsass") {
+        (
+            Some("Herramienta diseñada para extraer contraseñas guardadas en la memoria de Windows.".to_string()),
+            Some("Cuarentena Inmediata".to_string())
+        )
+    } else if threat_lower.contains("eicar") {
+        (
+            Some("Archivo de prueba estandarizado internacional para comprobar que el antivirus funciona correctamente.".to_string()),
+            Some("Ignorar o Eliminar".to_string())
+        )
+    } else {
+        (
+            Some("El archivo contiene firmas o patrones sospechosos identificados por los motores de seguridad.".to_string()),
+            Some("Mover a Cuarentena".to_string())
+        )
+    };
+
+    (origin_source, origin_url, explanation, action)
+}
+
 /// Pre-filtro ultra-rápido de subcadenas en memoria (<0.01 ms).
 /// Identifica si el buffer contiene palabras clave indispensables para que alguna de las
 /// reglas YARA-X heurísticas pueda dispararse (EICAR, PowerShell, AMSI, DPAPI/Chromium, LOLBins, Ransomware).
@@ -777,5 +908,34 @@ mod tests {
         let res = scanner.scan_bytes(payload, "revshell.sh");
         assert_eq!(res.status, FileScanStatus::Infected);
         assert!(res.detection_name.unwrap().contains("ReverseShell"));
+    }
+
+    #[test]
+    fn test_pdf_clean_high_entropy_not_flagged() {
+        let scanner = MultiEngineScanner::new();
+        let mut pdf_data = b"%PDF-1.7\n".to_vec();
+        let mut pseudo_rand = vec![0u8; 10000];
+        for (i, b) in pseudo_rand.iter_mut().enumerate() {
+            *b = ((i * 101 + 37) % 256) as u8;
+        }
+        pdf_data.extend_from_slice(&pseudo_rand);
+
+        let res = scanner.scan_bytes(&pdf_data, "document.pdf");
+        assert_eq!(res.status, FileScanStatus::Clean);
+    }
+
+    #[test]
+    fn test_pdf_with_active_script_detected() {
+        let scanner = MultiEngineScanner::new();
+        let mut pdf_data = b"%PDF-1.7\n/Type /Action /S /JavaScript /JS (app.alert('pwned'))\n".to_vec();
+        let mut pseudo_rand = vec![0u8; 5000];
+        for (i, b) in pseudo_rand.iter_mut().enumerate() {
+            *b = ((i * 101 + 37) % 256) as u8;
+        }
+        pdf_data.extend_from_slice(&pseudo_rand);
+
+        let res = scanner.scan_bytes(&pdf_data, "invoice.pdf");
+        assert_eq!(res.status, FileScanStatus::Infected);
+        assert!(res.detection_name.unwrap().contains("Exploit.PDF.ActiveScriptOrLaunchTrigger"));
     }
 }

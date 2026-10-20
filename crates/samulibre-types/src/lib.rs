@@ -181,6 +181,10 @@ pub struct ThreatRecord {
     pub severity: String,
     pub action_taken: String, // "En Cuarentena", "Eliminado", "Excluido", "Ignorado", "Pendiente", "Restaurado"
     pub quarantine_id: Option<String>,
+    pub origin_source: Option<String>,
+    pub origin_url: Option<String>,
+    pub human_explanation: Option<String>,
+    pub suggested_action: Option<String>,
 }
 
 /// Estado global del suite SamuLibre

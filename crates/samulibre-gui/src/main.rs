@@ -739,6 +739,7 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                                             if let Ok(r) = c.scan_file_path(entry.path()) {
                                                 if r.status == samulibre_types::FileScanStatus::Infected || r.status == samulibre_types::FileScanStatus::Suspicious {
                                                     let threat_name = r.detection_name.clone().unwrap_or_else(|| "Amenaza.Desconocida".to_string());
+                                                    let (origin_source, origin_url, human_explanation, suggested_action) = samulibre_scanner::extract_file_origin_and_story(entry.path(), &threat_name);
                                                     let rec = samulibre_types::ThreatRecord {
                                                         id: uuid::Uuid::new_v4().to_string(),
                                                         timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
@@ -749,6 +750,10 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                                                         severity: "Alta".to_string(),
                                                         action_taken: "Pendiente".to_string(),
                                                         quarantine_id: None,
+                                                        origin_source,
+                                                        origin_url,
+                                                        human_explanation,
+                                                        suggested_action,
                                                     };
                                                     let mut history = load_threat_history();
                                                     if !history.iter().any(|h| h.file_path == rec.file_path && h.sha256 == rec.sha256 && h.action_taken == "Pendiente") {
@@ -790,6 +795,7 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                                             if let Ok(r) = c.scan_file_path(&path) {
                                                 if r.status == samulibre_types::FileScanStatus::Infected || r.status == samulibre_types::FileScanStatus::Suspicious {
                                                     let threat_name = r.detection_name.clone().unwrap_or_else(|| "Amenaza.Desconocida".to_string());
+                                                    let (origin_source, origin_url, human_explanation, suggested_action) = samulibre_scanner::extract_file_origin_and_story(&path, &threat_name);
                                                     let rec = samulibre_types::ThreatRecord {
                                                         id: uuid::Uuid::new_v4().to_string(),
                                                         timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
@@ -800,6 +806,10 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                                                         severity: "Alta".to_string(),
                                                         action_taken: "Pendiente".to_string(),
                                                         quarantine_id: None,
+                                                        origin_source,
+                                                        origin_url,
+                                                        human_explanation,
+                                                        suggested_action,
                                                     };
                                                     let mut history = load_threat_history();
                                                     if !history.iter().any(|h| h.file_path == rec.file_path && h.sha256 == rec.sha256 && h.action_taken == "Pendiente") {
@@ -827,6 +837,7 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                                                     if let Ok(r) = c.scan_file_path(entry.path()) {
                                                         if r.status == samulibre_types::FileScanStatus::Infected || r.status == samulibre_types::FileScanStatus::Suspicious {
                                                             let threat_name = r.detection_name.clone().unwrap_or_else(|| "Amenaza.Desconocida".to_string());
+                                                            let (origin_source, origin_url, human_explanation, suggested_action) = samulibre_scanner::extract_file_origin_and_story(entry.path(), &threat_name);
                                                             let rec = samulibre_types::ThreatRecord {
                                                                 id: uuid::Uuid::new_v4().to_string(),
                                                                 timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
@@ -837,6 +848,10 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                                                                 severity: "Alta".to_string(),
                                                                 action_taken: "Pendiente".to_string(),
                                                                 quarantine_id: None,
+                                                                origin_source,
+                                                                origin_url,
+                                                                human_explanation,
+                                                                suggested_action,
                                                             };
                                                             let mut history = load_threat_history();
                                                             if !history.iter().any(|h| h.file_path == rec.file_path && h.sha256 == rec.sha256 && h.action_taken == "Pendiente") {
@@ -2158,6 +2173,7 @@ fn execute_scan_loop(
                             } else {
                                 "Media".to_string()
                             };
+                            let (origin_source, origin_url, human_explanation, suggested_action) = samulibre_scanner::extract_file_origin_and_story(path, &threat_name);
                             found_threat = Some(samulibre_types::ThreatRecord {
                                 id: uuid::Uuid::new_v4().to_string(),
                                 timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
@@ -2168,6 +2184,10 @@ fn execute_scan_loop(
                                 severity,
                                 action_taken: "Pendiente".to_string(),
                                 quarantine_id: None,
+                                origin_source,
+                                origin_url,
+                                human_explanation,
+                                suggested_action,
                             });
                         }
                     }
