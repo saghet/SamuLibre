@@ -23,7 +23,7 @@ import java.io.FileInputStream
 import java.nio.ByteBuffer
 
 /**
- * Servicio VPN de SamuLibre (v1.99.11).
+ * Servicio VPN de SamuLibre (v1.99.12).
  *
  * Modos:
  *  - Escudo (ACTION_START / ACTION_START_SHIELD): filtrado TUN sin proxy.
@@ -234,9 +234,9 @@ class SamuVpnService : VpnService() {
             this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE
         )
         val (title, text) = when (mode) {
-            Mode.SHIELD -> "SamuLibre Shield Activo (v1.99.11)" to "Filtrando tráfico, puertos de riesgo y exploits ASB (Zero-Root)"
-            Mode.SECURE_DNS -> "SamuLibre VPN (v1.99.11)" to "Construyendo circuito cifrado. Tu navegación sigue activa con DNS Quad9."
-            Mode.PROXY -> "SamuLibre VPN Multi-Salto Activa (v1.99.11)" to "Tráfico HTTPS enrutado por nodo internacional verificado"
+            Mode.SHIELD -> "SamuLibre Shield Activo (v1.99.12)" to "Filtrando tráfico, puertos de riesgo y exploits ASB (Zero-Root)"
+            Mode.SECURE_DNS -> "SamuLibre VPN (v1.99.12)" to "Construyendo circuito cifrado. Tu navegación sigue activa con DNS Quad9."
+            Mode.PROXY -> "SamuLibre VPN Multi-Salto Activa (v1.99.12)" to "Tráfico HTTPS enrutado por nodo internacional verificado"
         }
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(title)

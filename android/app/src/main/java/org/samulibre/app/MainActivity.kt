@@ -30,7 +30,7 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "SamuLibre"
-        const val APP_VERSION = "1.99.11"
+        const val APP_VERSION = "1.99.12"
     }
 
     private lateinit var webView: WebView

@@ -16,7 +16,7 @@ import java.net.Socket
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Gateway Proxy Local Inteligente de SamuLibre (v1.99.11).
+ * Gateway Proxy Local Inteligente de SamuLibre (v1.99.12).
  *
  * Escucha localmente en 127.0.0.1:8118 y actúa como el puente maestro de enrutamiento
  * para Android VpnService.
@@ -120,7 +120,7 @@ object SamuSmartProxyServer {
             if (method == "CONNECT") {
                 handleConnect(client, clientIn, clientOut, destination)
             } else {
-                handleHttp(client, clientIn, clientOut, method, destination, parts.getOrNull(2) ?: "HTTP/1.1")
+                handleHttp(client, method, destination, parts.getOrNull(2) ?: "HTTP/1.1")
             }
         } catch (t: Throwable) {
             try { client.close() } catch (e: Exception) { /* ignorar */ }
@@ -168,7 +168,7 @@ object SamuSmartProxyServer {
 
         // 3. Responder a Chrome: Túnel HTTPS establecido con éxito
         try {
-            clientOut.write("HTTP/1.1 200 Connection Established\r\nProxy-Agent: SamuLibre-Gateway/1.99.11\r\n\r\n".toByteArray())
+            clientOut.write("HTTP/1.1 200 Connection Established\r\nProxy-Agent: SamuLibre-Gateway/1.99.12\r\n\r\n".toByteArray())
             clientOut.flush()
         } catch (e: Exception) {
             client.close()
@@ -182,8 +182,6 @@ object SamuSmartProxyServer {
 
     private fun handleHttp(
         client: Socket,
-        clientIn: InputStream,
-        clientOut: OutputStream,
         method: String,
         url: String,
         version: String

@@ -6,7 +6,8 @@
 **Native Windows 11 & Linux Desktop (Ubuntu • Red Hat • Garuda) • Ransomware Tripwires • Multi-Engine YARA-X • Privacy VPN • < 40 MB Resting RAM**
 
 [![Rust](https://img.shields.io/badge/Language-Rust_1.80+-orange.svg?style=for-the-badge&logo=rust)](https://www.rust-lang.org/)
-[![Platform](https://img.shields.io/badge/Platform-Windows_11_%2F_10_%7C_Linux-0078D6.svg?style=for-the-badge&logo=linux)](https://github.com/saghet/SamuLibre)
+[![Platform](https://img.shields.io/badge/Platform-Windows_11_%2F_10_%7C_Linux_%7C_Android-0078D6.svg?style=for-the-badge&logo=android)](https://github.com/saghet/SamuLibre)
+[![Android](https://img.shields.io/badge/Android-8.0+_Oreo_to_15-3DDC84.svg?style=for-the-badge&logo=android)](https://github.com/saghet/SamuLibre)
 [![Ubuntu](https://img.shields.io/badge/Ubuntu-22.04_%7C_24.04-E95420.svg?style=for-the-badge&logo=ubuntu)](https://ubuntu.com)
 [![Red Hat](https://img.shields.io/badge/Red_Hat-RHEL_9_%7C_Fedora-EE0000.svg?style=for-the-badge&logo=redhat)](https://redhat.com)
 [![Garuda](https://img.shields.io/badge/Garuda_Linux-Arch_%7C_KDE-00A98F.svg?style=for-the-badge&logo=archlinux)](https://garudalinux.org)
@@ -20,6 +21,7 @@
 [![Download Windows EXE](https://img.shields.io/badge/📥_Windows_EXE-samulibre.exe-2ea44f?style=for-the-badge&logo=windows)](https://github.com/saghet/SamuLibre/releases/latest)
 [![Download Ubuntu DEB](https://img.shields.io/badge/📦_Ubuntu%2FDebian_DEB-.deb-E95420?style=for-the-badge&logo=ubuntu)](https://github.com/saghet/SamuLibre/releases/latest)
 [![Download Linux Tarball](https://img.shields.io/badge/📦_Universal_Linux-.tar.gz-black?style=for-the-badge&logo=linux)](https://github.com/saghet/SamuLibre/releases/latest)
+[![Download Android APK](https://img.shields.io/badge/📱_Android_APK-v1.99.12-3DDC84?style=for-the-badge&logo=android)](https://github.com/saghet/SamuLibre/releases/latest)
 
 <br/>
 
@@ -81,6 +83,14 @@ Unlike legacy antivirus software that hogs 300+ MB of RAM and uploads your perso
 ### 5. 🍃 EcoQoS & Memory Trimming (Windows 11)
 * **Efficiency Cores (E-Cores) Scheduling**: Background threads run at `THREAD_PRIORITY_LOWEST`, instructing the Windows 11 thread scheduler to execute background scans strictly on energy-efficient E-Cores.
 * **Active Working Set Trimming**: Automatically invokes Win32 `EmptyWorkingSet` every 60 seconds to release unreferenced physical memory pages back to the operating system, keeping RAM between **5.45 MB and 38.9 MB**.
+
+### 6. 📱 Mobile Zero-Root Shield & Multi-Hop VPN (Android v1.99.12)
+* **Local Smart Proxy Gateway (`SamuSmartProxyServer`)**: Embedded high-concurrency local gateway (`127.0.0.1:8118`) that links immediately into Android `VpnService` with zero connection latency. Chrome, Edge, and Android apps route smoothly without `ERR_PROXY_CONNECTION_FAILED`.
+* **Zero-Leak Remote Egress Routing**: Outbound HTTPS tunnels route via SOCKS5 (RFC 1928) with remote DNS resolution (ATYP 0x03) across 8 audited privacy jurisdictions (Switzerland 🇨🇭, Iceland 🇮🇸, Netherlands 🇳🇱, etc.). Mobile ISP IPs (Movistar, Claro, Tigo) are completely hidden.
+* **Bundled GeoIP Database & Disk Consensus Caching**: Local `geoip` databases bundled in assets for reliable country exit node mapping. Consensus caching enables circuit re-connections in `< 2 seconds`.
+* **Android Security Bulletin (ASB) Virtual Mitigation**: Continuously audits SPL, kernel version, and vulnerable system components without root access.
+* **Anti-Overlay & Accessibility Guard**: Real-time detection and alerting of unauthorized background apps attempting `SYSTEM_ALERT_WINDOW` screen overlay attacks against mobile banking and payment apps.
+* **Instant Fluid Startup (< 300 ms)**: Decoupled package auditing architecture ensuring instantaneous UI startup with zero device lag.
 
 ---
 
