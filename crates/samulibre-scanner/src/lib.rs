@@ -17,6 +17,7 @@ pub struct PatternRule {
     pub severity: String,
 }
 
+#[derive(Debug, Clone)]
 pub struct MultiEngineScanner {
     known_signatures: HashMap<String, String>, // Hash (SHA256) -> ThreatName
     pattern_rules: Vec<PatternRule>,

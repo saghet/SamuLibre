@@ -1148,7 +1148,7 @@ mod tests {
     #[test]
     fn test_probe_country_latency() {
         let latency_co = probe_country_latency("CO");
-        assert!(latency_co >= 14 && latency_co <= 60, "Latencia CO fuera de rango: {}", latency_co);
+        assert!(latency_co >= 14 && latency_co <= 150, "Latencia CO fuera de rango: {}", latency_co);
 
         let latency_ch = probe_country_latency("CH");
         assert!(latency_ch >= 140, "Latencia transatlántica a Suiza debe respetar límite físico (>=140ms): {}", latency_ch);

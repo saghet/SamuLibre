@@ -1,6 +1,7 @@
 use anyhow::Result;
 use chrono::{DateTime, Utc};
-use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{Config, Event, EventKind, Watcher};
+pub use notify::{RecommendedWatcher, RecursiveMode};
 use samulibre_scanner::MultiEngineScanner;
 use samulibre_types::{FileScanStatus, Severity, ThreatAlert, ThreatCategory};
 use serde::{Deserialize, Serialize};
@@ -241,7 +242,29 @@ impl RealTimeWatcher {
                 let sha256 = scan_result.sha256;
 
                 // 3. Aislamiento automático en Cuarentena Cifrada
-                let _ = self.vault.isolate_file(file_path, &threat_name, &engine, &sha256);
+                let quar_res = self.vault.isolate_file(file_path, &threat_name, &engine, &sha256);
+                let quarantine_id = quar_res.ok().map(|q| q.id.to_string());
+
+                // 4. Registro persistente en historial de amenazas con análisis de procedencia XDR
+                let (origin_source, origin_url, human_explanation, suggested_action) =
+                    samulibre_scanner::extract_file_origin_and_story(file_path, &threat_name);
+
+                let record = samulibre_types::ThreatRecord {
+                    id: Uuid::new_v4().to_string(),
+                    timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+                    file_path: file_path.to_string_lossy().to_string(),
+                    threat_name: threat_name.clone(),
+                    engine: engine.clone(),
+                    sha256: sha256.clone(),
+                    severity: "Crítica".to_string(),
+                    action_taken: "En Cuarentena".to_string(),
+                    quarantine_id,
+                    origin_source,
+                    origin_url,
+                    human_explanation,
+                    suggested_action,
+                };
+                append_threat_to_history(&record);
 
                 Some(ThreatAlert {
                     id: Uuid::new_v4(),
@@ -250,7 +273,7 @@ impl RealTimeWatcher {
                     category: ThreatCategory::MalwareFile,
                     title: format!("¡Amenaza neutralizada en tiempo real: {}!", threat_name),
                     details: format!(
-                        "El archivo sospechoso '{}' fue interceptado en tiempo real por el motor {} y aislado en la bóveda de cuarentena.",
+                        "El archivo '{}' fue interceptado en tiempo real por el motor {} y aislado en la bóveda de cuarentena.",
                         file_path.display(), engine
                     ),
                     process_id: None,
@@ -281,6 +304,10 @@ impl RealTimeWatcher {
                     match event.kind {
                         EventKind::Create(_) | EventKind::Modify(_) => {
                             for path in event.paths {
+                                let path_str = path.to_string_lossy();
+                                if path_str.contains(".git") || path_str.contains("node_modules") || path_str.contains("target") || path_str.contains("$Recycle.Bin") {
+                                    continue;
+                                }
                                 if path.is_file() && is_high_risk_extension(&path) {
                                     // Debounce temporal: filtrar eventos repetidos dentro de 200 ms
                                     let is_debounced = if let Ok(mut debounced) = recent_events_cb.lock() {
@@ -352,17 +379,51 @@ impl RealTimeWatcher {
     }
 }
 
-/// Identifica si una extensión de archivo tiene riesgo de ejecución de código
-fn is_high_risk_extension(path: &Path) -> bool {
+/// Identifica si un archivo debe ser interceptado y analizado en tiempo real
+pub fn is_high_risk_extension(path: &Path) -> bool {
     let ext = match path.extension().and_then(|s| s.to_str()) {
         Some(e) => e.to_lowercase(),
-        None => return false,
+        None => {
+            // Archivos sin extensión en carpetas de usuario suelen ser scripts bash, droppers o binarios ELF/PE
+            return true;
+        }
     };
 
     matches!(
         ext.as_str(),
-        "exe" | "dll" | "sys" | "com" | "scr" | "bat" | "cmd" | "ps1" | "vbs" | "js" | "hta" | "msi" | "zip" | "iso" | "docm" | "xlsm"
+        // Binarios y librerías ejecutables
+        "exe" | "dll" | "sys" | "com" | "scr" | "msi" | "msp" | "cpl" | "ocx" | "drv" | "bin" | "elf" | "so" |
+        // Scripts y automatización
+        "bat" | "cmd" | "ps1" | "psm1" | "psd1" | "vbs" | "vbe" | "js" | "jse" | "wsf" | "wsh" | "hta" | "py" | "sh" | "bash" |
+        // Bytecode Java y paquetes móviles Android
+        "jar" | "apk" | "dex" | "aab" | "class" |
+        // Documentos con macros o vectores de exploit
+        "pdf" | "docm" | "xlsm" | "pptm" | "dotm" | "xltm" | "potm" | "rtf" |
+        // Contenedores comprimidos e imágenes de disco
+        "zip" | "rar" | "7z" | "tar" | "gz" | "iso" | "img" | "vhd" |
+        // Accesos directos y configuración del sistema
+        "lnk" | "pif" | "reg" | "inf"
     )
+}
+
+/// Guarda de forma segura una amenaza neutralizada en tiempo real en data/threat_history.json
+fn append_threat_to_history(record: &samulibre_types::ThreatRecord) {
+    let history_file = Path::new("data").join("threat_history.json");
+    let mut history: Vec<samulibre_types::ThreatRecord> = if history_file.exists() {
+        fs::read_to_string(&history_file)
+            .ok()
+            .and_then(|data| serde_json::from_str(&data).ok())
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
+    if !history.iter().any(|h| h.file_path == record.file_path && h.sha256 == record.sha256) {
+        history.insert(0, record.clone());
+        if let Ok(json_str) = serde_json::to_string_pretty(&history) {
+            let _ = fs::write(&history_file, json_str);
+        }
+    }
 }
 
 #[cfg(test)]

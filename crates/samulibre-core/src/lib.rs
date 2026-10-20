@@ -11,7 +11,7 @@ use samulibre_types::{
 use samulibre_vpn::VpnManager;
 use samulibre_watcher::RealTimeWatcher;
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -24,6 +24,7 @@ pub struct SamuLibreCore {
     pub watcher: Arc<Mutex<RealTimeWatcher>>,
     pub copilot: Arc<Mutex<CyberCopilotEngine>>,
     alerts_history: Arc<Mutex<Vec<ThreatAlert>>>,
+    _active_watcher: Arc<Mutex<Option<samulibre_watcher::RecommendedWatcher>>>,
 }
 
 impl SamuLibreCore {
@@ -43,6 +44,7 @@ impl SamuLibreCore {
             watcher,
             copilot,
             alerts_history: Arc::new(Mutex::new(Vec::new())),
+            _active_watcher: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -66,6 +68,44 @@ impl SamuLibreCore {
             if unmitigated > 0 {
                 let applied = patcher.apply_virtual_patches()?;
                 info!("Parchado Virtual: {} reglas de mitigación aplicadas.", applied);
+            }
+        }
+
+        // 3. Activar Protección de Archivos en Tiempo Real (RealTimeWatcher)
+        if let Ok(mut w) = self.watcher.lock() {
+            #[cfg(target_os = "windows")]
+            if let Ok(profile) = std::env::var("USERPROFILE") {
+                let p = PathBuf::from(profile);
+                w.add_watch_dir(p.join("Downloads"));
+                w.add_watch_dir(p.join("Desktop"));
+                w.add_watch_dir(p.join("Documents"));
+                w.add_watch_dir(p.join("AppData").join("Local").join("Temp"));
+            }
+            #[cfg(not(target_os = "windows"))]
+            if let Ok(home) = std::env::var("HOME") {
+                let p = PathBuf::from(home);
+                w.add_watch_dir(p.join("Downloads"));
+                w.add_watch_dir(p.join("Desktop"));
+                w.add_watch_dir(p.join("Documents"));
+                w.add_watch_dir(PathBuf::from("/tmp"));
+            }
+
+            let alerts_hist_clone = Arc::clone(&self.alerts_history);
+            match w.start_background_watcher(move |alert| {
+                warn!("[REAL-TIME WATCHER] Interceptada amenaza en tiempo real: {} - {}", alert.title, alert.details);
+                if let Ok(mut hist) = alerts_hist_clone.lock() {
+                    hist.push(alert);
+                }
+            }) {
+                Ok(handle) => {
+                    info!("Módulo Vigilante: Protección en Tiempo Real activada correctamente en segundo plano.");
+                    if let Ok(mut active_w) = self._active_watcher.lock() {
+                        *active_w = Some(handle);
+                    }
+                }
+                Err(e) => {
+                    warn!("Aviso: No se pudo enlazar vigilante en tiempo real: {}", e);
+                }
             }
         }
 
@@ -402,11 +442,19 @@ impl SamuLibreCore {
     }
 
     pub fn run_continuous_shield_check(&self) -> Vec<ThreatAlert> {
-        if let Ok(mut shield) = self.shield.lock() {
+        let mut alerts = if let Ok(mut shield) = self.shield.lock() {
             shield.run_continuous_check()
         } else {
             Vec::new()
+        };
+
+        if let Ok(mut hist) = self.alerts_history.lock() {
+            if !hist.is_empty() {
+                alerts.append(&mut *hist);
+            }
         }
+
+        alerts
     }
 
     /// Ejecuta la suite de Auto-Auditoría de Seguridad Interna (Garantía de Excelencia / AV-TEST Ready)

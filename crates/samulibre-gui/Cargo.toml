@@ -19,6 +19,7 @@ samulibre-vpn = { path = "../samulibre-vpn" }
 samulibre-watcher = { path = "../samulibre-watcher" }
 samulibre-ai = { path = "../samulibre-ai" }
 walkdir = "2.5"
+rayon = "1.10"
 wry = "0.57"
 tao = "0.37"
 serde = { workspace = true }

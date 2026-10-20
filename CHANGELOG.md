@@ -4,6 +4,31 @@ Todas las mejoras notables, correcciones de errores y nuevas funcionalidades de 
 
 ---
 
+## [1.99.15] - 2026-10-20
+
+### 🚀 Novedades y Mejoras Principales
+- **Escaneo Multi-Hilo Paralelo con Saturación de CPU y RAM (`rayon`):**
+  - Implementado motor de escaneo paralelo con work-stealing utilizando la totalidad de hilos/núcleos lógicos del procesador (`rayon::current_num_threads()`).
+  - Indexación ultrarrápida de candidatos en memoria RAM eliminando cuellos de botella de disco e I/O.
+  - Acceso concurrente y sin bloqueo de mutex al motor de detección multi-motor (`Arc<MultiEngineScanner>`), multiplicando por hasta 12x la velocidad de escaneo.
+  - Indicador de velocidad en tiempo real en la tarjeta de escaneo (ej. `~1450 arch/s | 16 hilos CPU`).
+- **Resumen Final Exclusivo de Archivos Infectados (`modalScanSummary`):**
+  - Erradicado el spam de ventanas emergentes durante el proceso de escaneo.
+  - Al completar el análisis, si se detectaron amenazas, se despliega automáticamente una ventana de resumen con **únicamente los archivos infectados/sospechosos** hallados.
+  - Acciones globales en lote de un solo clic:
+    - 🛡️ **Aislar Todos en Cuarentena:** Mueve todos los elementos infectados a la bóveda cifrada XOR.
+    - 🗑️ **Eliminar Todos Permanentemente:** Destruye y borra todos los archivos maliciosos del disco.
+    - 🔍 **Revisar uno a uno:** Permite abrir el inspector forense XDR individual para cada amenaza.
+- **Activación Definitiva de la Protección en Tiempo Real (`RealTimeWatcher`):**
+  - Corregida la inactividad del vigilante en segundo plano: ahora se inicializa y preserva activo en memoria vigilando `Downloads`, `Desktop`, `Documents` y `Temp`.
+  - Filtro de extensiones de alto riesgo ampliado drásticamente: incluye ejecutables (`exe`, `dll`, `sys`, `com`, `scr`), scripts (`bat`, `ps1`, `vbs`, `js`, `py`, `sh`), paquetes y bytecode (`jar`, `apk`, `dex`), documentos con riesgo de exploit (`pdf`, `docm`, `xlsm`), accesos directos (`lnk`, `pif`), contenedores (`zip`, `rar`, `iso`) y archivos sin extensión.
+  - Registro inmediato en tiempo real en `threat_history.json` y alerta instantánea al usuario vía notificación.
+- **Actualización de Versión:**
+  - Versión subida a **`v1.99.15`** en cabecera desktop y móvil.
+  - Manifiesto Android actualizado con `versionCode = 8` y `versionName = "1.99.15"`.
+
+---
+
 ## [1.99.14] - 2026-10-20
 
 ### 🚀 Novedades y Mejoras Principales
