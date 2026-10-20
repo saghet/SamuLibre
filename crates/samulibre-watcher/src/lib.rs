@@ -111,6 +111,29 @@ impl QuarantineVault {
         let _ = fs::remove_file(meta_path);
         Ok(true)
     }
+
+    /// Restaura un archivo previamente aislado a su ruta original descifrando su contenido
+    pub fn restore_file(&self, id: Uuid) -> Result<String> {
+        let meta_path = self.quarantine_dir.join(format!("{}.meta.json", id));
+        let isolated_path = self.quarantine_dir.join(format!("{}.quarantine", id));
+        if !meta_path.exists() || !isolated_path.exists() {
+            anyhow::bail!("Registro de cuarentena no encontrado en {}", self.quarantine_dir.display());
+        }
+        let meta_content = fs::read_to_string(&meta_path)?;
+        let record = serde_json::from_str::<QuarantineRecord>(&meta_content)?;
+        let obfuscated_bytes = fs::read(&isolated_path)?;
+        let xor_key = 0xAA;
+        let restored_bytes: Vec<u8> = obfuscated_bytes.iter().map(|b| b ^ xor_key).collect();
+        let target_path = PathBuf::from(&record.original_path);
+        if let Some(parent) = target_path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        fs::write(&target_path, restored_bytes)?;
+        let _ = fs::remove_file(&isolated_path);
+        let _ = fs::remove_file(&meta_path);
+        info!("Archivo restaurado con éxito desde la cuarentena: {}", record.original_path);
+        Ok(record.original_path)
+    }
 }
 
 /// Motor de Escaneo en Tiempo Real
@@ -318,6 +341,10 @@ impl RealTimeWatcher {
 
     pub fn purge_quarantine_record(&self, id: Uuid) -> Result<bool> {
         self.vault.purge_file(id)
+    }
+
+    pub fn restore_quarantine_record(&self, id: Uuid) -> Result<String> {
+        self.vault.restore_file(id)
     }
 
     pub fn isolate_file(&self, path: &Path, threat: &str, engine: &str, sha256: &str) -> Result<QuarantineRecord> {

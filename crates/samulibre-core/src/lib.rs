@@ -526,6 +526,14 @@ impl SamuLibreCore {
         }
     }
 
+    pub fn restore_quarantined_record(&self, id: Uuid) -> Result<String> {
+        if let Ok(w) = self.watcher.lock() {
+            w.restore_quarantine_record(id)
+        } else {
+            Err(anyhow::anyhow!("No se pudo adquirir lock del watcher"))
+        }
+    }
+
     pub fn isolate_file_manually(&self, path: &Path) -> Result<samulibre_watcher::QuarantineRecord> {
         let scan = self.scan_file_path(path)?;
         let threat_name = scan.detection_name.unwrap_or_else(|| "Aislamiento.Manual.Usuario".to_string());

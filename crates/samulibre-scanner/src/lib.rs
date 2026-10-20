@@ -123,6 +123,46 @@ impl MultiEngineScanner {
                 severity: "Alta".to_string(),
             });
         }
+
+        // Regla 8: Ransomware & Sabotaje de Copias de Seguridad (Shadow Copies / Boot Policy)
+        if let Ok(re) = Regex::new(r"(?i)(vssadmin(\.exe)?\s+delete\s+shadows|wmic(\.exe)?\s+shadowcopy\s+delete|bcdedit(\.exe)?\s+/set\s+\{default\}\s+bootstatuspolicy\s+ignoreallfailures|wbadmin(\.exe)?\s+delete\s+catalog)") {
+            self.pattern_rules.push(PatternRule {
+                name: "Ransomware.Win32.ShadowCopyWiper".to_string(),
+                description: "Comandos destructivos diseñados para neutralizar copias de seguridad VSS y restauraciones del sistema".to_string(),
+                pattern: re,
+                severity: "Crítica".to_string(),
+            });
+        }
+
+        // Regla 9: Script Downloader / LOLBins (Certutil, Bitsadmin, Mshta, Regsvr32)
+        if let Ok(re) = Regex::new(r"(?i)(certutil(\.exe)?\s+(-urlcache|-f\s+-split)|bitsadmin(\.exe)?\s+/transfer|mshta(\.exe)?\s+(https?|javascript|vbscript)|regsvr32(\.exe)?\s+/s\s+/u\s+/i:https?)") {
+            self.pattern_rules.push(PatternRule {
+                name: "Heuristic.Script.LOLBinDownloader".to_string(),
+                description: "Uso de binarios legítimos de Windows (LOLBins) para descarga y ejecución furtiva de malware".to_string(),
+                pattern: re,
+                severity: "Alta".to_string(),
+            });
+        }
+
+        // Regla 10: Comandos destructivos masivos (Wipers / Scripts de formateo o eliminación)
+        if let Ok(re) = Regex::new(r"(?i)(del\s+/[fF]\s+/[sS]\s+/[qQ]\s+[cC]:\\|rd\s+/[sS]\s+/[qQ]\s+[cC]:\\|format\s+[cC]:\s+/fs:ntfs\s+/q\s+/y)") {
+            self.pattern_rules.push(PatternRule {
+                name: "Trojan.Script.WiperDestructive".to_string(),
+                description: "Comandos destructivos orientados a la destrucción masiva del disco o sistema operativo".to_string(),
+                pattern: re,
+                severity: "Crítica".to_string(),
+            });
+        }
+
+        // Regla 11: Robo de credenciales y extracción de LSASS (Mimikatz / Procdump)
+        if let Ok(re) = Regex::new(r"(?i)(sekurlsa::logonpasswords|lsadump::sam|privilege::debug|mimikatz|procdump(\.exe)?.*?-ma.*?lsass)") {
+            self.pattern_rules.push(PatternRule {
+                name: "HackTool.Win32.MimikatzCredentialDump".to_string(),
+                description: "Herramienta o script para extracción de credenciales en memoria LSASS y hashes SAM".to_string(),
+                pattern: re,
+                severity: "Crítica".to_string(),
+            });
+        }
     }
 
     /// Escanea un archivo individual utilizando firmas ClamAV/Hashes y reglas YARA/Heurísticas
@@ -594,11 +634,16 @@ fn is_archive_or_media_file(path: &Path) -> bool {
 
 /// Pre-filtro ultra-rápido de subcadenas en memoria (<0.01 ms).
 /// Identifica si el buffer contiene palabras clave indispensables para que alguna de las
-/// reglas YARA-X heurísticas pueda dispararse (EICAR, PowerShell, AMSI, DPAPI/Chromium).
+/// reglas YARA-X heurísticas pueda dispararse (EICAR, PowerShell, AMSI, DPAPI/Chromium, LOLBins, Ransomware).
 /// En el 99% de los archivos limpios, descarta inmediatamente la evaluación pesada del motor de regex.
 fn has_suspicious_indicators(data: &[u8]) -> bool {
     if data.len() < 10 {
         return false;
+    }
+
+    // Cabecera ejecutable PE de Windows (MZ)
+    if data.starts_with(b"MZ") {
+        return true;
     }
 
     contains_case_insensitive(data, b"eicar")
@@ -609,6 +654,15 @@ fn has_suspicious_indicators(data: &[u8]) -> bool {
         || contains_case_insensitive(data, b"cryptunprotectdata")
         || contains_case_insensitive(data, b"os_crypt")
         || contains_case_insensitive(data, b"encrypted_key")
+        || contains_case_insensitive(data, b"vssadmin")
+        || contains_case_insensitive(data, b"shadowcopy")
+        || contains_case_insensitive(data, b"bcdedit")
+        || contains_case_insensitive(data, b"certutil")
+        || contains_case_insensitive(data, b"bitsadmin")
+        || contains_case_insensitive(data, b"mshta")
+        || contains_case_insensitive(data, b"regsvr32")
+        || contains_case_insensitive(data, b"sekurlsa")
+        || contains_case_insensitive(data, b"mimikatz")
         || contains_case_insensitive(data, b"/dev/tcp/")
         || contains_case_insensitive(data, b"ld.so.preload")
         || contains_case_insensitive(data, b"ld_preload")

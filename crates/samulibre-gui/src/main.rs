@@ -8,6 +8,7 @@ use std::fs;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tao::{
     event::{Event, StartCause, WindowEvent},
@@ -18,6 +19,11 @@ use tracing::info;
 use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use walkdir::WalkDir;
 use wry::WebViewBuilder;
+
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+static IS_SCAN_CANCELLED: AtomicBool = AtomicBool::new(false);
 
 #[cfg(target_os = "windows")]
 mod win_eco {
@@ -149,6 +155,15 @@ enum CustomUserEvent {
     CopilotAnswerLoaded {
         response: samulibre_types::CopilotResponse,
     },
+    ThreatDetected {
+        record: samulibre_types::ThreatRecord,
+    },
+    ThreatHistoryLoaded {
+        history: Vec<samulibre_types::ThreatRecord>,
+    },
+    AutostartStatusLoaded {
+        enabled: bool,
+    },
     Quit,
 }
 
@@ -207,6 +222,94 @@ fn get_project_root() -> PathBuf {
         }
     }
     std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+}
+
+fn is_windows_autostart_enabled() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        let output = std::process::Command::new("reg")
+            .args(&["query", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/v", "SamuLibre"])
+            .creation_flags(0x08000000)
+            .output();
+        if let Ok(out) = output {
+            return out.status.success();
+        }
+    }
+    false
+}
+
+fn set_windows_autostart(enable: bool) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        if enable {
+            let current_exe = std::env::current_exe().map_err(|e| e.to_string())?;
+            let exe_str = current_exe.to_string_lossy().to_string();
+            let value = format!("\"{}\" --minimized", exe_str);
+            let status = std::process::Command::new("reg")
+                .args(&[
+                    "add",
+                    "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+                    "/v",
+                    "SamuLibre",
+                    "/t",
+                    "REG_SZ",
+                    "/d",
+                    &value,
+                    "/f",
+                ])
+                .creation_flags(0x08000000)
+                .status()
+                .map_err(|e| e.to_string())?;
+            if status.success() {
+                Ok(())
+            } else {
+                Err("Fallo al registrar inicio automático en el registro de Windows".to_string())
+            }
+        } else {
+            let _ = std::process::Command::new("reg")
+                .args(&[
+                    "delete",
+                    "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+                    "/v",
+                    "SamuLibre",
+                    "/f",
+                ])
+                .creation_flags(0x08000000)
+                .status();
+            Ok(())
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = enable;
+        Ok(())
+    }
+}
+
+fn get_threat_history_path() -> PathBuf {
+    get_project_root().join("data").join("threat_history.json")
+}
+
+fn load_threat_history() -> Vec<samulibre_types::ThreatRecord> {
+    let p = get_threat_history_path();
+    if p.exists() {
+        if let Ok(content) = fs::read_to_string(&p) {
+            if let Ok(records) = serde_json::from_str::<Vec<samulibre_types::ThreatRecord>>(&content) {
+                return records;
+            }
+        }
+    }
+    Vec::new()
+}
+
+fn save_threat_history(records: &[samulibre_types::ThreatRecord]) {
+    let p = get_threat_history_path();
+    if let Some(parent) = p.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    if let Ok(json) = serde_json::to_string_pretty(records) {
+        let _ = fs::write(&p, json);
+    }
 }
 
 fn log_step(msg: &str) {
@@ -615,17 +718,46 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                     "browse_and_scan_folder" => {
                         let proxy_browse_folder = proxy_for_ipc.clone();
                         let core_browse_folder = Arc::clone(&core_for_ipc);
+                        IS_SCAN_CANCELLED.store(false, Ordering::SeqCst);
                         std::thread::spawn(move || {
                             if let Some(folder) = open_native_folder_dialog() {
                                 if let Ok(c) = core_browse_folder.lock() {
                                     let mut results = Vec::new();
-                                    for entry in WalkDir::new(&folder).max_depth(4).into_iter().filter_map(|e| e.ok()) {
+                                    for entry in WalkDir::new(&folder)
+                                        .max_depth(30)
+                                        .into_iter()
+                                        .filter_entry(|e| {
+                                            let name = e.file_name().to_string_lossy();
+                                            !name.starts_with('.') && name != "node_modules" && name != "target"
+                                        })
+                                        .filter_map(|e| e.ok())
+                                    {
+                                        if IS_SCAN_CANCELLED.load(Ordering::Relaxed) {
+                                            break;
+                                        }
                                         if entry.file_type().is_file() {
                                             if let Ok(r) = c.scan_file_path(entry.path()) {
-                                                results.push(r);
-                                                if results.len() >= 60 {
-                                                    break;
+                                                if r.status == samulibre_types::FileScanStatus::Infected || r.status == samulibre_types::FileScanStatus::Suspicious {
+                                                    let threat_name = r.detection_name.clone().unwrap_or_else(|| "Amenaza.Desconocida".to_string());
+                                                    let rec = samulibre_types::ThreatRecord {
+                                                        id: uuid::Uuid::new_v4().to_string(),
+                                                        timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+                                                        file_path: entry.path().to_string_lossy().to_string(),
+                                                        threat_name,
+                                                        engine: r.engine.clone(),
+                                                        sha256: r.sha256.clone(),
+                                                        severity: "Alta".to_string(),
+                                                        action_taken: "Pendiente".to_string(),
+                                                        quarantine_id: None,
+                                                    };
+                                                    let mut history = load_threat_history();
+                                                    if !history.iter().any(|h| h.file_path == rec.file_path && h.sha256 == rec.sha256 && h.action_taken == "Pendiente") {
+                                                        history.insert(0, rec.clone());
+                                                        save_threat_history(&history);
+                                                    }
+                                                    let _ = proxy_browse_folder.send_event(CustomUserEvent::ThreatDetected { record: rec });
                                                 }
+                                                results.push(r);
                                             }
                                         }
                                     }
@@ -639,6 +771,7 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                         if let Some(payload_str) = msg.payload {
                             let proxy_paths = proxy_for_ipc.clone();
                             let core_paths = Arc::clone(&core_for_ipc);
+                            IS_SCAN_CANCELLED.store(false, Ordering::SeqCst);
                             std::thread::spawn(move || {
                                 let mut paths_to_scan = Vec::new();
                                 if let Ok(arr) = serde_json::from_str::<Vec<String>>(&payload_str) {
@@ -650,16 +783,69 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                                 if let Ok(c) = core_paths.lock() {
                                     let mut results = Vec::new();
                                     for path in paths_to_scan {
+                                        if IS_SCAN_CANCELLED.load(Ordering::Relaxed) {
+                                            break;
+                                        }
                                         if path.is_file() {
                                             if let Ok(r) = c.scan_file_path(&path) {
+                                                if r.status == samulibre_types::FileScanStatus::Infected || r.status == samulibre_types::FileScanStatus::Suspicious {
+                                                    let threat_name = r.detection_name.clone().unwrap_or_else(|| "Amenaza.Desconocida".to_string());
+                                                    let rec = samulibre_types::ThreatRecord {
+                                                        id: uuid::Uuid::new_v4().to_string(),
+                                                        timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+                                                        file_path: path.to_string_lossy().to_string(),
+                                                        threat_name,
+                                                        engine: r.engine.clone(),
+                                                        sha256: r.sha256.clone(),
+                                                        severity: "Alta".to_string(),
+                                                        action_taken: "Pendiente".to_string(),
+                                                        quarantine_id: None,
+                                                    };
+                                                    let mut history = load_threat_history();
+                                                    if !history.iter().any(|h| h.file_path == rec.file_path && h.sha256 == rec.sha256 && h.action_taken == "Pendiente") {
+                                                        history.insert(0, rec.clone());
+                                                        save_threat_history(&history);
+                                                    }
+                                                    let _ = proxy_paths.send_event(CustomUserEvent::ThreatDetected { record: rec });
+                                                }
                                                 results.push(r);
                                             }
                                         } else if path.is_dir() {
-                                            for entry in WalkDir::new(&path).max_depth(3).into_iter().filter_map(|e| e.ok()) {
+                                            for entry in WalkDir::new(&path)
+                                                .max_depth(30)
+                                                .into_iter()
+                                                .filter_entry(|e| {
+                                                    let name = e.file_name().to_string_lossy();
+                                                    !name.starts_with('.') && name != "node_modules" && name != "target"
+                                                })
+                                                .filter_map(|e| e.ok())
+                                            {
+                                                if IS_SCAN_CANCELLED.load(Ordering::Relaxed) {
+                                                    break;
+                                                }
                                                 if entry.file_type().is_file() {
                                                     if let Ok(r) = c.scan_file_path(entry.path()) {
+                                                        if r.status == samulibre_types::FileScanStatus::Infected || r.status == samulibre_types::FileScanStatus::Suspicious {
+                                                            let threat_name = r.detection_name.clone().unwrap_or_else(|| "Amenaza.Desconocida".to_string());
+                                                            let rec = samulibre_types::ThreatRecord {
+                                                                id: uuid::Uuid::new_v4().to_string(),
+                                                                timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+                                                                file_path: entry.path().to_string_lossy().to_string(),
+                                                                threat_name,
+                                                                engine: r.engine.clone(),
+                                                                sha256: r.sha256.clone(),
+                                                                severity: "Alta".to_string(),
+                                                                action_taken: "Pendiente".to_string(),
+                                                                quarantine_id: None,
+                                                            };
+                                                            let mut history = load_threat_history();
+                                                            if !history.iter().any(|h| h.file_path == rec.file_path && h.sha256 == rec.sha256 && h.action_taken == "Pendiente") {
+                                                                history.insert(0, rec.clone());
+                                                                save_threat_history(&history);
+                                                            }
+                                                            let _ = proxy_paths.send_event(CustomUserEvent::ThreatDetected { record: rec });
+                                                        }
                                                         results.push(r);
-                                                        if results.len() >= 60 { break; }
                                                     }
                                                 }
                                             }
@@ -672,6 +858,228 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                                     }
                                 }
                             });
+                        }
+                    }
+
+                    "cancel_scan" => {
+                        IS_SCAN_CANCELLED.store(true, Ordering::SeqCst);
+                        let _ = proxy_for_ipc.send_event(CustomUserEvent::RealTimeAlert {
+                            title: "⏹️ Deteniendo Análisis".to_string(),
+                            details: "Cancelación solicitada por el usuario. Deteniendo análisis...".to_string(),
+                        });
+                    }
+
+                    "get_autostart_status" => {
+                        let enabled = is_windows_autostart_enabled();
+                        let _ = proxy_for_ipc.send_event(CustomUserEvent::AutostartStatusLoaded { enabled });
+                    }
+
+                    "set_autostart" => {
+                        let enable = msg.payload.map(|s| s == "true" || s == "1").unwrap_or(true);
+                        let _ = set_windows_autostart(enable);
+                        let enabled = is_windows_autostart_enabled();
+                        let _ = proxy_for_ipc.send_event(CustomUserEvent::AutostartStatusLoaded { enabled });
+                        let _ = proxy_for_ipc.send_event(CustomUserEvent::RealTimeAlert {
+                            title: if enabled { "✔ Inicio con Windows Activado".to_string() } else { "Inicio con Windows Desactivado".to_string() },
+                            details: if enabled { "SamuLibre se iniciará automáticamente minimizado en la bandeja al arrancar Windows.".to_string() } else { "Se eliminó SamuLibre del inicio automático de Windows.".to_string() },
+                        });
+                    }
+
+                    "get_threat_history" => {
+                        let history = load_threat_history();
+                        let _ = proxy_for_ipc.send_event(CustomUserEvent::ThreatHistoryLoaded { history });
+                    }
+
+                    "clear_threat_history" => {
+                        save_threat_history(&[]);
+                        let _ = proxy_for_ipc.send_event(CustomUserEvent::ThreatHistoryLoaded { history: Vec::new() });
+                        let _ = proxy_for_ipc.send_event(CustomUserEvent::RealTimeAlert {
+                            title: "Historial Vaciado".to_string(),
+                            details: "Se ha eliminado todo el registro del historial de amenazas.".to_string(),
+                        });
+                    }
+
+                    "quarantine_threat_item" => {
+                        if let Some(payload_str) = msg.payload {
+                            #[derive(Deserialize)]
+                            struct ThreatActionPayload {
+                                id: String,
+                                file_path: String,
+                            }
+                            let (threat_id, path_str) = if let Ok(data) = serde_json::from_str::<ThreatActionPayload>(&payload_str) {
+                                (data.id, data.file_path)
+                            } else {
+                                (payload_str.clone(), payload_str)
+                            };
+                            let p = PathBuf::from(&path_str);
+                            if let Ok(c) = core_for_ipc.lock() {
+                                let res = c.isolate_file_manually(&p);
+                                let mut history = load_threat_history();
+                                let mut q_id_str = None;
+                                if let Ok(rec) = &res {
+                                    q_id_str = Some(rec.id.to_string());
+                                }
+                                for item in history.iter_mut() {
+                                    if item.id == threat_id || item.file_path == path_str {
+                                        item.action_taken = "En Cuarentena".to_string();
+                                        item.quarantine_id = q_id_str.clone();
+                                    }
+                                }
+                                save_threat_history(&history);
+                                let _ = proxy_for_ipc.send_event(CustomUserEvent::ThreatHistoryLoaded { history });
+                                let records = c.get_quarantined_records();
+                                let _ = proxy_for_ipc.send_event(CustomUserEvent::QuarantineListLoaded { records });
+                                match res {
+                                    Ok(rec) => {
+                                        let _ = proxy_for_ipc.send_event(CustomUserEvent::RealTimeAlert {
+                                            title: "✔ Amenaza en Cuarentena".to_string(),
+                                            details: format!("'{}' cifrado con clave XOR y custodiado en la bóveda.", rec.original_path),
+                                        });
+                                    }
+                                    Err(e) => {
+                                        let _ = proxy_for_ipc.send_event(CustomUserEvent::RealTimeAlert {
+                                            title: "Aviso de Cuarentena".to_string(),
+                                            details: format!("Archivo registrado en historial (aviso: {}).", e),
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    "delete_threat_item" => {
+                        if let Some(payload_str) = msg.payload {
+                            #[derive(Deserialize)]
+                            struct ThreatActionPayload {
+                                id: String,
+                                file_path: String,
+                            }
+                            let (threat_id, path_str) = if let Ok(data) = serde_json::from_str::<ThreatActionPayload>(&payload_str) {
+                                (data.id, data.file_path)
+                            } else {
+                                (payload_str.clone(), payload_str)
+                            };
+                            let p = PathBuf::from(&path_str);
+                            let del_res = if p.exists() {
+                                fs::remove_file(&p)
+                            } else {
+                                Ok(())
+                            };
+                            let mut history = load_threat_history();
+                            for item in history.iter_mut() {
+                                if item.id == threat_id || item.file_path == path_str {
+                                    item.action_taken = "Eliminado".to_string();
+                                }
+                            }
+                            save_threat_history(&history);
+                            let _ = proxy_for_ipc.send_event(CustomUserEvent::ThreatHistoryLoaded { history });
+                            match del_res {
+                                Ok(_) => {
+                                    let _ = proxy_for_ipc.send_event(CustomUserEvent::RealTimeAlert {
+                                        title: "✔ Amenaza Eliminada Permanentemente".to_string(),
+                                        details: format!("'{}' destruido de forma segura del sistema.", path_str),
+                                    });
+                                }
+                                Err(e) => {
+                                    let _ = proxy_for_ipc.send_event(CustomUserEvent::RealTimeAlert {
+                                        title: "Error al Eliminar Archivo".to_string(),
+                                        details: format!("No se pudo eliminar '{}': {}", path_str, e),
+                                    });
+                                }
+                            }
+                        }
+                    }
+
+                    "whitelist_threat_item" => {
+                        if let Some(payload_str) = msg.payload {
+                            #[derive(Deserialize)]
+                            struct ThreatActionPayload {
+                                id: String,
+                                file_path: String,
+                            }
+                            let (threat_id, path_str) = if let Ok(data) = serde_json::from_str::<ThreatActionPayload>(&payload_str) {
+                                (data.id, data.file_path)
+                            } else {
+                                (payload_str.clone(), payload_str)
+                            };
+                            let excl_path = get_project_root().join("data").join("exclusions.json");
+                            let mut exclusions: Vec<String> = if let Ok(data) = fs::read_to_string(&excl_path) {
+                                serde_json::from_str(&data).unwrap_or_default()
+                            } else {
+                                Vec::new()
+                            };
+                            if !exclusions.contains(&path_str) {
+                                exclusions.push(path_str.clone());
+                                let _ = fs::write(&excl_path, serde_json::to_string_pretty(&exclusions).unwrap_or_default());
+                            }
+                            let mut history = load_threat_history();
+                            for item in history.iter_mut() {
+                                if item.id == threat_id || item.file_path == path_str {
+                                    item.action_taken = "Excluido".to_string();
+                                }
+                            }
+                            save_threat_history(&history);
+                            let _ = proxy_for_ipc.send_event(CustomUserEvent::ThreatHistoryLoaded { history });
+                            let _ = proxy_for_ipc.send_event(CustomUserEvent::RealTimeAlert {
+                                title: "✔ Archivo Excluido".to_string(),
+                                details: format!("'{}' añadido a la lista de confianza/exclusiones.", path_str),
+                            });
+                        }
+                    }
+
+                    "ignore_threat_item" => {
+                        if let Some(threat_id) = msg.payload {
+                            let mut history = load_threat_history();
+                            for item in history.iter_mut() {
+                                if item.id == threat_id {
+                                    item.action_taken = "Ignorado".to_string();
+                                }
+                            }
+                            save_threat_history(&history);
+                            let _ = proxy_for_ipc.send_event(CustomUserEvent::ThreatHistoryLoaded { history });
+                        }
+                    }
+
+                    "restore_quarantined_item" => {
+                        if let Some(payload_str) = msg.payload {
+                            #[derive(Deserialize)]
+                            struct RestorePayload {
+                                quarantine_id: String,
+                                threat_id: Option<String>,
+                            }
+                            let (qid_str, threat_id_opt) = if let Ok(data) = serde_json::from_str::<RestorePayload>(&payload_str) {
+                                (data.quarantine_id, data.threat_id)
+                            } else {
+                                (payload_str.clone(), None)
+                            };
+                            if let Ok(qid) = uuid::Uuid::parse_str(&qid_str) {
+                                if let Ok(c) = core_for_ipc.lock() {
+                                    match c.restore_quarantined_record(qid) {
+                                        Ok(original_path) => {
+                                            let mut history = load_threat_history();
+                                            for item in history.iter_mut() {
+                                                if item.quarantine_id.as_deref() == Some(&qid_str) || threat_id_opt.as_deref() == Some(&item.id) {
+                                                    item.action_taken = "Restaurado".to_string();
+                                                }
+                                            }
+                                            save_threat_history(&history);
+                                            let _ = proxy_for_ipc.send_event(CustomUserEvent::ThreatHistoryLoaded { history });
+                                            let records = c.get_quarantined_records();
+                                            let _ = proxy_for_ipc.send_event(CustomUserEvent::QuarantineListLoaded { records });
+                                            let _ = proxy_for_ipc.send_event(CustomUserEvent::RealTimeAlert {
+                                                title: "✔ Archivo Restaurado".to_string(),
+                                                details: format!("'{}' restaurado con éxito desde la cuarentena.", original_path),
+                                            });
+                                        }
+                                        Err(e) => {
+                                            let _ = proxy_for_ipc.send_event(CustomUserEvent::RealTimeAlert {
+                                                title: "Error al Restaurar".to_string(),
+                                                details: format!("No se pudo restaurar el archivo: {}", e),
+                                            });
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -1264,6 +1672,12 @@ fn run_app(app_root: PathBuf) -> Result<()> {
 
             let sockets = c.get_network_sockets();
             let _ = proxy_init.send_event(CustomUserEvent::NetworkSocketsLoaded { sockets });
+
+            let autostart_enabled = is_windows_autostart_enabled();
+            let _ = proxy_init.send_event(CustomUserEvent::AutostartStatusLoaded { enabled: autostart_enabled });
+
+            let history = load_threat_history();
+            let _ = proxy_init.send_event(CustomUserEvent::ThreatHistoryLoaded { history });
         }
     });
 
@@ -1436,6 +1850,7 @@ fn run_app(app_root: PathBuf) -> Result<()> {
             }
 
             Event::UserEvent(CustomUserEvent::TriggerScan) => {
+                IS_SCAN_CANCELLED.store(false, Ordering::SeqCst);
                 window.set_visible(true);
                 window.set_minimized(false);
                 window.set_focus();
@@ -1622,6 +2037,32 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                 let _ = webview.evaluate_script(&script);
             }
 
+            Event::UserEvent(CustomUserEvent::ThreatDetected { record }) => {
+                let rec_json = serde_json::to_string(&record).unwrap_or_else(|_| "{}".to_string());
+                let script = format!(
+                    "if (window.onThreatDetected) {{ window.onThreatDetected({}); }}",
+                    rec_json
+                );
+                let _ = webview.evaluate_script(&script);
+            }
+
+            Event::UserEvent(CustomUserEvent::ThreatHistoryLoaded { history }) => {
+                let hist_json = serde_json::to_string(&history).unwrap_or_else(|_| "[]".to_string());
+                let script = format!(
+                    "if (window.onThreatHistoryLoaded) {{ window.onThreatHistoryLoaded({}); }}",
+                    hist_json
+                );
+                let _ = webview.evaluate_script(&script);
+            }
+
+            Event::UserEvent(CustomUserEvent::AutostartStatusLoaded { enabled }) => {
+                let script = format!(
+                    "if (window.onAutostartStatusLoaded) {{ window.onAutostartStatusLoaded({}); }}",
+                    enabled
+                );
+                let _ = webview.evaluate_script(&script);
+            }
+
             Event::UserEvent(CustomUserEvent::Quit) => {
                 if let Ok(c) = core_for_actions.lock() {
                     let _ = c.reset_vpn_network();
@@ -1682,16 +2123,63 @@ fn execute_scan_loop(
         if !dir.exists() {
             continue;
         }
-        for entry in WalkDir::new(&dir).max_depth(3).into_iter().filter_map(|e| e.ok()) {
+        for entry in WalkDir::new(&dir)
+            .max_depth(25)
+            .into_iter()
+            .filter_entry(|e| {
+                let name = e.file_name().to_string_lossy();
+                !name.starts_with('.') && name != "node_modules" && name != "target" && name != "$Recycle.Bin"
+            })
+            .filter_map(|e| e.ok())
+        {
+            if IS_SCAN_CANCELLED.load(Ordering::Relaxed) {
+                let _ = proxy.send_event(CustomUserEvent::ScanProgress {
+                    files_scanned: scanned_count,
+                    current_file: "Análisis manual detenido por el usuario.".to_string(),
+                    threats_found: threats_count,
+                    is_done: true,
+                });
+                return;
+            }
+
             let path = entry.path();
             if path.is_file() {
                 scanned_count += 1;
+                let mut found_threat: Option<samulibre_types::ThreatRecord> = None;
                 if let Ok(s) = scanner_mutex.lock() {
                     if let Ok(res) = s.scan_file(path) {
-                        if res.status == samulibre_types::FileScanStatus::Infected {
+                        if res.status == samulibre_types::FileScanStatus::Infected || res.status == samulibre_types::FileScanStatus::Suspicious {
                             threats_count += 1;
+                            let threat_name = res.detection_name.clone().unwrap_or_else(|| "Amenaza.Desconocida".to_string());
+                            let severity = if threat_name.to_lowercase().contains("critical") || threat_name.to_lowercase().contains("wiper") || threat_name.to_lowercase().contains("ransomware") || threat_name.to_lowercase().contains("eicar") {
+                                "Crítica".to_string()
+                            } else if threat_name.to_lowercase().contains("trojan") || threat_name.to_lowercase().contains("exploit") || threat_name.to_lowercase().contains("dropper") {
+                                "Alta".to_string()
+                            } else {
+                                "Media".to_string()
+                            };
+                            found_threat = Some(samulibre_types::ThreatRecord {
+                                id: uuid::Uuid::new_v4().to_string(),
+                                timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+                                file_path: path.to_string_lossy().to_string(),
+                                threat_name,
+                                engine: res.engine.clone(),
+                                sha256: res.sha256.clone(),
+                                severity,
+                                action_taken: "Pendiente".to_string(),
+                                quarantine_id: None,
+                            });
                         }
                     }
+                }
+
+                if let Some(threat) = found_threat {
+                    let mut history = load_threat_history();
+                    if !history.iter().any(|h| h.file_path == threat.file_path && h.sha256 == threat.sha256 && h.action_taken == "Pendiente") {
+                        history.insert(0, threat.clone());
+                        save_threat_history(&history);
+                    }
+                    let _ = proxy.send_event(CustomUserEvent::ThreatDetected { record: threat });
                 }
 
                 if last_ui_update.elapsed() >= std::time::Duration::from_millis(35) {
@@ -1709,7 +2197,11 @@ fn execute_scan_loop(
 
     let _ = proxy.send_event(CustomUserEvent::ScanProgress {
         files_scanned: scanned_count,
-        current_file: "Verificación de procesos y archivos completada.".to_string(),
+        current_file: if threats_count > 0 {
+            format!("Escaneo completado. Se detectaron {} amenaza(s). Revisa el historial de amenazas.", threats_count)
+        } else {
+            "Verificación de procesos y archivos completada. 0 amenazas.".to_string()
+        },
         threats_found: threats_count,
         is_done: true,
     });

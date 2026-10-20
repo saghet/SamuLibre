@@ -169,6 +169,20 @@ pub enum FileScanStatus {
     AccessDenied,
 }
 
+/// Registro histórico o en tiempo real de una amenaza detectada para toma de decisiones
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThreatRecord {
+    pub id: String,
+    pub timestamp: String,
+    pub file_path: String,
+    pub threat_name: String,
+    pub engine: String,
+    pub sha256: String,
+    pub severity: String,
+    pub action_taken: String, // "En Cuarentena", "Eliminado", "Excluido", "Ignorado", "Pendiente", "Restaurado"
+    pub quarantine_id: Option<String>,
+}
+
 /// Estado global del suite SamuLibre
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SuiteStatus {
