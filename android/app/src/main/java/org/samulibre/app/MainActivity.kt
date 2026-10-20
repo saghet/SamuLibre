@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
@@ -19,6 +20,7 @@ import androidx.webkit.ProxyController
 import androidx.webkit.WebViewFeature
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -26,22 +28,36 @@ import org.json.JSONObject
 
 class MainActivity : AppCompatActivity() {
 
+    companion object {
+        private const val TAG = "SamuLibre"
+        const val APP_VERSION = "1.99.10"
+    }
+
     private lateinit var webView: WebView
     private val vpnRequestCode = 101
+    private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // CrashGuard: Evitar cierres inesperados forzosos del sistema en Android
+        // CrashGuard: registra el error y lo DELEGA al manejador del sistema.
+        // Tragarse la excepción dejaba el hilo principal muerto → pantalla negra + "SamuLibre no responde".
+        val systemHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
-            android.util.Log.e("SamuLibre_CrashGuard", "Excepción no capturada en ${thread.name}: ${throwable.message}", throwable)
+            Log.e("SamuLibre_CrashGuard", "Excepción no capturada en ${thread.name}: ${throwable.message}", throwable)
+            systemHandler?.uncaughtException(thread, throwable)
         }
 
-        // Inicializar SamuLibre Native Core en hilo secundario
-        CoroutineScope(Dispatchers.IO).launch {
-            val dataDir = applicationContext.filesDir.absolutePath
-            NativeBridge.initCore(dataDir)
+        ioScope.launch {
+            NativeBridge.initCore(applicationContext.filesDir.absolutePath)
+        }
+
+        SamuVpnService.onProxyFallback = { message ->
+            runOnUiThread {
+                clearWebViewProxy()
+                postVpnEvent("fallback", message, null)
+            }
         }
 
         webView = WebView(this).apply {
@@ -69,29 +85,49 @@ class MainActivity : AppCompatActivity() {
         webView.loadUrl("file:///android_asset/ui/index.html")
     }
 
-    private fun injectMobileEnvironment() {
-        val securityPatch = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            Build.VERSION.SECURITY_PATCH
-        } else {
-            "2020-01-01"
+    override fun onDestroy() {
+        SamuVpnService.onProxyFallback = null
+        super.onDestroy()
+    }
+
+    // ---------------------------------------------------------------- UI helpers
+
+    private fun evalJs(script: String) {
+        runOnUiThread {
+            try {
+                if (::webView.isInitialized) webView.evaluateJavascript(script, null)
+            } catch (t: Throwable) {
+                Log.w(TAG, "evaluateJavascript falló: ${t.message}")
+            }
         }
+    }
 
-        val kernelVersion = System.getProperty("os.version") ?: "unknown"
-        val isRooted = checkRootMethod()
+    /** Envía un evento de VPN a la UI (JSON serializado de forma segura, sin inyección de comillas). */
+    private fun postVpnEvent(type: String, message: String, ip: String?) {
+        val payload = JSONObject().apply {
+            put("type", type)
+            put("message", message)
+            put("ip", ip ?: JSONObject.NULL)
+            put("country", TorManager.activeCountry ?: JSONObject.NULL)
+        }
+        evalJs("if (window.onAndroidVpnEvent) { window.onAndroidVpnEvent($payload); }")
+    }
 
+    private fun injectMobileEnvironment() {
+        val securityPatch = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) Build.VERSION.SECURITY_PATCH else "2020-01-01"
         val deviceInfo = JSONObject().apply {
             put("sdk_int", Build.VERSION.SDK_INT)
             put("release_version", Build.VERSION.RELEASE)
             put("security_patch_level", securityPatch)
-            put("kernel_version", kernelVersion)
+            put("kernel_version", System.getProperty("os.version") ?: "unknown")
             put("manufacturer", Build.MANUFACTURER)
             put("model", Build.MODEL)
-            put("is_root_detected", isRooted)
+            put("is_root_detected", checkRootMethod())
             put("unpatched_asb_cves", JSONArray())
             put("active_tun_rules_count", 0)
             put("overlay_shield_active", true)
             put("accessibility_guard_active", true)
-            put("app_version", "1.99.10")
+            put("app_version", APP_VERSION)
         }
 
         val script = """
@@ -127,68 +163,117 @@ class MainActivity : AppCompatActivity() {
 
     private fun checkRootMethod(): Boolean {
         val paths = arrayOf(
-            "/system/app/Superuser.apk",
-            "/sbin/su",
-            "/system/bin/su",
-            "/system/xbin/su",
-            "/data/local/xbin/su",
-            "/data/local/bin/su",
-            "/system/sd/xbin/su",
-            "/system/bin/failsafe/su",
-            "/data/local/su"
+            "/system/app/Superuser.apk", "/sbin/su", "/system/bin/su", "/system/xbin/su",
+            "/data/local/xbin/su", "/data/local/bin/su", "/system/sd/xbin/su",
+            "/system/bin/failsafe/su", "/data/local/su"
         )
         return paths.any { java.io.File(it).exists() }
     }
 
-    private var pendingVpnAction: String = SamuVpnService.ACTION_START
-    private var pendingProxyPort: Int? = null
+    // ---------------------------------------------------------------- VPN flow
 
-    private fun startVpnService(action: String = SamuVpnService.ACTION_START, proxyPort: Int? = null) {
+    private var pendingVpnAction: String = SamuVpnService.ACTION_START
+    private var pendingCountry: String? = null
+
+    private fun startVpnService(action: String) {
         pendingVpnAction = action
-        pendingProxyPort = proxyPort
         val intent = VpnService.prepare(this)
         if (intent != null) {
             @Suppress("DEPRECATION")
             startActivityForResult(intent, vpnRequestCode)
         } else {
-            @Suppress("DEPRECATION")
-            onActivityResult(vpnRequestCode, Activity.RESULT_OK, null)
+            handleVpnPermissionResult(granted = true)
         }
+    }
+
+    /** Etapa 1: túnel con DNS seguro y SIN proxy. Tor arranca solo cuando el permiso VPN está concedido. */
+    private fun beginVpnConnection(countryCode: String) {
+        pendingCountry = countryCode
+        startVpnService(SamuVpnService.ACTION_START_SECURE_DNS)
+    }
+
+    private fun handleVpnPermissionResult(granted: Boolean) {
+        if (!granted) {
+            if (pendingCountry != null) {
+                pendingCountry = null
+                ioScope.launch { NativeBridge.dispatchIpc("""{"action":"disconnect_vpn"}""") }
+                postVpnEvent("denied", "Permiso VPN no concedido. La conexión fue cancelada.", null)
+            }
+            return
+        }
+        try {
+            startService(Intent(this, SamuVpnService::class.java).apply { action = pendingVpnAction })
+        } catch (t: Throwable) {
+            Log.e(TAG, "No se pudo iniciar SamuVpnService: ${t.message}", t)
+        }
+        pendingCountry?.let { country ->
+            pendingCountry = null
+            startTorTunnel(country)
+        }
+    }
+
+    private fun startTorTunnel(countryCode: String) {
+        postVpnEvent("progress", "Túnel seguro activo (DNS Quad9). Construyendo circuito hacia $countryCode…", null)
+        TorManager.startTorForCountry(
+            this,
+            countryCode,
+            onProgress = { msg -> postVpnEvent("progress", msg, null) },
+            onResult = { verified, ip ->
+                if (verified && ip != null) {
+                    // Etapa 2: el túnel ya transportó tráfico real → ahora sí se publica el proxy.
+                    val port = TorManager.activeHttpPort
+                    try {
+                        startService(Intent(this, SamuVpnService::class.java).apply {
+                            action = SamuVpnService.ACTION_START_PROXY_VPN
+                            putExtra(SamuVpnService.EXTRA_PROXY_PORT, port)
+                        })
+                    } catch (t: Throwable) {
+                        Log.e(TAG, "No se pudo activar el proxy VPN: ${t.message}", t)
+                    }
+                    applyWebViewProxy(port)
+                    postVpnEvent("verified", "IP de salida verificada: $ip", ip)
+                } else {
+                    postVpnEvent(
+                        "timeout",
+                        "No se logró un circuito estable. Sigues navegando con normalidad (DNS Quad9). Intenta otro país.",
+                        null
+                    )
+                }
+            }
+        )
     }
 
     private fun stopVpnService() {
         TorManager.stopTor(this)
         clearWebViewProxy()
-        val serviceIntent = Intent(this, SamuVpnService::class.java).apply {
-            action = SamuVpnService.ACTION_STOP
+        try {
+            startService(Intent(this, SamuVpnService::class.java).apply { action = SamuVpnService.ACTION_STOP })
+        } catch (t: Throwable) {
+            Log.w(TAG, "No se pudo detener SamuVpnService: ${t.message}")
         }
-        startService(serviceIntent)
     }
 
     private fun applyWebViewProxy(port: Int) {
-        if (WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) {
-            try {
-                val proxyConfig = ProxyConfig.Builder()
-                    .addProxyRule("http=127.0.0.1:$port;https=127.0.0.1:$port")
-                    .build()
-                ProxyController.getInstance().setProxyOverride(proxyConfig, { it.run() }) {
-                    android.util.Log.i("SamuLibre", "WebView Proxy Override activo en 127.0.0.1:$port")
-                }
-            } catch (t: Throwable) {
-                android.util.Log.w("SamuLibre", "Aviso aplicando ProxyOverride: ${t.message}")
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) return
+        try {
+            // Formato válido de androidx.webkit: "host:puerto" (sin prefijos http=/https=).
+            val config = ProxyConfig.Builder().addProxyRule("127.0.0.1:$port").build()
+            ProxyController.getInstance().setProxyOverride(config, { it.run() }) {
+                Log.i(TAG, "WebView Proxy Override activo en 127.0.0.1:$port")
             }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Aviso aplicando ProxyOverride: ${t.message}")
         }
     }
 
     private fun clearWebViewProxy() {
-        if (WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) {
-            try {
-                ProxyController.getInstance().clearProxyOverride({ it.run() }) {
-                    android.util.Log.i("SamuLibre", "WebView Proxy Override restaurado a directo")
-                }
-            } catch (t: Throwable) {
-                android.util.Log.w("SamuLibre", "Aviso limpiando ProxyOverride: ${t.message}")
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) return
+        try {
+            ProxyController.getInstance().clearProxyOverride({ it.run() }) {
+                Log.i(TAG, "WebView Proxy Override restaurado a directo")
             }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Aviso limpiando ProxyOverride: ${t.message}")
         }
     }
 
@@ -196,195 +281,148 @@ class MainActivity : AppCompatActivity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         @Suppress("DEPRECATION")
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == vpnRequestCode && resultCode == Activity.RESULT_OK) {
-            val serviceIntent = Intent(this, SamuVpnService::class.java).apply {
-                action = pendingVpnAction
-                if (pendingProxyPort != null) {
-                    putExtra(SamuVpnService.EXTRA_PROXY_PORT, pendingProxyPort!!)
-                }
-            }
-            startService(serviceIntent)
+        if (requestCode == vpnRequestCode) {
+            handleVpnPermissionResult(resultCode == Activity.RESULT_OK)
         }
     }
+
+    // ---------------------------------------------------------------- JS bridge
 
     inner class WebAppInterface {
         @JavascriptInterface
         fun postMessage(jsonString: String): String {
             return try {
                 val json = JSONObject(jsonString)
-                val action = json.optString("action")
+                when (json.optString("action")) {
+                    "start_vpn_shield" -> {
+                        runOnUiThread {
+                            try { startVpnService(SamuVpnService.ACTION_START_SHIELD) } catch (t: Throwable) {
+                                Log.e(TAG, "Error iniciando escudo: ${t.message}", t)
+                            }
+                        }
+                        JSONObject().apply {
+                            put("success", true)
+                            put("message", "Solicitando autorización de VpnService")
+                        }.toString()
+                    }
 
-                if (action == "start_vpn_shield") {
-                    runOnUiThread { startVpnService(SamuVpnService.ACTION_START_SHIELD) }
-                    return JSONObject().apply {
-                        put("success", true)
-                        put("message", "Solicitando autorización de VpnService")
-                    }.toString()
-                }
-
-                if (action == "connect_vpn") {
-                    val payload = json.optString("payload", "CH")
-                    val countryCode = payload.split("|").firstOrNull() ?: "CH"
-
-                    runOnUiThread {
+                    "connect_vpn" -> {
+                        val countryCode = json.optString("payload", "CH").split("|").firstOrNull()?.ifBlank { "CH" } ?: "CH"
+                        runOnUiThread {
+                            try { beginVpnConnection(countryCode) } catch (t: Throwable) {
+                                Log.e(TAG, "Error seguro en connect_vpn: ${t.message}", t)
+                            }
+                        }
+                        // La IP mostrada debe ser la real verificada, no una de referencia.
+                        val raw = NativeBridge.dispatchIpc(jsonString)
                         try {
-                            startVpnService(SamuVpnService.ACTION_START_PROXY_VPN, TorManager.activeHttpPort)
-                            TorManager.startTorForCountry(this@MainActivity, countryCode) { _, verifiedIp ->
-                                try {
-                                    val activePort = TorManager.activeHttpPort
-                                    val vpnIntent = Intent(this@MainActivity, SamuVpnService::class.java).apply {
-                                        this.action = SamuVpnService.ACTION_START_PROXY_VPN
-                                        putExtra(SamuVpnService.EXTRA_PROXY_PORT, activePort)
-                                    }
-                                    startService(vpnIntent)
+                            val res = JSONObject(raw)
+                            res.optJSONObject("data")?.optJSONObject("state")?.put("assigned_ip", "Verificando túnel…")
+                            res.toString()
+                        } catch (e: Exception) {
+                            raw
+                        }
+                    }
 
-                                    applyWebViewProxy(activePort)
+                    "disconnect_vpn" -> {
+                        runOnUiThread {
+                            try { stopVpnService() } catch (t: Throwable) {
+                                Log.e(TAG, "Error en disconnect_vpn: ${t.message}", t)
+                            }
+                        }
+                        NativeBridge.dispatchIpc(jsonString)
+                    }
 
-                                    val ipToDisplay = verifiedIp ?: "185.220.101.5"
-                                    val js = """
-                                        if (window.currentVpnState) {
-                                            window.currentVpnState.assigned_ip = '$ipToDisplay';
-                                        }
-                                        const el = document.getElementById('vpnMetricIp');
-                                        if (el) el.textContent = '$ipToDisplay';
-                                        if (typeof window.renderVpnCountries === 'function') {
-                                            window.renderVpnCountries();
-                                        }
-                                    """.trimIndent()
-                                    webView.evaluateJavascript(js, null)
-                                } catch (t2: Throwable) {
-                                    android.util.Log.e("SamuLibre", "Error aplicando proxy VPN: ${t2.message}", t2)
+                    "check_live_ip" -> {
+                        ioScope.launch {
+                            try {
+                                val protectedTunnel = TorManager.isTunnelVerified
+                                val ip = if (protectedTunnel) {
+                                    TorManager.fetchExternalIpViaProxy(TorManager.activeHttpPort) ?: TorManager.verifiedPublicIp
+                                } else {
+                                    TorManager.fetchDirectExternalIp()
                                 }
-                            }
-                        } catch (t: Throwable) {
-                            android.util.Log.e("SamuLibre", "Error seguro en connect_vpn: ${t.message}", t)
-                        }
-                    }
-                    return NativeBridge.dispatchIpc(jsonString)
-                }
-
-                if (action == "disconnect_vpn") {
-                    runOnUiThread { 
-                        try {
-                            clearWebViewProxy()
-                            stopVpnService() 
-                        } catch (t: Throwable) {
-                            android.util.Log.e("SamuLibre", "Error en disconnect_vpn: ${t.message}", t)
-                        }
-                    }
-                    return NativeBridge.dispatchIpc(jsonString)
-                }
-
-                if (action == "check_live_ip") {
-                    CoroutineScope(Dispatchers.IO).launch {
-                        try {
-                            val isConnected = TorManager.activeCountry != null
-                            val ip = if (isConnected) {
-                                TorManager.fetchExternalIpViaProxy(TorManager.activeHttpPort) 
-                                    ?: TorManager.verifiedPublicIp 
-                                    ?: "185.220.101.5"
-                            } else {
-                                TorManager.fetchDirectExternalIp() ?: "ISP Local"
-                            }
-                            val resp = JSONObject().apply {
-                                put("action", "check_live_ip")
-                                put("success", true)
-                                put("ip", ip)
-                                put("country", TorManager.activeCountry ?: "CO")
-                                put("is_protected", isConnected)
-                            }
-                            withContext(Dispatchers.Main) {
-                                webView.evaluateJavascript("if(window.onLiveIpChecked) window.onLiveIpChecked($resp);", null)
-                            }
-                        } catch (t: Throwable) {
-                            android.util.Log.e("SamuLibre", "Error comprobando IP en vivo: ${t.message}")
-                        }
-                    }
-                    return JSONObject().apply {
-                        put("success", true)
-                        put("status", "checking")
-                    }.toString()
-                }
-
-                // Auditoría de aplicaciones 100% asíncrona para inicio ultra fluido
-                if (action == "audit_device_apps") {
-                    CoroutineScope(Dispatchers.IO).launch {
-                        try {
-                            val packages = getInstalledAppsDetailsFast()
-                            val req = JSONObject().apply {
-                                put("action", "audit_android_packages")
-                                put("payload", packages.toString())
-                            }
-                            val rawRes = NativeBridge.dispatchIpc(req.toString())
-                            withContext(Dispatchers.Main) {
-                                try {
-                                    val resJson = JSONObject(rawRes)
-                                    val alerts = resJson.optJSONArray("data")
-                                    if (alerts != null) {
-                                        webView.evaluateJavascript("if(window.onAndroidPackagesAudited) window.onAndroidPackagesAudited($alerts);", null)
-                                    }
-                                } catch (e: Exception) {
-                                    // fallback
+                                val resp = JSONObject().apply {
+                                    put("action", "check_live_ip")
+                                    put("success", ip != null)
+                                    put("ip", ip ?: "No disponible")
+                                    put("country", TorManager.activeCountry ?: "Local")
+                                    put("is_protected", protectedTunnel)
                                 }
+                                evalJs("if (window.onLiveIpChecked) window.onLiveIpChecked($resp);")
+                            } catch (t: Throwable) {
+                                Log.e(TAG, "Error comprobando IP en vivo: ${t.message}")
                             }
-                        } catch (t: Throwable) {
-                            android.util.Log.e("SamuLibre", "Error en auditoría en background: ${t.message}")
                         }
+                        JSONObject().apply {
+                            put("success", true)
+                            put("status", "checking")
+                        }.toString()
                     }
-                    return JSONObject().apply {
-                        put("success", true)
-                        put("action", "audit_device_apps")
-                        put("status", "scanning_in_background")
-                    }.toString()
-                }
 
-                NativeBridge.dispatchIpc(jsonString)
+                    // Auditoría de aplicaciones 100% asíncrona para un inicio fluido.
+                    "audit_device_apps" -> {
+                        ioScope.launch {
+                            try {
+                                val req = JSONObject().apply {
+                                    put("action", "audit_android_packages")
+                                    put("payload", getInstalledAppsDetailsFast().toString())
+                                }
+                                val alerts = JSONObject(NativeBridge.dispatchIpc(req.toString())).optJSONArray("data")
+                                if (alerts != null) {
+                                    evalJs("if (window.onAndroidPackagesAudited) window.onAndroidPackagesAudited($alerts);")
+                                }
+                            } catch (t: Throwable) {
+                                Log.e(TAG, "Error en auditoría en background: ${t.message}")
+                            }
+                        }
+                        JSONObject().apply {
+                            put("success", true)
+                            put("action", "audit_device_apps")
+                            put("status", "scanning_in_background")
+                        }.toString()
+                    }
+
+                    else -> NativeBridge.dispatchIpc(jsonString)
+                }
             } catch (t: Throwable) {
-                android.util.Log.e("SamuLibre", "Excepción capturada en WebAppInterface: ${t.message}", t)
+                Log.e(TAG, "Excepción capturada en WebAppInterface: ${t.message}", t)
                 JSONObject().apply {
                     put("success", false)
-                    put("error", t.message)
+                    put("error", t.message ?: "error")
                 }.toString()
             }
         }
 
         private fun getInstalledAppsDetailsFast(): JSONArray {
             val pm = packageManager
+            @Suppress("DEPRECATION")
             val packages = pm.getInstalledPackages(PackageManager.GET_PERMISSIONS)
             val result = JSONArray()
-
             for (pkg in packages) {
                 val appInfo = pkg.applicationInfo ?: continue
                 val isSystem = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
-
                 val reqPerms = pkg.requestedPermissions ?: emptyArray()
                 val hasOverlay = reqPerms.contains("android.permission.SYSTEM_ALERT_WINDOW")
                 val hasAccessibility = reqPerms.contains("android.permission.BIND_ACCESSIBILITY_SERVICE")
-
-                // Carga rápida optimizada: solo resuelve el nombre para apps de usuario o con permisos de riesgo
+                // Solo se resuelve la etiqueta (lectura de disco) para apps de usuario o con permisos de riesgo.
                 val appName = if (!isSystem || hasOverlay || hasAccessibility) {
-                    try {
-                        pm.getApplicationLabel(appInfo).toString()
-                    } catch (e: Exception) {
-                        pkg.packageName
-                    }
+                    try { pm.getApplicationLabel(appInfo).toString() } catch (e: Exception) { pkg.packageName }
                 } else {
                     pkg.packageName
                 }
-
-                val item = JSONObject().apply {
+                result.put(JSONObject().apply {
                     put("package_name", pkg.packageName)
                     put("app_name", appName)
                     put("version_name", pkg.versionName ?: "1.0")
                     put("is_system_app", isSystem)
-                    put("installer_package_name", null as String?)
+                    put("installer_package_name", JSONObject.NULL)
                     put("requested_permissions", JSONArray(reqPerms.toList()))
                     put("has_overlay_permission", hasOverlay)
                     put("has_accessibility_service", hasAccessibility)
                     put("apk_path", appInfo.sourceDir)
-                    put("sha256", null as String?)
-                }
-                result.put(item)
+                    put("sha256", JSONObject.NULL)
+                })
             }
             return result
         }

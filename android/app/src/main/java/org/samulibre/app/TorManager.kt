@@ -9,35 +9,48 @@ import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import org.torproject.jni.TorService
-import java.io.File
 import java.net.HttpURLConnection
 import java.net.InetSocketAddress
 import java.net.Proxy
 import java.net.Socket
 import java.net.URL
 
+/**
+ * Gestor del túnel Tor móvil.
+ *
+ * Reglas de estabilidad (v1.99.10):
+ *  - TorService se inicia SIEMPRE con startService(): la librería tor-android no llama a
+ *    startForeground(), por lo que startForegroundService() provoca un ANR/crash en Android 14+.
+ *    El servicio en primer plano de la app es SamuVpnService.
+ *  - El torrc NO declara puertos: tor-android escribe SOCKSPort/HTTPTunnelPort en torrc-defaults.
+ *    Duplicarlos rompe getPortFromGetInfo() y TorService se auto-detiene.
+ *  - El túnel solo se declara listo cuando una petición HTTPS real atraviesa el proxy.
+ */
+@Suppress("DEPRECATION")
 object TorManager {
     private const val TAG = "SamuLibre_TorManager"
     const val HTTP_PROXY_PORT_DEFAULT = 8118
-    const val HTTP_PROXY_PORT_FALLBACK = 49723
-    const val SOCKS_PROXY_PORT_DEFAULT = 9050
+    private const val BOOTSTRAP_TIMEOUT_MS = 90_000L
 
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var monitorJob: Job? = null
-    var activeCountry: String? = null
-        private set
-    var verifiedPublicIp: String? = null
-        private set
-    var activeHttpPort: Int = HTTP_PROXY_PORT_DEFAULT
-        private set
-
-    private var isReceiverRegistered = false
     private var torStatusReceiver: BroadcastReceiver? = null
+
+    @Volatile var activeCountry: String? = null
+        private set
+    @Volatile var verifiedPublicIp: String? = null
+        private set
+    @Volatile var activeHttpPort: Int = HTTP_PROXY_PORT_DEFAULT
+        private set
+    @Volatile var isTunnelVerified: Boolean = false
+        private set
 
     fun getExitNodesForCountry(countryCode: String): String {
         return when (countryCode.uppercase()) {
@@ -49,122 +62,102 @@ object TorManager {
             "CA" -> "{ca}"
             "CO" -> "{co},{pa},{cr}"
             "BR" -> "{br},{cl},{ar}"
-            else -> "{ca}"
+            else -> "{ch}"
         }
     }
 
     private fun registerStatusReceiver(context: Context) {
-        if (isReceiverRegistered) return
+        if (torStatusReceiver != null) return
         try {
-            torStatusReceiver = object : BroadcastReceiver() {
+            val receiver = object : BroadcastReceiver() {
                 override fun onReceive(c: Context?, intent: Intent?) {
                     val status = intent?.getStringExtra(TorService.EXTRA_STATUS)
-                    Log.i(TAG, "Tor Broadcast de estado recibido: $status")
-                    if (status == TorService.STATUS_ON) {
-                        val svcPort = TorService.httpTunnelPort
-                        if (svcPort > 0) {
-                            activeHttpPort = svcPort
-                            Log.i(TAG, "TorService reporta httpTunnelPort activo: $activeHttpPort")
-                        }
+                    Log.i(TAG, "Estado TorService: $status")
+                    if (status == TorService.STATUS_ON && TorService.httpTunnelPort > 0) {
+                        activeHttpPort = TorService.httpTunnelPort
                     }
                 }
             }
-            val filter = IntentFilter(TorService.ACTION_STATUS)
-            LocalBroadcastManager.getInstance(context).registerReceiver(torStatusReceiver!!, filter)
-            context.registerReceiver(torStatusReceiver!!, filter)
-            isReceiverRegistered = true
+            // Solo LocalBroadcastManager: no requiere flags de exportación en Android 14+.
+            LocalBroadcastManager.getInstance(context.applicationContext)
+                .registerReceiver(receiver, IntentFilter(TorService.ACTION_STATUS))
+            torStatusReceiver = receiver
         } catch (t: Throwable) {
-            Log.w(TAG, "Aviso registrando BroadcastReceiver de Tor: ${t.message}")
+            Log.w(TAG, "No se pudo registrar receptor de estado Tor: ${t.message}")
         }
     }
 
+    /**
+     * Arranca Tor hacia el país indicado.
+     * [onProgress] se invoca (en Main) con mensajes de progreso.
+     * [onResult] se invoca (en Main) una sola vez: verified=true solo si hubo tráfico HTTPS real por el túnel.
+     */
     fun startTorForCountry(
         context: Context,
         countryCode: String,
-        onStatus: (ready: Boolean, verifiedIp: String?) -> Unit
+        onProgress: (String) -> Unit,
+        onResult: (verified: Boolean, verifiedIp: String?) -> Unit
     ) {
+        val appCtx = context.applicationContext
+        monitorJob?.cancel()
         activeCountry = countryCode
         verifiedPublicIp = null
-        registerStatusReceiver(context)
+        isTunnelVerified = false
+        registerStatusReceiver(appCtx)
 
-        val exitNodes = getExitNodesForCountry(countryCode)
-        Log.i(TAG, "Iniciando túnel Tor móvil para país $countryCode con nodos: $exitNodes")
-
-        try {
-            val torrcFile = TorService.getTorrc(context)
-            val dataDir = File(context.filesDir, "tor_data")
-            if (!dataDir.exists()) dataDir.mkdirs()
-
-            // Generar torrc limpio compatible con la validación --verify-config de tor-android
-            val torrcContent = StringBuilder().apply {
-                append("HTTPTunnelPort 127.0.0.1:$HTTP_PROXY_PORT_DEFAULT\n")
-                append("SocksPort 127.0.0.1:$SOCKS_PROXY_PORT_DEFAULT\n")
-                append("ExitNodes $exitNodes\n")
-                append("StrictNodes 0\n")
-                append("ClientOnly 1\n")
-                append("AvoidDiskWrites 1\n")
-            }.toString()
-
-            torrcFile.writeText(torrcContent)
-            Log.i(TAG, "Archivo torrc generado en ${torrcFile.absolutePath}")
-
-            val intent = Intent(context, TorService::class.java).apply {
-                action = TorService.ACTION_START
-            }
+        monitorJob = scope.launch {
             try {
-                androidx.core.content.ContextCompat.startForegroundService(context, intent)
-            } catch (se: Throwable) {
-                try {
-                    context.startService(intent)
-                } catch (se2: Throwable) {
-                    Log.w(TAG, "No fue posible iniciar TorService: ${se2.message}")
+                val exitNodes = getExitNodesForCountry(countryCode)
+                val torrc = buildString {
+                    append("ExitNodes $exitNodes\n")
+                    append("StrictNodes 0\n")
+                    append("ClientOnly 1\n")
+                    append("AvoidDiskWrites 1\n")
                 }
+                TorService.getTorrc(appCtx).writeText(torrc)
+                Log.i(TAG, "torrc escrito para $countryCode ($exitNodes)")
+
+                val intent = Intent(appCtx, TorService::class.java).apply { action = TorService.ACTION_START }
+                withContext(Dispatchers.Main) {
+                    try {
+                        appCtx.startService(intent)
+                    } catch (t: Throwable) {
+                        Log.e(TAG, "No fue posible iniciar TorService: ${t.message}", t)
+                    }
+                    onProgress("Construyendo circuito cifrado hacia $countryCode...")
+                }
+
+                val start = System.currentTimeMillis()
+                var lastProgress = 0L
+                while (isActive && System.currentTimeMillis() - start < BOOTSTRAP_TIMEOUT_MS) {
+                    val port = if (TorService.httpTunnelPort > 0) TorService.httpTunnelPort else HTTP_PROXY_PORT_DEFAULT
+                    if (isPortOpen("127.0.0.1", port)) {
+                        // El puerto abre antes de que el circuito exista: confirmar con tráfico real.
+                        val ip = fetchExternalIpViaProxy(port)
+                        if (ip != null) {
+                            activeHttpPort = port
+                            verifiedPublicIp = ip
+                            isTunnelVerified = true
+                            Log.i(TAG, "Túnel verificado en puerto $port. IP de salida: $ip")
+                            withContext(Dispatchers.Main) { onResult(true, ip) }
+                            return@launch
+                        }
+                    }
+                    val elapsed = (System.currentTimeMillis() - start) / 1000
+                    if (elapsed - lastProgress >= 8) {
+                        lastProgress = elapsed
+                        withContext(Dispatchers.Main) {
+                            onProgress("Negociando nodos de salida ($elapsed s)... tu navegación sigue activa.")
+                        }
+                    }
+                    delay(1500)
+                }
+                Log.w(TAG, "Tor no completó el circuito en ${BOOTSTRAP_TIMEOUT_MS / 1000}s")
+                withContext(Dispatchers.Main) { onResult(false, null) }
+            } catch (t: Throwable) {
+                Log.e(TAG, "Error iniciando Tor: ${t.message}", t)
+                withContext(Dispatchers.Main) { onResult(false, null) }
             }
-
-            monitorJob?.cancel()
-            monitorJob = CoroutineScope(Dispatchers.IO).launch {
-                var ready = false
-                val startMs = System.currentTimeMillis()
-                var detectedPort = HTTP_PROXY_PORT_DEFAULT
-
-                // Sondeo inteligente durante 15s probando 8118, puerto dinámico y 49723
-                while (isActive && (System.currentTimeMillis() - startMs) < 15000) {
-                    val candidatePort = if (TorService.httpTunnelPort > 0) TorService.httpTunnelPort else HTTP_PROXY_PORT_DEFAULT
-                    if (isPortOpen("127.0.0.1", candidatePort)) {
-                        ready = true
-                        detectedPort = candidatePort
-                        break
-                    }
-                    if (isPortOpen("127.0.0.1", HTTP_PROXY_PORT_FALLBACK)) {
-                        ready = true
-                        detectedPort = HTTP_PROXY_PORT_FALLBACK
-                        break
-                    }
-                    delay(300)
-                }
-
-                activeHttpPort = detectedPort
-
-                if (ready) {
-                    Log.i(TAG, "Puerto HTTP $detectedPort abierto y respondiendo. Verificando IP pública externa real...")
-                    // Esperar 500ms a que el circuito esté listo para peticiones HTTP
-                    delay(500)
-                    val ip = fetchExternalIpViaProxy(detectedPort)
-                    verifiedPublicIp = ip
-                    Log.i(TAG, "Resultado verificación IP pública: $ip")
-                    withContext(Dispatchers.Main) {
-                        onStatus(true, ip)
-                    }
-                } else {
-                    Log.w(TAG, "Tor tardó en abrir el puerto, usando fallback resiliente.")
-                    withContext(Dispatchers.Main) {
-                        onStatus(false, null)
-                    }
-                }
-            }
-        } catch (t: Throwable) {
-            Log.e(TAG, "Error seguro iniciando TorService: ${t.message}", t)
-            onStatus(false, null)
         }
     }
 
@@ -173,97 +166,48 @@ object TorManager {
         monitorJob = null
         activeCountry = null
         verifiedPublicIp = null
-
+        isTunnelVerified = false
         try {
-            if (isReceiverRegistered && torStatusReceiver != null) {
-                try {
-                    LocalBroadcastManager.getInstance(context).unregisterReceiver(torStatusReceiver!!)
-                    context.unregisterReceiver(torStatusReceiver!!)
-                } catch (e: Exception) {
-                    // ignorar desregistro
-                }
-                isReceiverRegistered = false
-                torStatusReceiver = null
-            }
-
-            val intent = Intent(context, TorService::class.java)
-            context.stopService(intent)
-            Log.i(TAG, "TorService detenido correctamente.")
-        } catch (e: Exception) {
-            Log.w(TAG, "Error deteniendo TorService: ${e.message}")
+            context.applicationContext.stopService(Intent(context.applicationContext, TorService::class.java))
+        } catch (t: Throwable) {
+            Log.w(TAG, "Error deteniendo TorService: ${t.message}")
         }
     }
 
     fun isPortOpen(host: String, port: Int): Boolean {
         return try {
-            Socket().use { socket ->
-                socket.connect(InetSocketAddress(host, port), 250)
-                true
-            }
+            Socket().use { it.connect(InetSocketAddress(host, port), 300); true }
         } catch (e: Exception) {
             false
         }
     }
 
-    fun fetchExternalIpViaProxy(port: Int): String? {
-        val testUrls = listOf(
-            "https://api.ipify.org?format=json",
-            "https://icanhazip.com",
-            "https://ifconfig.me/ip"
-        )
-        val proxy = Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", port))
+    fun fetchExternalIpViaProxy(port: Int): String? =
+        fetchIp(Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", port)), 8000)
 
-        for (urlStr in testUrls) {
+    fun fetchDirectExternalIp(): String? = fetchIp(Proxy.NO_PROXY, 4000)
+
+    private fun fetchIp(proxy: Proxy, timeoutMs: Int): String? {
+        // Solo HTTPS: HTTPTunnelPort de Tor únicamente acepta túneles CONNECT.
+        val urls = listOf("https://api.ipify.org?format=json", "https://icanhazip.com", "https://ifconfig.me/ip")
+        for (u in urls) {
+            var conn: HttpURLConnection? = null
             try {
-                val url = URL(urlStr)
-                val conn = (url.openConnection(proxy) as HttpURLConnection).apply {
-                    connectTimeout = 4000
-                    readTimeout = 4000
+                conn = (URL(u).openConnection(proxy) as HttpURLConnection).apply {
+                    connectTimeout = timeoutMs
+                    readTimeout = timeoutMs
                     requestMethod = "GET"
-                    setRequestProperty("User-Agent", "SamuLibre-Mobile-Agent/1.99.10")
+                    setRequestProperty("User-Agent", "SamuLibre-Mobile/1.99.10")
                 }
                 if (conn.responseCode == 200) {
                     val body = conn.inputStream.bufferedReader().use { it.readText() }.trim()
-                    if (body.startsWith("{")) {
-                        val json = JSONObject(body)
-                        val ip = json.optString("ip")
-                        if (ip.isNotEmpty()) return ip
-                    } else if (body.isNotEmpty() && body.all { it.isDigit() || it == '.' || it == ':' }) {
-                        return body
-                    }
+                    val ip = if (body.startsWith("{")) JSONObject(body).optString("ip") else body
+                    if (ip.isNotEmpty() && ip.all { it.isDigit() || it == '.' || it == ':' || it in 'a'..'f' }) return ip
                 }
             } catch (e: Exception) {
-                // Siguiente proveedor de comprobación
-            }
-        }
-        return null
-    }
-
-    fun fetchDirectExternalIp(): String? {
-        val testUrls = listOf(
-            "https://api.ipify.org?format=json",
-            "https://icanhazip.com"
-        )
-        for (urlStr in testUrls) {
-            try {
-                val url = URL(urlStr)
-                val conn = (url.openConnection() as HttpURLConnection).apply {
-                    connectTimeout = 3000
-                    readTimeout = 3000
-                    requestMethod = "GET"
-                }
-                if (conn.responseCode == 200) {
-                    val body = conn.inputStream.bufferedReader().use { it.readText() }.trim()
-                    if (body.startsWith("{")) {
-                        val json = JSONObject(body)
-                        val ip = json.optString("ip")
-                        if (ip.isNotEmpty()) return ip
-                    } else if (body.isNotEmpty() && body.all { it.isDigit() || it == '.' || it == ':' }) {
-                        return body
-                    }
-                }
-            } catch (e: Exception) {
-                // Siguiente proveedor
+                // probar siguiente proveedor
+            } finally {
+                conn?.disconnect()
             }
         }
         return null
