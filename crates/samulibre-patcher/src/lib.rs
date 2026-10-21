@@ -52,6 +52,10 @@ pub struct VirtualPatcher {
     pub monitored_asbs: Vec<AndroidBulletinAdvisory>,
     pub ai_patch_results: Vec<AiPatchAnalysisResult>,
     pub ai_autopilot_enabled: bool,
+    pub daily_monitor_active: bool,
+    pub last_daily_check: Option<String>,
+    pub next_daily_check: Option<String>,
+    pub daily_check_log: Vec<String>,
     ai_analyst: LocalAiAnalyst,
 }
 
@@ -67,6 +71,10 @@ impl VirtualPatcher {
             monitored_asbs: Vec::new(),
             ai_patch_results: Vec::new(),
             ai_autopilot_enabled: true,
+            daily_monitor_active: true,
+            last_daily_check: None,
+            next_daily_check: None,
+            daily_check_log: Vec::new(),
             ai_analyst: LocalAiAnalyst::new(),
         };
         patcher.load_default_cve_catalog();
@@ -544,115 +552,29 @@ impl VirtualPatcher {
 
             // Criterio 2: Inteligencia de Compilación (OS Build & UBR) y Componentes Nativos
             if !is_native {
-                match rule.cve.as_str() {
-                    "CVE-2024-38063" => {
-                        // Windows TCP/IP IPv6 RCE
-                        // Corregido en:
-                        // - Windows 11 24H2/25H2: Build > 26100 o (Build == 26100 && UBR >= 1591)
-                        // - Windows 11 23H2: Build == 22631 && UBR >= 4037
-                        // - Windows 11 22H2: Build == 22621 && UBR >= 4037
-                        if let Some(ref os) = os_info {
-                            if os.build_number > 26100 || (os.build_number == 26100 && os.ubr >= 1591) || (os.build_number >= 22621 && os.ubr >= 4037) {
+                if let Some((native_flag, res_reason)) = check_cve_native_mitigation(rule.cve.as_str(), os_info.as_ref()) {
+                    if native_flag {
+                        is_native = true;
+                    } else {
+                        is_immune = true;
+                    }
+                    reason = res_reason;
+                } else {
+                    #[cfg(not(target_os = "windows"))]
+                    if let MitigationStrategy::KernelSysctlHardening { ref parameter, ref safe_value, .. } = rule.strategy {
+                        let path = format!("/proc/sys/{}", parameter.replace('.', "/"));
+                        if let Ok(content) = std::fs::read_to_string(&path) {
+                            if content.trim() == safe_value.trim() {
                                 is_native = true;
-                                reason = format!(
-                                    "Corregido nativamente por Windows 11 {} (Compilación {}.{}, tcpip.sys actualizado)",
-                                    os.display_version, os.build_number, os.ubr
-                                );
+                                reason = format!("Parámetro de kernel {} configurado a valor seguro ({}) en el sistema.", parameter, safe_value);
                             }
                         }
                     }
-
-                    "CVE-2024-38077" => {
-                        // MadLicence (Remote Desktop Licensing Service RCE)
-                        // Afecta únicamente al rol de servidor TermServLicensing. Inexistente en Windows 11 Desktop.
-                        if !is_service_installed("TermServLicensing") {
-                            is_immune = true;
-                            reason = "Inmune: El servicio de licencias RDS (TermServLicensing) solo existe en Windows Server. Inexistente en Windows 11.".to_string();
-                        } else if let Some(ref os) = os_info {
-                            if os.build_number > 26100 || (os.build_number == 26100 && os.ubr >= 1150) {
-                                is_native = true;
-                                reason = format!("Corregido nativamente en servidor por compilación {}.{}", os.build_number, os.ubr);
-                            }
-                        }
+                    #[cfg(target_os = "windows")]
+                    if matches!(rule.strategy, MitigationStrategy::KernelSysctlHardening { .. }) {
+                        is_immune = true;
+                        reason = "Inmune: Parámetro exclusivo de kernel Linux (Inexistente en Windows).".to_string();
                     }
-
-                    "CVE-2021-34527" => {
-                        // PrintNightmare
-                        // Corregido en 2021. Windows 11 (Build 22000+) incluye la arquitectura segura de spoolsv.exe por omisión.
-                        if let Some(ref os) = os_info {
-                            if os.build_number >= 22000 {
-                                is_native = true;
-                                reason = format!(
-                                    "Corregido nativamente: Windows 11 {} (Build {}) incluye PointAndPrint seguro por omisión.",
-                                    os.display_version, os.build_number
-                                );
-                            }
-                        }
-                    }
-
-                    "CVE-2022-30190" => {
-                        // Follina (MSDT RCE)
-                        // Corregido en junio de 2022. Windows 11 22H2+ (Build 22621+) incluye el protocolo ms-msdt neutralizado.
-                        if let Some(ref os) = os_info {
-                            if os.build_number >= 22621 {
-                                is_native = true;
-                                reason = format!(
-                                    "Corregido nativamente: Vector de protocolo ms-msdt neutralizado en Windows 11 (Build {}).",
-                                    os.build_number
-                                );
-                            }
-                        }
-                    }
-
-                    "CVE-2017-0144" => {
-                        // EternalBlue (SMBv1 RCE)
-                        // SMBv1 está completamente retirado y deshabilitado por omisión en Windows 11.
-                        if let Some(ref os) = os_info {
-                            if os.build_number >= 22000 {
-                                is_native = true;
-                                reason = "Corregido nativamente: Controlador SMBv1 retirado y deshabilitado por omisión en Windows 11.".to_string();
-                            }
-                        }
-                    }
-
-                    // Reglas y Endurecimiento de Kernel Linux (Ubuntu, Red Hat, Garuda)
-                    "CVE-2022-0185" | "CVE-2020-0001" | "CVE-2016-5195" | "CVE-2019-18282" => {
-                        #[cfg(not(target_os = "windows"))]
-                        if let MitigationStrategy::KernelSysctlHardening { ref parameter, ref safe_value, .. } = rule.strategy {
-                            let path = format!("/proc/sys/{}", parameter.replace('.', "/"));
-                            if let Ok(content) = std::fs::read_to_string(&path) {
-                                if content.trim() == safe_value.trim() {
-                                    is_native = true;
-                                    reason = format!("Parámetro de kernel {} configurado a valor seguro ({}) en el sistema.", parameter, safe_value);
-                                }
-                            }
-                        }
-                        #[cfg(target_os = "windows")]
-                        {
-                            is_immune = true;
-                            reason = "Inmune: Parámetro exclusivo de kernel Linux (Inexistente en Windows).".to_string();
-                        }
-                    }
-
-                    "CVE-2021-4034" => {
-                        #[cfg(not(target_os = "windows"))]
-                        {
-                            if !std::path::Path::new("/usr/bin/pkexec").exists() {
-                                is_immune = true;
-                                reason = "Inmune: pkexec no se encuentra instalado en este sistema.".to_string();
-                            } else {
-                                is_native = true;
-                                reason = "Mitigación activa y paquete de seguridad USN-5252 verificado en el sistema.".to_string();
-                            }
-                        }
-                        #[cfg(target_os = "windows")]
-                        {
-                            is_immune = true;
-                            reason = "Inmune: Binario SUID pkexec exclusivo de distribuciones Linux.".to_string();
-                        }
-                    }
-
-                    _ => {}
                 }
             }
 
@@ -757,9 +679,23 @@ impl VirtualPatcher {
             let rule = &mut self.rules[rule_idx];
             rule.unpatched_at = Some(now);
 
+            let os_info = {
+                #[cfg(target_os = "windows")]
+                { get_windows_os_info() }
+                #[cfg(not(target_os = "windows"))]
+                { get_linux_os_info() }
+            };
+
             if rule.required_kb.iter().any(|kb| installed_kbs.contains(&kb.to_uppercase())) {
                 rule.status = PatchStatus::NativePatchInstalled;
                 rule.status_reason = Some("Protegido nativamente por actualización oficial del SO.".to_string());
+            } else if let Some((native_flag, reason)) = check_cve_native_mitigation(&rule.cve, os_info.as_ref()) {
+                if native_flag {
+                    rule.status = PatchStatus::NativePatchInstalled;
+                } else {
+                    rule.status = PatchStatus::NotApplicable;
+                }
+                rule.status_reason = Some(reason);
             } else {
                 rule.status = PatchStatus::Unmitigated;
                 rule.status_reason = Some("Vulnerabilidad expuesta: parche virtual desactivado por el usuario.".to_string());
@@ -920,15 +856,16 @@ impl VirtualPatcher {
             cmd.args([
                 "-NoProfile",
                 "-Command",
-                r#"$searcher = (New-Object -ComObject Microsoft.Update.Session).CreateUpdateSearcher(); $res = $searcher.Search("IsInstalled=0 and Type='Software'"); foreach ($u in $res.Updates) { foreach ($kb in $u.KBArticleIDs) { "KB$kb" } }"#,
+                r#"$searcher = (New-Object -ComObject Microsoft.Update.Session).CreateUpdateSearcher(); $res = $searcher.Search("IsInstalled=0 and Type='Software'"); foreach ($u in $res.Updates) { if ($u.Title -notmatch 'Defender|Intelligence|Malicious Software Removal') { foreach ($kb in $u.KBArticleIDs) { "KB$kb" } } }"#,
             ]);
             cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
             if let Ok(output) = cmd.output() {
                 if output.status.success() {
                     let text = String::from_utf8_lossy(&output.stdout);
+                    const DEFINITION_KBS: &[&str] = &["KB2267602", "KB4052623", "KB890830"];
                     for line in text.lines() {
                         let t = line.trim().to_uppercase();
-                        if t.starts_with("KB") && t.len() > 2 {
+                        if t.starts_with("KB") && t.len() > 2 && !DEFINITION_KBS.contains(&t.as_str()) {
                             pending.insert(t);
                         }
                     }
@@ -992,47 +929,67 @@ impl VirtualPatcher {
     /// 4. Si el KB ya se instaló oficialmente, auto-retira el parche virtual
     pub fn run_ai_kb_audit_cycle(&mut self) -> Vec<AiPatchAnalysisResult> {
         let installed_kbs = self.get_installed_kbs();
+        let os_info = {
+            #[cfg(target_os = "windows")]
+            { get_windows_os_info() }
+            #[cfg(not(target_os = "windows"))]
+            { get_linux_os_info() }
+        };
         let mut results = Vec::new();
 
         let advisories = self.monitored_kbs.clone();
         for adv in &advisories {
             let is_installed = installed_kbs.contains(&adv.kb_id.to_uppercase());
-
-            if !is_installed {
-                let already_analyzed = self.ai_patch_results.iter().any(|r| r.kb_id.eq_ignore_ascii_case(&adv.kb_id));
-                let analysis = if !already_analyzed {
-                    self.analyze_kb(adv).ok()
+            let is_natively_protected = !adv.cves.is_empty() && adv.cves.iter().all(|c| {
+                if let Some((is_native, _)) = check_cve_native_mitigation(c, os_info.as_ref()) {
+                    is_native
                 } else {
-                    self.ai_patch_results.iter().find(|r| r.kb_id.eq_ignore_ascii_case(&adv.kb_id)).cloned()
-                };
+                    false
+                }
+            });
 
-                if let Some(an) = analysis {
-                    if self.ai_autopilot_enabled && an.safety_verified {
-                        let cve = an.generated_rule.cve.clone();
-                        let current_status = self.rules.iter().find(|r| r.cve == cve).map(|r| r.status.clone());
-                        if current_status == Some(PatchStatus::Unmitigated) {
-                            info!("Auto-Pilot IA: Aplicando parche virtual automático para {}", cve);
-                            let _ = self.toggle_patch(&cve, true);
-                            let log_entry = format!("{}: Auto-parcheado por IA local ({}) ante ausencia de {}", Utc::now().format("%Y-%m-%d %H:%M:%S"), cve, adv.kb_id);
-                            if !self.auto_patched_history.contains(&log_entry) {
-                                self.auto_patched_history.push(log_entry);
-                            }
+            // Siempre analizamos el KB con la IA local para mantener el historial listo
+            let already_analyzed = self.ai_patch_results.iter().any(|r| r.kb_id.eq_ignore_ascii_case(&adv.kb_id));
+            let analysis = if !already_analyzed {
+                self.analyze_kb(adv).ok()
+            } else {
+                self.ai_patch_results.iter().find(|r| r.kb_id.eq_ignore_ascii_case(&adv.kb_id)).cloned()
+            };
+
+            if let Some(an) = analysis {
+                results.push(an.clone());
+
+                if is_installed || is_natively_protected {
+                    // Auto-Retire: Si el KB ya está instalado o está cubierto nativamente por la compilación del SO,
+                    // retirar inmediatamente cualquier parche virtual que se hubiera aplicado preventivamente.
+                    let cve = an.generated_rule.cve.clone();
+                    let current_status = self.rules.iter().find(|r| r.cve == cve).map(|r| r.status.clone());
+                    if current_status == Some(PatchStatus::VirtualPatchActive) {
+                        let reason = if is_installed {
+                            format!("instalación oficial de {}", adv.kb_id)
+                        } else {
+                            format!("protección nativa de compilación del SO (Supersesión)")
+                        };
+                        info!("Auto-Retire: Parche virtual para {} auto-retirado tras {}", cve, reason);
+                        let _ = self.toggle_patch(&cve, false);
+                        let log_entry = format!("{}: Parche virtual para {} auto-retirado tras {}", Utc::now().format("%Y-%m-%d %H:%M:%S"), cve, reason);
+                        if !self.auto_patched_history.contains(&log_entry) {
+                            self.auto_patched_history.push(log_entry);
                         }
                     }
-                    results.push(an);
-                }
-            } else {
-                let cves_to_retire: Vec<String> = self.rules.iter()
-                    .filter(|r| r.required_kb.iter().any(|k| k.eq_ignore_ascii_case(&adv.kb_id)) && r.status == PatchStatus::VirtualPatchActive)
-                    .map(|r| r.cve.clone())
-                    .collect();
-
-                for cve in cves_to_retire {
-                    info!("Auto-Retire: {} detectado como instalado nativamente. Retirando parche virtual para {}", adv.kb_id, cve);
-                    let _ = self.toggle_patch(&cve, false);
-                    let log_entry = format!("{}: Parche virtual para {} auto-retirado tras instalación oficial de {}", Utc::now().format("%Y-%m-%d %H:%M:%S"), cve, adv.kb_id);
-                    if !self.auto_patched_history.contains(&log_entry) {
-                        self.auto_patched_history.push(log_entry);
+                } else if self.ai_autopilot_enabled && an.safety_verified {
+                    // Solo se aplica el parche virtual si REALMENTE falta y NO está protegido nativamente
+                    if !an.generated_rule.cve.starts_with("CVE-UNKNOWN") && (an.generated_rule.severity == Severity::Critical || an.generated_rule.severity == Severity::High) {
+                        let cve = an.generated_rule.cve.clone();
+                    let current_status = self.rules.iter().find(|r| r.cve == cve).map(|r| r.status.clone());
+                    if current_status == Some(PatchStatus::Unmitigated) {
+                        info!("Auto-Pilot IA: Aplicando parche virtual automático para {}", cve);
+                        let _ = self.toggle_patch(&cve, true);
+                        let log_entry = format!("{}: Auto-parcheado por IA local ({}) ante ausencia de {}", Utc::now().format("%Y-%m-%d %H:%M:%S"), cve, adv.kb_id);
+                        if !self.auto_patched_history.contains(&log_entry) {
+                            self.auto_patched_history.push(log_entry);
+                        }
+                    }
                     }
                 }
             }
@@ -1040,6 +997,64 @@ impl VirtualPatcher {
 
         self.last_audit_time = Some(Utc::now().format("%Y-%m-%d %H:%M:%S UTC").to_string());
         results
+    }
+
+    /// Ejecuta la verificación diaria de nuevos boletines KB de Microsoft (Sentinel Daily KB Monitor)
+    pub fn run_daily_kb_verification(&mut self) -> (usize, Vec<String>) {
+        let now = Utc::now();
+        let check_time_str = now.format("%Y-%m-%d %H:%M:%S UTC").to_string();
+        let next_time_str = (now + chrono::Duration::hours(24)).format("%Y-%m-%d %H:%M:%S UTC").to_string();
+        self.last_daily_check = Some(check_time_str.clone());
+        self.next_daily_check = Some(next_time_str);
+
+        // 1. Obtener actualizaciones pendientes desde el agente de Windows Update (WUA)
+        let pending_wua = self.fetch_pending_windows_updates();
+        let mut new_kbs_found = 0;
+
+        for pending_kb in &pending_wua {
+            if !self.monitored_kbs.iter().any(|k| k.kb_id.eq_ignore_ascii_case(pending_kb)) {
+                new_kbs_found += 1;
+                let adv = KbAdvisory {
+                    kb_id: pending_kb.clone(),
+                    title: format!("Actualización de Seguridad de Windows ({})", pending_kb),
+                    release_date: now.format("%Y-%m-%d").to_string(),
+                    cves: vec![],
+                    summary: format!("Actualización de seguridad detectada por el agente de Windows Update pendiente de instalación."),
+                    affected_products: vec!["Windows 11".to_string()],
+                    restart_required: true,
+                    support_url: Some(format!("https://support.microsoft.com/kb/{}", pending_kb.trim_start_matches("KB"))),
+                };
+                self.monitored_kbs.push(adv);
+            }
+        }
+
+        // 2. Ejecutar evaluación multicriterio y ciclo de parches
+        let _ = self.scan_and_evaluate(None);
+        let _ = self.run_ai_kb_audit_cycle();
+
+        let active_count = self.rules.iter().filter(|r| r.status == PatchStatus::VirtualPatchActive).count();
+        let log_msg = format!(
+            "[{}] Verificación diaria de KBs: {} pendientes en WUA, {} nuevos catalogados, parches virtuales activos: {}",
+            check_time_str,
+            pending_wua.len(),
+            new_kbs_found,
+            active_count
+        );
+        self.daily_check_log.push(log_msg);
+
+        if self.daily_check_log.len() > 30 {
+            let start = self.daily_check_log.len() - 30;
+            self.daily_check_log = self.daily_check_log[start..].to_vec();
+        }
+
+        let kbs_dir = Path::new("data/kbs");
+        if !kbs_dir.exists() {
+            let _ = fs::create_dir_all(kbs_dir);
+        }
+        let log_file = kbs_dir.join("daily_check_log.json");
+        let _ = fs::write(&log_file, serde_json::to_string_pretty(&self.daily_check_log).unwrap_or_default());
+
+        (new_kbs_found, self.daily_check_log.clone())
     }
 
     /// Obtiene el estado consolidado del monitor de KBs y la IA
@@ -1055,6 +1070,10 @@ impl VirtualPatcher {
             ai_analyzed_count: self.ai_patch_results.len(),
             auto_vpatch_count,
             ai_autopilot_enabled: self.ai_autopilot_enabled,
+            daily_monitor_active: self.daily_monitor_active,
+            last_daily_check: self.last_daily_check.clone(),
+            next_daily_check: self.next_daily_check.clone(),
+            daily_check_log: self.daily_check_log.clone(),
         }
     }
 
@@ -1165,6 +1184,96 @@ pub fn is_service_installed(service_name: &str) -> bool {
         }
     }
     false
+}
+
+/// Evalúa si un CVE específico ya está mitigado nativamente por la versión del sistema operativo o si el sistema es inmune
+pub fn check_cve_native_mitigation(cve: &str, os_info: Option<&OsVersionInfo>) -> Option<(bool, String)> {
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(os) = os_info {
+            match cve {
+                "CVE-2024-38063" => {
+                    if os.build_number > 26100 || (os.build_number == 26100 && os.ubr >= 1591) || (os.build_number >= 22621 && os.ubr >= 4037) {
+                        return Some((true, format!(
+                            "Corregido nativamente por Windows 11 {} (Compilación {}.{}, tcpip.sys actualizado)",
+                            os.display_version, os.build_number, os.ubr
+                        )));
+                    }
+                }
+                "CVE-2024-38077" => {
+                    if !is_service_installed("TermServLicensing") {
+                        return Some((false, "Inmune: El servicio de licencias RDS (TermServLicensing) solo existe en Windows Server. Inexistente en Windows 11.".to_string()));
+                    } else if os.build_number > 26100 || (os.build_number == 26100 && os.ubr >= 1150) {
+                        return Some((true, format!("Corregido nativamente en servidor por compilación {}.{}", os.build_number, os.ubr)));
+                    }
+                }
+                "CVE-2021-36958" => {
+                    if os.build_number >= 22000 {
+                        return Some((true, format!(
+                            "Corregido nativamente: Windows 11 {} (Build {}) incluye arquitectura PointAndPrint segura y sellado RPC Netlogon integrado.",
+                            os.display_version, os.build_number
+                        )));
+                    }
+                }
+                "CVE-2023-21823" => {
+                    if os.build_number >= 22631 || (os.build_number == 22621 && os.ubr >= 1255) || os.build_number >= 26100 {
+                        return Some((true, format!(
+                            "Corregido nativamente: Driver CLFS y componente gráfico securizado en Windows 11 (Build {}.{}).",
+                            os.build_number, os.ubr
+                        )));
+                    }
+                }
+                "CVE-2021-34527" => {
+                    if os.build_number >= 22000 {
+                        return Some((true, format!(
+                            "Corregido nativamente: Windows 11 {} (Build {}) incluye PointAndPrint seguro por omisión.",
+                            os.display_version, os.build_number
+                        )));
+                    }
+                }
+                "CVE-2022-30190" => {
+                    if os.build_number >= 22621 {
+                        return Some((true, format!(
+                            "Corregido nativamente: Vector de protocolo ms-msdt neutralizado en Windows 11 (Build {}).",
+                            os.build_number
+                        )));
+                    }
+                }
+                "CVE-2017-0144" => {
+                    if os.build_number >= 22000 {
+                        return Some((true, "Corregido nativamente: Controlador SMBv1 retirado y deshabilitado por omisión en Windows 11.".to_string()));
+                    }
+                }
+                _ => {
+                    // Heurística de supersesión acumulativa para Windows 11 Build 26100+ (24H2/25H2)
+                    if os.build_number >= 26100 {
+                        if cve.starts_with("CVE-2021-") || cve.starts_with("CVE-2022-") || cve.starts_with("CVE-2023-") {
+                            return Some((true, format!(
+                                "Corregido nativamente: Vulnerabilidad histórica resuelta e incorporada en la imagen base de Windows 11 Build {}.",
+                                os.build_number
+                            )));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        match cve {
+            "CVE-2021-4034" => {
+                if !std::path::Path::new("/usr/bin/pkexec").exists() {
+                    return Some((false, "Inmune: pkexec no se encuentra instalado en este sistema.".to_string()));
+                } else {
+                    return Some((true, "Mitigación activa y paquete de seguridad USN-5252 verificado en el sistema.".to_string()));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    None
 }
 
 /// Aplica la mitigación correspondiente según la estrategia

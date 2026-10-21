@@ -290,7 +290,19 @@ impl SamuLibreCore {
                 ai_analyzed_count: 0,
                 auto_vpatch_count: 0,
                 ai_autopilot_enabled: true,
+                daily_monitor_active: true,
+                last_daily_check: None,
+                next_daily_check: None,
+                daily_check_log: Vec::new(),
             }
+        }
+    }
+
+    pub fn run_daily_kb_verification(&self) -> (usize, Vec<String>) {
+        if let Ok(mut patcher) = self.patcher.lock() {
+            patcher.run_daily_kb_verification()
+        } else {
+            (0, Vec::new())
         }
     }
 

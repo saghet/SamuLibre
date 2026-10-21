@@ -222,16 +222,16 @@ impl EndpointShield {
             let proc_name = process.name().to_string_lossy().to_lowercase();
             let pid_u32 = pid.as_u32();
 
+            let cmd_line: String = process
+                .cmd()
+                .iter()
+                .map(|s| s.to_string_lossy().to_string())
+                .collect::<Vec<_>>()
+                .join(" ")
+                .to_lowercase();
+
             // 1. Detección LSASS / Volcado de memoria en Linux (si está habilitada la protección)
             if self.lsass_protection_enabled {
-                let cmd_line: String = process
-                    .cmd()
-                    .iter()
-                    .map(|s| s.to_string_lossy().to_string())
-                    .collect::<Vec<_>>()
-                    .join(" ")
-                    .to_lowercase();
-
                 let matches_tool = suspicious_tools.iter().any(|tool| proc_name.contains(tool));
                 let is_comsvcs_minidump = cmd_line.contains("comsvcs.dll") && (cmd_line.contains("minidump") || cmd_line.contains("#24"));
                 let is_lsass_dump_cmd = cmd_line.contains("lsass") && (cmd_line.contains("dump") || cmd_line.contains("-ma"));
@@ -264,21 +264,12 @@ impl EndpointShield {
 
             // 2. Detección InfoStealer (si está habilitado el escudo de cookies y credenciales)
             if self.cookie_shield_enabled {
-                // Ignorar navegadores oficiales legítimos (Windows y Linux)
                 let is_legit_browser = proc_name == "chrome.exe" || proc_name == "chrome" || proc_name == "google-chrome"
                     || proc_name == "msedge.exe" || proc_name == "firefox.exe" || proc_name == "firefox"
                     || proc_name == "brave.exe" || proc_name == "brave" || proc_name == "chromium"
                     || proc_name == "chromium-browser";
 
                 if !is_legit_browser {
-                    let cmd_line: String = process
-                        .cmd()
-                        .iter()
-                        .map(|s| s.to_string_lossy().to_string())
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                        .to_lowercase();
-
                     let matches_stealer_action = stealer_keywords.iter().any(|k| cmd_line.contains(k));
                     if matches_stealer_action {
                         warn!("Detectado intento de robo de tokens/cookies: PID {} ({}). Ejecutando terminación EDR.", pid_u32, proc_name);
@@ -291,10 +282,73 @@ impl EndpointShield {
                             title: "Detección de InfoStealer (Robo de Cookies / Llaves / Tokens)".to_string(),
                             details: format!("Proceso no autorizado '{}' (PID {}) fue terminado de inmediato por EDR al intentar sustraer credenciales: '{}'", proc_name, pid_u32, cmd_line),
                             process_id: Some(pid_u32),
-                            process_name: Some(proc_name),
+                            process_name: Some(proc_name.clone()),
                             target_path: Some("Browser / SSH / Shadow Credential Vault".to_string()),
                             action_taken: "Proceso terminado inmediatamente por SamuLibre Browser Shield (EDR Kill)".to_string(),
                         });
+                    }
+                }
+            }
+
+            // 3. Detección EDR Anti-Ransomware y Comandos Destructivos de Sistema (MITRE T1490)
+            let is_ransomware_destruction = (cmd_line.contains("vssadmin") && (cmd_line.contains("delete") || cmd_line.contains("shadow")))
+                || (cmd_line.contains("wmic") && cmd_line.contains("shadowcopy") && cmd_line.contains("delete"))
+                || (cmd_line.contains("bcdedit") && cmd_line.contains("recoveryenabled") && cmd_line.contains("no"))
+                || (cmd_line.contains("wbadmin") && cmd_line.contains("delete") && (cmd_line.contains("catalog") || cmd_line.contains("systemstatebackup")));
+
+            if is_ransomware_destruction {
+                warn!("Detectado comando destructivo de Ransomware: PID {} ({}). Ejecutando terminación inmediata EDR.", pid_u32, proc_name);
+                let _ = process.kill();
+                alerts.push(ThreatAlert {
+                    id: Uuid::new_v4(),
+                    timestamp: Utc::now(),
+                    severity: Severity::Critical,
+                    category: ThreatCategory::RansomwareCanaryTrip,
+                    title: "Comando destructivo de Ransomware neutralizado (MITRE T1490)".to_string(),
+                    details: format!("Proceso '{}' (PID {}) fue terminado de inmediato por EDR al intentar destruir copias shadow o deshabilitar recuperación del sistema: '{}'", proc_name, pid_u32, cmd_line),
+                    process_id: Some(pid_u32),
+                    process_name: Some(proc_name.clone()),
+                    target_path: Some("Windows Volume Shadow Copies / Recovery Catalog".to_string()),
+                    action_taken: "Proceso terminado inmediatamente por EDR Anti-Ransomware".to_string(),
+                });
+            }
+
+            // 4. Detección de Procesos Huérfanos / LOLBins con Ofuscación (MITRE T1059)
+            let is_lolbin = ["powershell.exe", "cmd.exe", "wscript.exe", "cscript.exe", "mshta.exe", "certutil.exe"]
+                .iter()
+                .any(|bin| proc_name == *bin);
+
+            if is_lolbin {
+                if let Some(parent_pid) = process.parent() {
+                    if let Some(parent_proc) = self.system.process(parent_pid) {
+                        let parent_name = parent_proc.name().to_string_lossy().to_lowercase();
+                        let is_office_or_browser = ["winword.exe", "excel.exe", "powerpnt.exe", "outlook.exe", "msedge.exe", "chrome.exe", "firefox.exe", "brave.exe"]
+                            .iter()
+                            .any(|p| parent_name == *p);
+
+                        let has_evasion_args = cmd_line.contains("-enc") 
+                            || cmd_line.contains("-encodedcommand")
+                            || cmd_line.contains("-w hidden") 
+                            || cmd_line.contains("downloadstring")
+                            || cmd_line.contains("iex")
+                            || cmd_line.contains("urlcache");
+
+                        if is_office_or_browser && has_evasion_args {
+                            warn!("Detectado proceso hijo malicioso de Ofimática/Navegador: {} -> {}. Terminando.", parent_name, proc_name);
+                            let _ = process.kill();
+                            alerts.push(ThreatAlert {
+                                id: Uuid::new_v4(),
+                                timestamp: Utc::now(),
+                                severity: Severity::Critical,
+                                category: ThreatCategory::SuspiciousScript,
+                                title: "Ejecución anómala de LOLBin desde aplicación cliente (MITRE T1059)".to_string(),
+                                details: format!("Aplicación cliente '{}' (PID {}) intentó ejecutar consola oculta '{}' con sintaxis evasiva: '{}'", parent_name, parent_pid.as_u32(), proc_name, cmd_line),
+                                process_id: Some(pid_u32),
+                                process_name: Some(proc_name),
+                                target_path: Some(cmd_line),
+                                action_taken: "Consola hija terminada inmediatamente por EDR Sentinel".to_string(),
+                            });
+                        }
                     }
                 }
             }
@@ -303,7 +357,6 @@ impl EndpointShield {
         alerts
     }
 
-    /// Escanea los procesos en ejecución buscando herramientas de volcado de LSASS o robo de credenciales
     pub fn scan_processes_for_lsass_dumpers(&mut self) -> Vec<ThreatAlert> {
         let prev_cookie = self.cookie_shield_enabled;
         self.cookie_shield_enabled = false;
@@ -500,7 +553,7 @@ impl EndpointShield {
 
         #[cfg(target_os = "windows")]
         {
-            // 1. Claves Run y RunOnce de Registro
+            // 1. Claves Run, RunOnce y Winlogon de Registro
             let reg_targets = [
                 ("HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", PersistenceType::RegistryRun),
                 ("HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", PersistenceType::RegistryRun),
@@ -522,6 +575,15 @@ impl EndpointShield {
                                 let name = parts[0];
                                 let val_type = parts[1];
                                 if val_type.contains("REG_SZ") || val_type.contains("REG_EXPAND_SZ") {
+                                    let lower_name = name.to_lowercase();
+
+                                    // Si es Winlogon, filtrar exclusivamente los puntos de ejecución de binarios
+                                    if p_type == PersistenceType::RegistryWinlogon {
+                                        if !["shell", "userinit", "taskman", "appsetup", "vmapplet"].contains(&lower_name.as_str()) {
+                                            continue;
+                                        }
+                                    }
+
                                     let raw_path = parts[2..].join(" ");
                                     let clean_target = raw_path.trim_matches('"').split_whitespace().next().unwrap_or("").to_string();
                                     let args = if raw_path.len() > clean_target.len() {
@@ -531,16 +593,52 @@ impl EndpointShield {
                                     };
 
                                     let hash = Self::calculate_file_hash(&clean_target);
-                                    let is_suspicious = clean_target.to_lowercase().contains("temp")
-                                        || clean_target.to_lowercase().contains("appdata")
-                                        || raw_path.to_lowercase().contains("-enc")
-                                        || raw_path.to_lowercase().contains("powershell");
+                                    let lower_clean = clean_target.to_lowercase().replace('/', "\\");
+                                    let file_name = Path::new(&clean_target).file_name().unwrap_or_default().to_string_lossy().to_lowercase();
 
-                                    let status = if is_suspicious {
-                                        FileScanStatus::Suspicious
-                                    } else {
-                                        FileScanStatus::Clean
-                                    };
+                                    // Detección precisa de carpetas temporales volátiles (evitando colisiones ortográficas)
+                                    let is_in_temp = lower_clean.contains("\\temp\\")
+                                        || lower_clean.ends_with("\\temp")
+                                        || lower_clean.contains("\\appdata\\local\\temp\\")
+                                        || lower_clean.contains("c:\\windows\\temp\\");
+
+                                    let is_in_appdata_roaming = lower_clean.contains("\\appdata\\roaming\\") && !lower_clean.contains("\\microsoft\\");
+                                    let has_suspicious_args = raw_path.to_lowercase().contains("-enc")
+                                        || raw_path.to_lowercase().contains("-encodedcommand")
+                                        || raw_path.to_lowercase().contains("bypass -nop -w hidden");
+
+                                    // Allowlist de ejecutables del sistema legítimos de Windows
+                                    let is_legit_win_app = [
+                                        "systempropertiesperformance.exe",
+                                        "systempropertiesprotection.exe",
+                                        "systempropertiesadvanced.exe",
+                                        "systempropertiesremote.exe",
+                                        "userinit.exe",
+                                        "explorer.exe",
+                                    ].contains(&file_name.as_str());
+
+                                    let mut status = FileScanStatus::Clean;
+                                    let mut detection_details: Option<String> = None;
+
+                                    if p_type == PersistenceType::RegistryWinlogon {
+                                        if lower_name == "vmapplet" {
+                                            status = FileScanStatus::Clean;
+                                            detection_details = None;
+                                        } else if lower_name == "shell" {
+                                            if !file_name.contains("explorer.exe") {
+                                                status = FileScanStatus::Infected;
+                                                detection_details = Some("Secuestro de Shell de Winlogon detectado (Shell reemplazado por ejecutable no estándar)".to_string());
+                                            }
+                                        } else if lower_name == "userinit" {
+                                            if !lower_clean.contains("userinit.exe") {
+                                                status = FileScanStatus::Infected;
+                                                detection_details = Some("Secuestro de Userinit de Winlogon detectado".to_string());
+                                            }
+                                        }
+                                    } else if !is_legit_win_app && (is_in_temp || is_in_appdata_roaming || has_suspicious_args) {
+                                        status = FileScanStatus::Suspicious;
+                                        detection_details = Some("Ejecutable alojado en carpeta volátil o con sintaxis de comando evasiva".to_string());
+                                    }
 
                                     entries.push(PersistenceEntry {
                                         id: format!("REG_{}_{}", reg_key.replace('\\', "_"), name),
@@ -552,11 +650,7 @@ impl EndpointShield {
                                         is_enabled: true,
                                         sha256: hash,
                                         status,
-                                        detection_details: if is_suspicious {
-                                            Some("Ejecutable alojado en carpeta volátil o sintaxis de comando sospechosa".to_string())
-                                        } else {
-                                            None
-                                        },
+                                        detection_details,
                                     });
                                 }
                             }
@@ -565,14 +659,36 @@ impl EndpointShield {
                 }
             }
 
-            // 2. Carpeta Startup de Usuario
+            // 2. Carpeta Startup de Usuario (%APPDATA%) y Global (%ProgramData%)
+            let mut startup_dirs = Vec::new();
             if let Ok(appdata) = std::env::var("APPDATA") {
-                let startup_dir = PathBuf::from(appdata).join(r"Microsoft\Windows\Start Menu\Programs\Startup");
-                if let Ok(read_dir) = fs::read_dir(startup_dir) {
+                startup_dirs.push((
+                    PathBuf::from(appdata).join(r"Microsoft\Windows\Start Menu\Programs\Startup"),
+                    "Carpeta de Inicio (Usuario Actual)".to_string(),
+                ));
+            }
+            if let Ok(programdata) = std::env::var("ProgramData") {
+                startup_dirs.push((
+                    PathBuf::from(programdata).join(r"Microsoft\Windows\Start Menu\Programs\Startup"),
+                    "Carpeta de Inicio Global (Todos los Usuarios)".to_string(),
+                ));
+            } else {
+                startup_dirs.push((
+                    PathBuf::from(r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup"),
+                    "Carpeta de Inicio Global (Todos los Usuarios)".to_string(),
+                ));
+            }
+
+            for (s_dir, s_label) in startup_dirs {
+                if let Ok(read_dir) = fs::read_dir(s_dir) {
                     for entry in read_dir.flatten() {
                         let path = entry.path();
                         if path.is_file() {
                             let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                            let lower_name = name.to_lowercase();
+                            if lower_name == "desktop.ini" {
+                                continue;
+                            }
                             let is_disabled = name.ends_with(".disabled");
                             let hash = Self::calculate_file_hash(&path.to_string_lossy());
                             entries.push(PersistenceEntry {
@@ -581,7 +697,7 @@ impl EndpointShield {
                                 target_path: path.to_string_lossy().to_string(),
                                 arguments: None,
                                 entry_type: PersistenceType::StartupFolder,
-                                location: "Carpeta de Inicio (Startup)".to_string(),
+                                location: s_label.clone(),
                                 is_enabled: !is_disabled,
                                 sha256: hash,
                                 status: FileScanStatus::Clean,
@@ -592,7 +708,7 @@ impl EndpointShield {
                 }
             }
 
-            // 3. Tareas programadas principales
+            // 3. Tareas programadas principales (schtasks)
             let mut cmd = Command::new("schtasks");
             cmd.args(["/query", "/fo", "CSV", "/nh"]);
             cmd.creation_flags(CREATE_NO_WINDOW);
@@ -621,6 +737,40 @@ impl EndpointShield {
                     }
                 }
             }
+
+            // 4. Secuestro de Depurador IFEO (Image File Execution Options - MITRE T1546.012)
+            let ifeo_targets = ["sethc.exe", "utilman.exe", "osk.exe", "magnify.exe", "narrator.exe", "taskmgr.exe"];
+            for ifeo_exe in ifeo_targets {
+                let ifeo_key = format!(r"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\{}", ifeo_exe);
+                let mut cmd = Command::new("reg");
+                cmd.args(["query", &ifeo_key, "/v", "Debugger"]);
+                cmd.creation_flags(CREATE_NO_WINDOW);
+                if let Ok(out) = cmd.output() {
+                    if out.status.success() {
+                        let stdout = String::from_utf8_lossy(&out.stdout);
+                        for line in stdout.lines() {
+                            if line.trim().to_lowercase().starts_with("debugger") {
+                                let parts: Vec<&str> = line.split_whitespace().collect();
+                                if parts.len() >= 3 {
+                                    let debugger_val = parts[2..].join(" ");
+                                    entries.push(PersistenceEntry {
+                                        id: format!("IFEO_{}", ifeo_exe),
+                                        name: format!("Secuestro IFEO ({})", ifeo_exe),
+                                        target_path: debugger_val.clone(),
+                                        arguments: None,
+                                        entry_type: PersistenceType::RegistryRun,
+                                        location: ifeo_key.clone(),
+                                        is_enabled: true,
+                                        sha256: Self::calculate_file_hash(&debugger_val),
+                                        status: FileScanStatus::Infected,
+                                        detection_details: Some("Secuestro de depurador IFEO activo (MITRE T1546.012). Herramienta de accesibilidad redirigida a otro ejecutable.".to_string()),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         if entries.is_empty() {
@@ -641,7 +791,6 @@ impl EndpointShield {
         entries
     }
 
-    /// Alterna el estado activo/desactivado de una entrada de persistencia
     pub fn toggle_persistence(&self, id: &str, enable: bool) -> Result<bool> {
         info!("toggle_persistence: id={}, enable={}", id, enable);
         Ok(enable)
@@ -1285,5 +1434,22 @@ mod tests {
         assert!(alerts.iter().any(|a| a.category == ThreatCategory::AndroidMaliciousApkSideload));
 
         let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_persistence_vmapplet_and_clean_baseline() {
+        let temp_dir = std::env::temp_dir().join(format!("samulibre_persist_test_{}", std::process::id()));
+        let shield = EndpointShield::new(&temp_dir);
+        let entries = shield.scan_persistence();
+
+        // Verificar que VMApplet o SystemProperties jamás sean catalogados como sospechosos
+        for entry in &entries {
+            if entry.name.to_lowercase() == "vmapplet" || entry.target_path.to_lowercase().contains("systemproperties") {
+                assert_ne!(entry.status, FileScanStatus::Suspicious, "VMApplet/SystemProperties no debe ser sospechoso");
+            }
+            if entry.name.to_lowercase() == "desktop.ini" {
+                panic!("desktop.ini no debe aparecer en la lista de persistencia");
+            }
+        }
     }
 }

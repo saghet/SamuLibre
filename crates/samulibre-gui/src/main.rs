@@ -25,6 +25,7 @@ use wry::WebViewBuilder;
 use std::os::windows::process::CommandExt;
 
 static IS_SCAN_CANCELLED: AtomicBool = AtomicBool::new(false);
+static IS_SCAN_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 
 #[cfg(target_os = "windows")]
 mod win_eco {
@@ -32,6 +33,7 @@ mod win_eco {
     extern "system" {
         pub fn GetCurrentThread() -> isize;
         pub fn SetThreadPriority(hThread: isize, nPriority: i32) -> i32;
+        pub fn SetThreadAffinityMask(hThread: isize, dwThreadAffinityMask: usize) -> usize;
         pub fn GetCurrentProcess() -> isize;
     }
 
@@ -41,6 +43,15 @@ mod win_eco {
     }
 
     pub const THREAD_PRIORITY_LOWEST: i32 = -2;
+
+    pub fn set_current_thread_affinity_and_priority(num_threads: usize) {
+        unsafe {
+            let thread = GetCurrentThread();
+            let mask = (1usize << num_threads.min(64)) - 1;
+            SetThreadAffinityMask(thread, mask);
+            SetThreadPriority(thread, THREAD_PRIORITY_LOWEST);
+        }
+    }
 
     pub fn set_current_thread_eco_qos() {
         unsafe {
@@ -232,6 +243,47 @@ fn get_project_root() -> PathBuf {
     std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
 }
 
+#[cfg(target_os = "windows")]
+pub fn is_running_as_admin() -> bool {
+    #[link(name = "shell32")]
+    extern "system" {
+        fn IsUserAnAdmin() -> i32;
+    }
+    unsafe { IsUserAnAdmin() != 0 }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn is_running_as_admin() -> bool {
+    unsafe { libc::geteuid() == 0 }
+}
+
+#[cfg(target_os = "windows")]
+pub fn request_uac_admin_confirmation(_action_description: &str) -> bool {
+    if is_running_as_admin() {
+        return true;
+    }
+
+    // Solicitar elevación UAC nativa de Windows
+    let status = std::process::Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-Command",
+            "Start-Process cmd.exe -ArgumentList '/c (net session >nul 2>&1) && exit 0 || exit 1' -Verb RunAs -WindowStyle Hidden -Wait",
+        ])
+        .creation_flags(0x08000000)
+        .status();
+
+    match status {
+        Ok(s) => s.success(),
+        Err(_) => false,
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn request_uac_admin_confirmation(_action_description: &str) -> bool {
+    is_running_as_admin()
+}
+
 fn is_windows_autostart_enabled() -> bool {
     #[cfg(target_os = "windows")]
     {
@@ -249,6 +301,13 @@ fn is_windows_autostart_enabled() -> bool {
 fn set_windows_autostart(enable: bool) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
+        if !is_running_as_admin() {
+            let confirmed = request_uac_admin_confirmation("modificar las opciones de inicio con Windows");
+            if !confirmed {
+                return Err("Operación cancelada: Se requieren permisos de Administrador para modificar el arranque automático.".to_string());
+            }
+        }
+
         if enable {
             let current_exe = std::env::current_exe().map_err(|e| e.to_string())?;
             let exe_str = current_exe.to_string_lossy().to_string();
@@ -587,6 +646,7 @@ fn run_app(app_root: PathBuf) -> Result<()> {
         .with_title("SamuLibre - Suite de Seguridad Open Source")
         .with_inner_size(tao::dpi::LogicalSize::new(1060.0, 690.0))
         .with_min_inner_size(tao::dpi::LogicalSize::new(840.0, 560.0))
+        .with_visible(false)
         .with_decorations(true);
 
     if let Some(w_icon) = window_icon {
@@ -604,7 +664,7 @@ fn run_app(app_root: PathBuf) -> Result<()> {
     let item_scan = MenuItem::new("⚡ Escaneo Rápido", true, None);
     let item_update = MenuItem::new("🔄 Actualizar Firmas", true, None);
     let sep = PredefinedMenuItem::separator();
-    let item_quit = MenuItem::new("❌ Salir de SamuLibre", true, None);
+    let item_quit = MenuItem::new("🔒 Salir de SamuLibre (Requiere Admin)", true, None);
 
     let _ = tray_menu.append_items(&[
         &item_show,
@@ -752,7 +812,15 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                                     .into_iter()
                                     .filter_entry(|e| {
                                         let name = e.file_name().to_string_lossy();
-                                        !name.starts_with('.') && name != "node_modules" && name != "target"
+                                        let path_str = e.path().to_string_lossy();
+                                        !name.starts_with('.') 
+                                            && name != "node_modules" 
+                                            && name != "target"
+                                            && name != "$Recycle.Bin"
+                                            && !path_str.contains("Antivitus-SamuLibre")
+                                            && !path_str.contains("quarantine")
+                                            && !path_str.contains("threat_history.json")
+                                            && !path_str.contains("exclusions.json")
                                     })
                                     .filter_map(|e| e.ok())
                                 {
@@ -760,6 +828,13 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                                         break;
                                     }
                                     if entry.file_type().is_file() {
+                                        let p_str = entry.path().to_string_lossy();
+                                        if p_str.contains("Antivitus-SamuLibre") 
+                                            || p_str.contains("quarantine") 
+                                            || p_str.contains("threat_history.json") 
+                                            || p_str.ends_with(".quarantine") {
+                                            continue;
+                                        }
                                         candidate_paths.push(entry.into_path());
                                     }
                                 }
@@ -829,7 +904,15 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                                             .into_iter()
                                             .filter_entry(|e| {
                                                 let name = e.file_name().to_string_lossy();
-                                                !name.starts_with('.') && name != "node_modules" && name != "target"
+                                                let path_str = e.path().to_string_lossy();
+                                                !name.starts_with('.') 
+                                                    && name != "node_modules" 
+                                                    && name != "target"
+                                                    && name != "$Recycle.Bin"
+                                                    && !path_str.contains("Antivitus-SamuLibre")
+                                                    && !path_str.contains("quarantine")
+                                                    && !path_str.contains("threat_history.json")
+                                                    && !path_str.contains("exclusions.json")
                                             })
                                             .filter_map(|e| e.ok())
                                         {
@@ -837,6 +920,13 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                                                 break;
                                             }
                                             if entry.file_type().is_file() {
+                                                let p_str = entry.path().to_string_lossy();
+                                                if p_str.contains("Antivitus-SamuLibre") 
+                                                    || p_str.contains("quarantine") 
+                                                    || p_str.contains("threat_history.json") 
+                                                    || p_str.ends_with(".quarantine") {
+                                                    continue;
+                                                }
                                                 candidate_paths.push(entry.into_path());
                                             }
                                         }
@@ -877,6 +967,7 @@ fn run_app(app_root: PathBuf) -> Result<()> {
 
                     "cancel_scan" => {
                         IS_SCAN_CANCELLED.store(true, Ordering::SeqCst);
+                        IS_SCAN_IN_PROGRESS.store(false, Ordering::SeqCst);
                         let _ = proxy_for_ipc.send_event(CustomUserEvent::RealTimeAlert {
                             title: "⏹️ Deteniendo Análisis".to_string(),
                             details: "Cancelación solicitada por el usuario. Deteniendo análisis...".to_string(),
@@ -890,13 +981,25 @@ fn run_app(app_root: PathBuf) -> Result<()> {
 
                     "set_autostart" => {
                         let enable = msg.payload.map(|s| s == "true" || s == "1").unwrap_or(true);
-                        let _ = set_windows_autostart(enable);
-                        let enabled = is_windows_autostart_enabled();
-                        let _ = proxy_for_ipc.send_event(CustomUserEvent::AutostartStatusLoaded { enabled });
-                        let _ = proxy_for_ipc.send_event(CustomUserEvent::RealTimeAlert {
-                            title: if enabled { "✔ Inicio con Windows Activado".to_string() } else { "Inicio con Windows Desactivado".to_string() },
-                            details: if enabled { "SamuLibre se iniciará automáticamente minimizado en la bandeja al arrancar Windows.".to_string() } else { "Se eliminó SamuLibre del inicio automático de Windows.".to_string() },
-                        });
+                        let res = set_windows_autostart(enable);
+                        match res {
+                            Ok(()) => {
+                                let enabled = is_windows_autostart_enabled();
+                                let _ = proxy_for_ipc.send_event(CustomUserEvent::AutostartStatusLoaded { enabled });
+                                let _ = proxy_for_ipc.send_event(CustomUserEvent::RealTimeAlert {
+                                    title: if enabled { "✔ Inicio con Windows Activado".to_string() } else { "Inicio con Windows Desactivado".to_string() },
+                                    details: if enabled { "SamuLibre se iniciará automáticamente minimizado en la bandeja al arrancar Windows.".to_string() } else { "Se eliminó SamuLibre del inicio automático de Windows.".to_string() },
+                                });
+                            }
+                            Err(err_msg) => {
+                                let enabled = is_windows_autostart_enabled();
+                                let _ = proxy_for_ipc.send_event(CustomUserEvent::AutostartStatusLoaded { enabled });
+                                let _ = proxy_for_ipc.send_event(CustomUserEvent::RealTimeAlert {
+                                    title: "Acceso Denegado (Requiere Administrador)".to_string(),
+                                    details: err_msg,
+                                });
+                            }
+                        }
                     }
 
                     "get_threat_history" => {
@@ -1315,6 +1418,26 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                         }
                     }
 
+                    "run_daily_kb_check" => {
+                        let core_cloned = Arc::clone(&core_for_ipc);
+                        let proxy_cloned = proxy_for_ipc.clone();
+                        std::thread::spawn(move || {
+                            if let Ok(c) = core_cloned.lock() {
+                                let (new_kbs, _) = c.run_daily_kb_verification();
+                                let rules = c.get_patch_rules();
+                                let os_info = c.get_os_info();
+                                let sentinel_status = Some(c.get_sentinel_status());
+                                let kb_monitor_status = Some(c.get_kb_monitor_status());
+                                let _ = proxy_cloned.send_event(CustomUserEvent::UpdatePatchRules { rules, os_info, sentinel_status, kb_monitor_status });
+                                if new_kbs > 0 {
+                                    let title = "??? Monitor Diario de KBs".to_string();
+                                    let details = format!("Se detectaron {} nuevas actualizaciones de seguridad en el cat?logo.", new_kbs);
+                                    let _ = proxy_cloned.send_event(CustomUserEvent::RealTimeAlert { title, details });
+                                }
+                            }
+                        });
+                    }
+
                     "run_ai_kb_audit" => {
                         let core_cloned = Arc::clone(&core_for_ipc);
                         let proxy_cloned = proxy_for_ipc.clone();
@@ -1702,6 +1825,8 @@ fn run_app(app_root: PathBuf) -> Result<()> {
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(350));
         if let Ok(c) = core_init.lock() {
+            // Verificaci?n inicial diaria de KBs para supersesi?n nativa y cat?logo actualizado
+            let _ = c.run_daily_kb_verification();
             let rules = c.get_patch_rules();
             let os_info = c.get_os_info();
             let sentinel_status = Some(c.get_sentinel_status());
@@ -1746,10 +1871,16 @@ fn run_app(app_root: PathBuf) -> Result<()> {
     let core_sentinel = Arc::clone(&core);
     std::thread::spawn(move || {
         win_eco::set_current_thread_eco_qos();
+        let mut sentinel_cycles: u64 = 0;
         loop {
             // Dormir 15 minutos entre ciclos periódicos de auditoría
             std::thread::sleep(std::time::Duration::from_secs(900));
+            sentinel_cycles += 1;
             if let Ok(c) = core_sentinel.lock() {
+                // Cada 24 horas (96 ciclos de 15 min = 24h) ejecutar la verificaci?n diaria de nuevos KBs
+                if sentinel_cycles % 96 == 0 {
+                    let _ = c.run_daily_kb_verification();
+                }
                 let (_unmitigated, _active, _native, auto_patched) = c.run_sentinel_audit_cycle();
                 let _ai_results = c.run_ai_kb_audit_cycle();
                 if !auto_patched.is_empty() {
@@ -1910,21 +2041,31 @@ fn run_app(app_root: PathBuf) -> Result<()> {
             }
 
             Event::UserEvent(CustomUserEvent::TriggerScan) => {
+                if IS_SCAN_IN_PROGRESS.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
+                    window.set_visible(true);
+                    window.set_minimized(false);
+                    window.set_focus();
+                    let _ = webview.evaluate_script("if (window.showScanProgressUI) { window.showScanProgressUI(); }");
+                    return;
+                }
+
                 IS_SCAN_CANCELLED.store(false, Ordering::SeqCst);
                 window.set_visible(true);
                 window.set_minimized(false);
                 window.set_focus();
-                let _ = webview.evaluate_script("if (window.triggerQuickScan) { window.triggerQuickScan(); }");
+                let _ = webview.evaluate_script("if (window.showScanProgressUI) { window.showScanProgressUI(); }");
 
                 let proxy_scan = proxy.clone();
                 let scanner_arc = if let Ok(c) = core_for_actions.lock() {
                     Arc::clone(&c.scanner)
                 } else {
+                    IS_SCAN_IN_PROGRESS.store(false, Ordering::SeqCst);
                     return;
                 };
 
                 std::thread::spawn(move || {
                     execute_scan_loop(proxy_scan, scanner_arc);
+                    IS_SCAN_IN_PROGRESS.store(false, Ordering::SeqCst);
                 });
             }
 
@@ -2138,6 +2279,21 @@ fn run_app(app_root: PathBuf) -> Result<()> {
             }
 
             Event::UserEvent(CustomUserEvent::Quit) => {
+                #[cfg(target_os = "windows")]
+                {
+                    if !is_running_as_admin() {
+                        let confirmed = request_uac_admin_confirmation("detener la protección de SamuLibre y salir");
+                        if !confirmed {
+                            log_step("Intento de salida bloqueado: Permisos de Administrador denegados por UAC.");
+                            let _ = proxy.send_event(CustomUserEvent::RealTimeAlert {
+                                title: "🛡️ Protección contra Manipulación".to_string(),
+                                details: "Se bloqueó el cierre de SamuLibre. Solo un Administrador del equipo puede detener la protección en tiempo real.".to_string(),
+                            });
+                            return;
+                        }
+                    }
+                }
+
                 if let Ok(c) = core_for_actions.lock() {
                     let _ = c.reset_vpn_network();
                 }
@@ -2171,66 +2327,92 @@ fn scan_paths_parallel(
     let last_ui_update = Arc::new(Mutex::new(std::time::Instant::now()));
     let start_time = std::time::Instant::now();
 
-    paths.par_iter().for_each(|path| {
-        if IS_SCAN_CANCELLED.load(Ordering::Relaxed) {
-            return;
-        }
+    let num_cpus = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8);
+    // Keep CPU cool and leave cores completely free:
+    // On 16-core CPU (e.g. Ryzen 9 7940HS), use 5 threads (leaving 11 logical cores 100% idle at 0%).
+    let scan_threads = if num_cpus > 8 {
+        5
+    } else if num_cpus > 4 {
+        num_cpus - 2
+    } else {
+        1.max(num_cpus - 1)
+    };
 
-        let curr_scanned = scanned_count.fetch_add(1, Ordering::Relaxed) + 1;
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(scan_threads)
+        .thread_name(|i| format!("samu-scan-{}", i))
+        .start_handler(move |_idx| {
+            #[cfg(target_os = "windows")]
+            win_eco::set_current_thread_affinity_and_priority(scan_threads);
+        })
+        .build()
+        .unwrap_or_else(|_| rayon::ThreadPoolBuilder::new().build().unwrap());
 
-        if let Ok(res) = scanner_arc.scan_file(path) {
-            if res.status == samulibre_types::FileScanStatus::Infected || res.status == samulibre_types::FileScanStatus::Suspicious {
-                threats_count.fetch_add(1, Ordering::Relaxed);
-                let threat_name = res.detection_name.clone().unwrap_or_else(|| "Amenaza.Desconocida".to_string());
-                let severity = if threat_name.to_lowercase().contains("critical") || threat_name.to_lowercase().contains("wiper") || threat_name.to_lowercase().contains("ransomware") || threat_name.to_lowercase().contains("eicar") {
-                    "Crítica".to_string()
-                } else if threat_name.to_lowercase().contains("trojan") || threat_name.to_lowercase().contains("exploit") || threat_name.to_lowercase().contains("dropper") {
-                    "Alta".to_string()
-                } else {
-                    "Media".to_string()
-                };
-                let (origin_source, origin_url, human_explanation, suggested_action) = samulibre_scanner::extract_file_origin_and_story(path, &threat_name);
-                let rec = samulibre_types::ThreatRecord {
-                    id: uuid::Uuid::new_v4().to_string(),
-                    timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
-                    file_path: path.to_string_lossy().to_string(),
-                    threat_name,
-                    engine: res.engine.clone(),
-                    sha256: res.sha256.clone(),
-                    severity,
-                    action_taken: "Pendiente".to_string(),
-                    quarantine_id: None,
-                    origin_source,
-                    origin_url,
-                    human_explanation,
-                    suggested_action,
-                };
-                if let Ok(mut list) = detected_threats.lock() {
-                    list.push(rec);
+    pool.install(|| {
+        paths.par_iter().for_each(|path| {
+            if IS_SCAN_CANCELLED.load(Ordering::Relaxed) {
+                return;
+            }
+
+            // Micro-pausa de 150us para permitir descanso térmico al CPU y evitar estrangulamiento
+            std::thread::sleep(std::time::Duration::from_micros(150));
+
+            let curr_scanned = scanned_count.fetch_add(1, Ordering::Relaxed) + 1;
+
+            if let Ok(res) = scanner_arc.scan_file(path) {
+                if res.status == samulibre_types::FileScanStatus::Infected || res.status == samulibre_types::FileScanStatus::Suspicious {
+                    threats_count.fetch_add(1, Ordering::Relaxed);
+                    let threat_name = res.detection_name.clone().unwrap_or_else(|| "Amenaza.Desconocida".to_string());
+                    let severity = if threat_name.to_lowercase().contains("critical") || threat_name.to_lowercase().contains("wiper") || threat_name.to_lowercase().contains("ransomware") || threat_name.to_lowercase().contains("eicar") {
+                        "Crítica".to_string()
+                    } else if threat_name.to_lowercase().contains("trojan") || threat_name.to_lowercase().contains("exploit") || threat_name.to_lowercase().contains("dropper") {
+                        "Alta".to_string()
+                    } else {
+                        "Media".to_string()
+                    };
+                    let (origin_source, origin_url, human_explanation, suggested_action) = samulibre_scanner::extract_file_origin_and_story(path, &threat_name);
+                    let rec = samulibre_types::ThreatRecord {
+                        id: uuid::Uuid::new_v4().to_string(),
+                        timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+                        file_path: path.to_string_lossy().to_string(),
+                        threat_name,
+                        engine: res.engine.clone(),
+                        sha256: res.sha256.clone(),
+                        severity,
+                        action_taken: "Pendiente".to_string(),
+                        quarantine_id: None,
+                        origin_source,
+                        origin_url,
+                        human_explanation,
+                        suggested_action,
+                    };
+                    if let Ok(mut list) = detected_threats.lock() {
+                        list.push(rec);
+                    }
                 }
             }
-        }
 
-        let mut do_update = false;
-        if let Ok(mut last) = last_ui_update.try_lock() {
-            if last.elapsed() >= std::time::Duration::from_millis(35) {
-                *last = std::time::Instant::now();
-                do_update = true;
+            let mut do_update = false;
+            if let Ok(mut last) = last_ui_update.try_lock() {
+                if last.elapsed() >= std::time::Duration::from_millis(40) {
+                    *last = std::time::Instant::now();
+                    do_update = true;
+                }
             }
-        }
 
-        if do_update {
-            let t_count = threats_count.load(Ordering::Relaxed);
-            let elapsed_sec = start_time.elapsed().as_secs_f64().max(0.01);
-            let speed = (curr_scanned as f64 / elapsed_sec) as usize;
-            let current_label = format!("{} [{} arch/s | {} hilos CPU]", path.file_name().unwrap_or_default().to_string_lossy(), speed, rayon::current_num_threads());
-            let _ = proxy.send_event(CustomUserEvent::ScanProgress {
-                files_scanned: curr_scanned,
-                current_file: current_label,
-                threats_found: t_count,
-                is_done: false,
-            });
-        }
+            if do_update {
+                let t_count = threats_count.load(Ordering::Relaxed);
+                let elapsed_sec = start_time.elapsed().as_secs_f64().max(0.01);
+                let speed = (curr_scanned as f64 / elapsed_sec) as usize;
+                let current_label = format!("{} [{} arch/s | {} hilos EcoQoS]", path.file_name().unwrap_or_default().to_string_lossy(), speed, scan_threads);
+                let _ = proxy.send_event(CustomUserEvent::ScanProgress {
+                    files_scanned: curr_scanned,
+                    current_file: current_label,
+                    threats_found: t_count,
+                    is_done: false,
+                });
+            }
+        });
     });
 
     let final_scanned = scanned_count.load(Ordering::SeqCst);
@@ -2250,6 +2432,7 @@ fn execute_scan_loop(
     let scanner_arc = if let Ok(s) = scanner_mutex.lock() {
         Arc::new(s.clone())
     } else {
+        IS_SCAN_IN_PROGRESS.store(false, Ordering::SeqCst);
         return;
     };
 
@@ -2279,9 +2462,13 @@ fn execute_scan_loop(
         dirs.push(cwd);
     }
 
+    let num_cpus = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8);
+    let scan_threads = if num_cpus > 8 { 5 } else if num_cpus > 4 { num_cpus - 2 } else { 1.max(num_cpus - 1) };
+    let free_cores = num_cpus.saturating_sub(scan_threads);
+
     let _ = proxy.send_event(CustomUserEvent::ScanProgress {
         files_scanned: 0,
-        current_file: format!("Preparando hilos de procesamiento ({} núcleos)...", rayon::current_num_threads()),
+        current_file: format!("Preparando escaneo EcoQoS ({} hilos activos, {} núcleos libres)...", scan_threads, free_cores),
         threats_found: 0,
         is_done: false,
     });
@@ -2296,11 +2483,20 @@ fn execute_scan_loop(
             .into_iter()
             .filter_entry(|e| {
                 let name = e.file_name().to_string_lossy();
-                !name.starts_with('.') && name != "node_modules" && name != "target" && name != "$Recycle.Bin"
+                let path_str = e.path().to_string_lossy();
+                !name.starts_with('.') 
+                    && name != "node_modules" 
+                    && name != "target" 
+                    && name != "$Recycle.Bin"
+                    && !path_str.contains("Antivitus-SamuLibre")
+                    && !path_str.contains("quarantine")
+                    && !path_str.contains("threat_history.json")
+                    && !path_str.contains("exclusions.json")
             })
             .filter_map(|e| e.ok())
         {
             if IS_SCAN_CANCELLED.load(Ordering::Relaxed) {
+                IS_SCAN_IN_PROGRESS.store(false, Ordering::SeqCst);
                 let _ = proxy.send_event(CustomUserEvent::ScanProgress {
                     files_scanned: 0,
                     current_file: "Análisis detenido por el usuario.".to_string(),
@@ -2310,6 +2506,13 @@ fn execute_scan_loop(
                 return;
             }
             if entry.file_type().is_file() {
+                let p_str = entry.path().to_string_lossy();
+                if p_str.contains("Antivitus-SamuLibre") 
+                    || p_str.contains("quarantine") 
+                    || p_str.contains("threat_history.json") 
+                    || p_str.ends_with(".quarantine") {
+                    continue;
+                }
                 candidate_paths.push(entry.into_path());
             }
         }
@@ -2329,6 +2532,8 @@ fn execute_scan_loop(
         save_threat_history(&history);
         let _ = proxy.send_event(CustomUserEvent::ThreatHistoryLoaded { history });
     }
+
+    IS_SCAN_IN_PROGRESS.store(false, Ordering::SeqCst);
 
     let _ = proxy.send_event(CustomUserEvent::ScanCompleted {
         files_scanned: total_scanned,

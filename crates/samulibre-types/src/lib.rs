@@ -239,6 +239,14 @@ pub struct KbMonitorStatus {
     pub ai_analyzed_count: usize,
     pub auto_vpatch_count: usize,
     pub ai_autopilot_enabled: bool,
+    #[serde(default)]
+    pub daily_monitor_active: bool,
+    #[serde(default)]
+    pub last_daily_check: Option<String>,
+    #[serde(default)]
+    pub next_daily_check: Option<String>,
+    #[serde(default)]
+    pub daily_check_log: Vec<String>,
 }
 
 /// Tipo de mecanismo de persistencia detectado en el arranque del SO
