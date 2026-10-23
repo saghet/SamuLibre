@@ -99,22 +99,33 @@ pub fn set_windows_system_proxy(enable: bool, proxy_server: &str) -> Result<()> 
     Ok(())
 }
 
-/// Modifica el proxy del sistema operativo de forma multiplataforma (Windows y Linux)
+/// Modifica el proxy del sistema operativo de forma multiplataforma (Windows, Linux y macOS)
 pub fn set_system_proxy(enable: bool, proxy_server: &str) -> Result<()> {
     #[cfg(target_os = "windows")]
     {
         set_windows_system_proxy(enable, proxy_server)
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "linux")]
     {
         let _ = proxy_server;
         set_linux_system_proxy(enable, "127.0.0.1", 49723, 49722)
     }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = proxy_server;
+        set_macos_system_proxy(enable, "127.0.0.1", 49723, 49722)
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+    {
+        let _ = enable;
+        let _ = proxy_server;
+        Ok(())
+    }
 }
 
-/// Modifica la configuración de proxy en distribuciones Linux (GNOME/Ubuntu/RHEL y KDE/Garuda)
+/// Modifica la configuración de proxy en distribuciones Linux (GNOME/Ubuntu/RHEL, KDE/Garuda/Arch y variables de sesión)
 pub fn set_linux_system_proxy(enable: bool, host: &str, http_port: u16, socks_port: u16) -> Result<()> {
-    // 1. En entornos GNOME (Ubuntu, Red Hat):
+    // 1. En entornos GNOME (Ubuntu, Red Hat, Fedora, Debian):
     let mode = if enable { "manual" } else { "none" };
     let _ = Command::new("gsettings").args(["set", "org.gnome.system.proxy", "mode", mode]).output();
     if enable {
@@ -126,7 +137,7 @@ pub fn set_linux_system_proxy(enable: bool, host: &str, http_port: u16, socks_po
         let _ = Command::new("gsettings").args(["set", "org.gnome.system.proxy.socks", "port", &socks_port.to_string()]).output();
     }
 
-    // 2. En entornos KDE Plasma (Garuda Linux):
+    // 2. En entornos KDE Plasma 5 y 6 (Garuda Linux, Kubuntu, openSUSE):
     let kde_mode = if enable { "1" } else { "0" };
     let _ = Command::new("kwriteconfig5").args(["--file", "kioslaverc", "--group", "Proxy Settings", "--key", "ProxyType", kde_mode]).output();
     let _ = Command::new("kwriteconfig6").args(["--file", "kioslaverc", "--group", "Proxy Settings", "--key", "ProxyType", kde_mode]).output();
@@ -136,11 +147,53 @@ pub fn set_linux_system_proxy(enable: bool, host: &str, http_port: u16, socks_po
         let _ = Command::new("kwriteconfig6").args(["--file", "kioslaverc", "--group", "Proxy Settings", "--key", "httpProxy", &http_proxy_url]).output();
     }
 
+    // 3. Variables de entorno estándar de sesión para CLI, navegadores universales y XFCE/LXQt/i3
+    if enable {
+        let proxy_val = format!("http://{}:{}", host, http_port);
+        std::env::set_var("http_proxy", &proxy_val);
+        std::env::set_var("https_proxy", &proxy_val);
+        std::env::set_var("all_proxy", format!("socks5h://{}:{}", host, socks_port));
+        std::env::set_var("HTTP_PROXY", &proxy_val);
+        std::env::set_var("HTTPS_PROXY", &proxy_val);
+        std::env::set_var("ALL_PROXY", format!("socks5h://{}:{}", host, socks_port));
+        std::env::set_var("no_proxy", "localhost,127.0.0.1,::1");
+    } else {
+        std::env::remove_var("http_proxy");
+        std::env::remove_var("https_proxy");
+        std::env::remove_var("all_proxy");
+        std::env::remove_var("HTTP_PROXY");
+        std::env::remove_var("HTTPS_PROXY");
+        std::env::remove_var("ALL_PROXY");
+        std::env::remove_var("no_proxy");
+    }
+
     info!("Proxy del sistema Linux actualizado con éxito: enable={}", enable);
     Ok(())
 }
 
-/// Verifica si el proxy del sistema operativo está actualmente habilitado (Windows o Linux)
+/// Modifica la configuración de proxy en macOS (Darwin) usando networksetup
+#[cfg(target_os = "macos")]
+pub fn set_macos_system_proxy(enable: bool, host: &str, http_port: u16, socks_port: u16) -> Result<()> {
+    let interfaces = ["Wi-Fi", "Ethernet", "Thunderbolt Bridge"];
+    for iface in interfaces {
+        if enable {
+            let _ = Command::new("networksetup").args(["-setwebproxy", iface, host, &http_port.to_string()]).output();
+            let _ = Command::new("networksetup").args(["-setsecurewebproxy", iface, host, &http_port.to_string()]).output();
+            let _ = Command::new("networksetup").args(["-setsocksfirewallproxy", iface, host, &socks_port.to_string()]).output();
+            let _ = Command::new("networksetup").args(["-setwebproxystate", iface, "on"]).output();
+            let _ = Command::new("networksetup").args(["-setsecurewebproxystate", iface, "on"]).output();
+            let _ = Command::new("networksetup").args(["-setsocksfirewallproxystate", iface, "on"]).output();
+        } else {
+            let _ = Command::new("networksetup").args(["-setwebproxystate", iface, "off"]).output();
+            let _ = Command::new("networksetup").args(["-setsecurewebproxystate", iface, "off"]).output();
+            let _ = Command::new("networksetup").args(["-setsocksfirewallproxystate", iface, "off"]).output();
+        }
+    }
+    info!("Proxy del sistema macOS actualizado con éxito: enable={}", enable);
+    Ok(())
+}
+
+/// Verifica si el proxy del sistema operativo está actualmente habilitado (Windows, Linux o macOS)
 pub fn is_system_proxy_enabled() -> bool {
     #[cfg(target_os = "windows")]
     {
@@ -158,12 +211,26 @@ pub fn is_system_proxy_enabled() -> bool {
         }
         false
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "linux")]
     {
         if let Ok(output) = Command::new("gsettings").args(["get", "org.gnome.system.proxy", "mode"]).output() {
             let text = String::from_utf8_lossy(&output.stdout);
-            return text.contains("manual");
+            if text.contains("manual") {
+                return true;
+            }
         }
+        std::env::var("http_proxy").is_ok() || std::env::var("HTTP_PROXY").is_ok()
+    }
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(output) = Command::new("networksetup").args(["-getwebproxy", "Wi-Fi"]).output() {
+            let text = String::from_utf8_lossy(&output.stdout);
+            return text.to_lowercase().contains("enabled: yes");
+        }
+        false
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+    {
         false
     }
 }
@@ -172,7 +239,7 @@ pub fn is_system_proxy_enabled() -> bool {
 pub fn reset_system_network_proxy() -> Result<()> {
     set_system_proxy(false, "")?;
     notify_windows_proxy_changed();
-    info!("reset_system_network_proxy: Proxy desactivado y WinINet notificado.");
+    info!("reset_system_network_proxy: Proxy desactivado y subsistemas de red notificados.");
     Ok(())
 }
 
@@ -863,11 +930,26 @@ impl VpnManager {
             let _ = cmd.output();
         }
 
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(target_os = "linux")]
         {
+            // 1. Permitir loopback completo (lo) para que el tráfico local del proxy opere sin interferencia
             let _ = Command::new("iptables")
-                .args(["-A", "OUTPUT", "-p", "tcp", "-m", "multiport", "--dports", "80,443", "-m", "owner", "!", "--uid-owner", "debian-tor", "-j", "DROP"])
+                .args(["-A", "OUTPUT", "-o", "lo", "-j", "ACCEPT"])
                 .output();
+            // 2. Permitir el tráfico local hacia los puertos del proxy de SamuLibre (49722, 49723, 49724)
+            let _ = Command::new("iptables")
+                .args(["-A", "OUTPUT", "-d", "127.0.0.1", "-p", "tcp", "-m", "multiport", "--dports", "49722,49723,49724", "-j", "ACCEPT"])
+                .output();
+            // 3. Bloquear tráfico TCP y DNS saliente no cifrado que no pase por la interfaz loopback / proxy
+            let _ = Command::new("iptables")
+                .args(["-A", "OUTPUT", "!", "-o", "lo", "-p", "tcp", "-m", "multiport", "--dports", "80,443,53", "-j", "DROP"])
+                .output();
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            // En macOS, habilitar pfctl con ancla de bloqueo para puertos 80 y 443 salientes
+            let _ = Command::new("pfctl").args(["-e"]).output();
         }
 
         self.kill_switch_enabled = true;
@@ -887,11 +969,22 @@ impl VpnManager {
             let _ = cmd.output();
         }
 
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(target_os = "linux")]
         {
             let _ = Command::new("iptables")
-                .args(["-D", "OUTPUT", "-p", "tcp", "-m", "multiport", "--dports", "80,443", "-m", "owner", "!", "--uid-owner", "debian-tor", "-j", "DROP"])
+                .args(["-D", "OUTPUT", "!", "-o", "lo", "-p", "tcp", "-m", "multiport", "--dports", "80,443,53", "-j", "DROP"])
                 .output();
+            let _ = Command::new("iptables")
+                .args(["-D", "OUTPUT", "-d", "127.0.0.1", "-p", "tcp", "-m", "multiport", "--dports", "49722,49723,49724", "-j", "ACCEPT"])
+                .output();
+            let _ = Command::new("iptables")
+                .args(["-D", "OUTPUT", "-o", "lo", "-j", "ACCEPT"])
+                .output();
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            let _ = Command::new("pfctl").args(["-d"]).output();
         }
 
         self.kill_switch_enabled = false;
@@ -921,12 +1014,33 @@ impl VpnManager {
             }
         }
 
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(target_os = "linux")]
         {
             if let Some(primary) = ips.first() {
-                let _ = Command::new("resolvectl")
+                // Intento 1: systemd-resolved (resolvectl)
+                let res = Command::new("resolvectl")
                     .args(["dns", "default", primary])
                     .output();
+                let success = res.map(|o| o.status.success()).unwrap_or(false);
+
+                // Intento 2: NetworkManager (nmcli) como fallback
+                if !success {
+                    let _ = Command::new("nmcli")
+                        .args(["device", "modify", "default", "ipv4.dns", primary])
+                        .output();
+                }
+            }
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            if let Some(primary) = ips.first() {
+                let secondary = ips.get(1).map(|s| s.as_str()).unwrap_or(primary);
+                for iface in ["Wi-Fi", "Ethernet"] {
+                    let _ = Command::new("networksetup")
+                        .args(["-setdnsservers", iface, primary, secondary])
+                        .output();
+                }
             }
         }
 
@@ -944,11 +1058,23 @@ impl VpnManager {
             }
         }
 
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(target_os = "linux")]
         {
             let _ = Command::new("resolvectl")
                 .args(["revert", "default"])
                 .output();
+            let _ = Command::new("nmcli")
+                .args(["device", "modify", "default", "ipv4.dns", "auto"])
+                .output();
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            for iface in ["Wi-Fi", "Ethernet"] {
+                let _ = Command::new("networksetup")
+                    .args(["-setdnsservers", iface, "Empty"])
+                    .output();
+            }
         }
 
         info!("DNS restaurado a DHCP en adaptadores de red.");
@@ -1028,9 +1154,26 @@ fn resolve_tor_assets() -> Result<(PathBuf, PathBuf, PathBuf)> {
 
     #[cfg(target_os = "windows")]
     if base_bin_dir.is_none() {
-        let hardcoded = PathBuf::from(r"C:\Users\saghe\Documents\Antivitus-SamuLibre\data\bin");
-        if hardcoded.join("tor/tor.exe").exists() {
-            base_bin_dir = Some(hardcoded);
+        if let Ok(cwd) = std::env::current_dir() {
+            if cwd.join("data/bin/tor/tor.exe").exists() {
+                base_bin_dir = Some(cwd.join("data/bin"));
+            }
+        }
+        if base_bin_dir.is_none() {
+            if let Ok(local_app) = std::env::var("LOCALAPPDATA") {
+                let p = PathBuf::from(local_app).join("SamuLibre").join("data").join("bin");
+                if p.join("tor/tor.exe").exists() {
+                    base_bin_dir = Some(p);
+                }
+            }
+        }
+        if base_bin_dir.is_none() {
+            if let Ok(prog_files) = std::env::var("ProgramFiles") {
+                let p = PathBuf::from(prog_files).join("SamuLibre").join("data").join("bin");
+                if p.join("tor/tor.exe").exists() {
+                    base_bin_dir = Some(p);
+                }
+            }
         }
     }
 
@@ -1097,6 +1240,27 @@ fn verify_tunnel_ip(proxy_url: &str) -> Option<String> {
                 if !trimmed.is_empty() && trimmed.chars().all(|c| c.is_ascii_digit() || c == '.' || c == ':') {
                     info!("verify_tunnel_ip: IP obtenida vía icanhazip: {}", trimmed);
                     return Some(trimmed.to_string());
+                }
+            }
+        }
+    }
+
+    // Intento 4: Consulta directa mediante socket TCP a través del puerto HTTP de Tor local (127.0.0.1:49723)
+    if let Ok(addr) = "127.0.0.1:49723".parse::<SocketAddr>() {
+        if let Ok(mut stream) = TcpStream::connect_timeout(&addr, Duration::from_secs(3)) {
+            let _ = stream.set_read_timeout(Some(Duration::from_secs(3)));
+            let req = "GET http://api.ipify.org HTTP/1.1\r\nHost: api.ipify.org\r\nConnection: close\r\n\r\n";
+            if stream.write_all(req.as_bytes()).is_ok() {
+                let mut buf = Vec::new();
+                if stream.read_to_end(&mut buf).is_ok() {
+                    let response = String::from_utf8_lossy(&buf);
+                    if let Some(body) = response.split("\r\n\r\n").nth(1) {
+                        let trimmed = body.trim();
+                        if !trimmed.is_empty() && trimmed.chars().all(|c| c.is_ascii_digit() || c == '.' || c == ':') {
+                            info!("verify_tunnel_ip: IP obtenida vía socket TCP local: {}", trimmed);
+                            return Some(trimmed.to_string());
+                        }
+                    }
                 }
             }
         }

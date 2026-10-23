@@ -5,12 +5,18 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
+import android.media.AudioManager
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.ProxyInfo
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -20,6 +26,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.io.FileInputStream
+import java.io.IOException
 import java.nio.ByteBuffer
 
 /**
@@ -32,6 +39,12 @@ import java.nio.ByteBuffer
  *    y fija el proxy HTTP del sistema en Android 10+ (API 29+).
  *    De esta forma Chrome y las apps jamás quedan sin navegación (cero ERR_PROXY_CONNECTION_FAILED),
  *    la IP pública del ISP queda 100% protegida y el tráfico se enruta de forma segura.
+ *
+ * Resiliencia Telefónica:
+ *  - Exclusión sistemática de paquetes de telefonía, telecom, dialers e IMS (VoLTE/RCS).
+ *  - Adaptación dinámica de redes subyacentes vía ConnectivityManager.NetworkCallback.
+ *  - Detección de estado de llamada (AudioManager) y pausa pasiva para evitar colisión de radio y ruidos/latencia en voz.
+ *  - Manejo seguro de EOF y cierre ordenado de sockets TUN para prevenir cierres involuntarios ("SamuLibre se detuvo").
  */
 class SamuVpnService : VpnService() {
 
@@ -53,12 +66,34 @@ class SamuVpnService : VpnService() {
 
     private enum class Mode { SHIELD, SECURE_DNS, PROXY }
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val vpnCrashHandler = CoroutineExceptionHandler { _, throwable ->
+        Log.e(TAG, "Excepción resguardada en coroutine de SamuVpnService: ${throwable.message}", throwable)
+    }
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO + vpnCrashHandler)
+
     private var vpnInterface: ParcelFileDescriptor? = null
     private var packetJob: Job? = null
     private var watchdogJob: Job? = null
     private var currentMode: Mode? = null
     private var activeProxyPort: Int? = null
+
+    // Monitorización de red subyacente y telefonía
+    private var connectivityManager: ConnectivityManager? = null
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var activeUnderlyingNetwork: Network? = null
+
+    private var audioManager: AudioManager? = null
+    private var audioModeListener: Any? = null
+    @Volatile private var isCallActive: Boolean = false
+
+    private val isVoiceCallActive: Boolean
+        get() {
+            if (isCallActive) return true
+            val mode = audioManager?.mode ?: AudioManager.MODE_NORMAL
+            return mode == AudioManager.MODE_RINGTONE ||
+                   mode == AudioManager.MODE_IN_CALL ||
+                   mode == AudioManager.MODE_IN_COMMUNICATION
+        }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         try {
@@ -119,11 +154,29 @@ class SamuVpnService : VpnService() {
                 if (mode == Mode.PROXY && proxyPort != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     setHttpProxy(ProxyInfo.buildDirectProxy("127.0.0.1", proxyPort))
                 }
-                try {
-                    // La propia app (y su proxy/Tor) sale directo para no generar bucles infinitos
-                    addDisallowedApplication(packageName)
-                } catch (e: Exception) {
-                    // ignorar
+                // Exclusión de paquetes críticos de telefonía, telecom, IMS y dialers
+                // para que llamadas de voz (VoLTE/VoWiFi/CSFB) no intenten enrutarse por el TUN
+                // ni provoquen que el watchdog telefónico del sistema operativo revoque la VPN.
+                val telephonyPackages = listOf(
+                    packageName,
+                    "com.android.phone",
+                    "com.android.server.telecom",
+                    "com.android.incallui",
+                    "com.android.providers.telephony",
+                    "com.android.carrierconfig",
+                    "com.google.android.dialer",
+                    "com.google.android.ims",
+                    "com.samsung.android.dialer",
+                    "com.samsung.android.incallui",
+                    "com.sec.phone",
+                    "com.samsung.android.messaging"
+                )
+                for (pkg in telephonyPackages) {
+                    try {
+                        addDisallowedApplication(pkg)
+                    } catch (e: Exception) {
+                        // Ignorar si el paquete no está instalado en este dispositivo OEM
+                    }
                 }
             }
 
@@ -141,12 +194,122 @@ class SamuVpnService : VpnService() {
             activeProxyPort = if (mode == Mode.PROXY) proxyPort else null
             try { old?.close() } catch (e: Exception) { /* ignorar */ }
 
+            registerNetworkCallback()
+            registerAudioListener()
             startPacketInspectionLoop(newPfd)
             if (mode == Mode.PROXY) startWatchdog() else stopWatchdog()
             Log.i(TAG, "Interfaz VPN establecida en modo $mode (proxy=$activeProxyPort)")
         } catch (t: Throwable) {
             Log.e(TAG, "Error estableciendo VPN: ${t.message}", t)
         }
+    }
+
+    private fun registerNetworkCallback() {
+        if (networkCallback != null) return
+        try {
+            connectivityManager = getSystemService(ConnectivityManager::class.java)
+            val request = NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .build()
+
+            networkCallback = object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) {
+                    activeUnderlyingNetwork = network
+                    Log.i(TAG, "Red subyacente activa detectada: $network. Asignando a túnel TUN.")
+                    try {
+                        setUnderlyingNetworks(arrayOf(network))
+                    } catch (e: Exception) {
+                        Log.w(TAG, "No se pudo actualizar red subyacente: ${e.message}")
+                    }
+                }
+
+                override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
+                    if (networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
+                        activeUnderlyingNetwork = network
+                        try {
+                            setUnderlyingNetworks(arrayOf(network))
+                        } catch (e: Exception) {
+                            // ignorar
+                        }
+                    }
+                }
+
+                override fun onLost(network: Network) {
+                    Log.w(TAG, "Red subyacente perdida: $network (posible conmutación de llamada/radio)")
+                    if (activeUnderlyingNetwork == network) {
+                        activeUnderlyingNetwork = null
+                        try {
+                            setUnderlyingNetworks(null)
+                        } catch (e: Exception) {
+                            // ignorar
+                        }
+                    }
+                }
+            }
+            connectivityManager?.registerNetworkCallback(request, networkCallback!!)
+        } catch (e: Exception) {
+            Log.w(TAG, "No se pudo registrar NetworkCallback: ${e.message}")
+        }
+    }
+
+    private fun unregisterNetworkCallback() {
+        try {
+            networkCallback?.let { connectivityManager?.unregisterNetworkCallback(it) }
+        } catch (e: Exception) {
+            // ignorar
+        }
+        networkCallback = null
+        activeUnderlyingNetwork = null
+    }
+
+    private fun registerAudioListener() {
+        if (audioManager == null) {
+            audioManager = getSystemService(AudioManager::class.java)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && audioModeListener == null) {
+            try {
+                val listener = AudioManager.OnModeChangedListener { mode ->
+                    handleAudioMode(mode)
+                }
+                audioManager?.addOnModeChangedListener(mainExecutor, listener)
+                audioModeListener = listener
+            } catch (e: Exception) {
+                Log.w(TAG, "No se pudo registrar OnModeChangedListener: ${e.message}")
+            }
+        }
+    }
+
+    private fun handleAudioMode(mode: Int) {
+        when (mode) {
+            AudioManager.MODE_RINGTONE -> {
+                Log.i(TAG, "📞 Llamada entrante timbrando (Ringtone). Pausando inspección profunda para priorizar radio celular.")
+                isCallActive = true
+            }
+            AudioManager.MODE_IN_CALL, AudioManager.MODE_IN_COMMUNICATION -> {
+                Log.i(TAG, "📞 Llamada telefónica activa. Protegiendo flujo de voz y ancho de banda.")
+                isCallActive = true
+            }
+            AudioManager.MODE_NORMAL -> {
+                if (isCallActive) {
+                    Log.i(TAG, "📞 Llamada telefónica finalizada. Reanudando inspección profunda de paquetes TUN.")
+                    isCallActive = false
+                }
+            }
+        }
+    }
+
+    private fun unregisterAudioListener() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && audioModeListener != null) {
+            try {
+                (audioModeListener as? AudioManager.OnModeChangedListener)?.let {
+                    audioManager?.removeOnModeChangedListener(it)
+                }
+            } catch (e: Exception) {
+                // ignorar
+            }
+            audioModeListener = null
+        }
+        isCallActive = false
     }
 
     private fun startWatchdog() {
@@ -169,24 +332,61 @@ class SamuVpnService : VpnService() {
     }
 
     private fun startPacketInspectionLoop(pfd: ParcelFileDescriptor) {
-        val inputStream = FileInputStream(pfd.fileDescriptor)
+        packetJob?.cancel()
         packetJob = scope.launch(Dispatchers.IO) {
-            val packet = ByteBuffer.allocate(32768)
-            while (isActive) {
-                try {
-                    packet.clear()
-                    val length = inputStream.read(packet.array())
-                    if (length > 20) {
-                        val decision = JSONObject(NativeBridge.processTunPacket(packet.array().copyOf(length)))
-                        if (decision.optString("action", "ACCEPT") == "DROP") {
-                            Log.i(TAG, "TUN Dropped: ${decision.optString("reason")}")
-                        }
-                    } else {
-                        delay(25)
+            var inputStream: FileInputStream? = null
+            try {
+                inputStream = FileInputStream(pfd.fileDescriptor)
+                val packet = ByteBuffer.allocate(32768)
+                var consecutiveEofCount = 0
+
+                while (isActive) {
+                    // Si el dispositivo está en una llamada telefónica activa (timbrando o hablando),
+                    // pausamos la inspección profunda de paquetes para otorgar prioridad absoluta
+                    // al módem celular, reducir jitter y evitar colisiones de radio.
+                    if (isVoiceCallActive) {
+                        delay(250)
+                        continue
                     }
+
+                    try {
+                        packet.clear()
+                        val length = inputStream.read(packet.array())
+                        if (length > 20) {
+                            consecutiveEofCount = 0
+                            val decision = JSONObject(NativeBridge.processTunPacket(packet.array().copyOf(length)))
+                            if (decision.optString("action", "ACCEPT") == "DROP") {
+                                Log.i(TAG, "TUN Dropped: ${decision.optString("reason")}")
+                            }
+                        } else if (length < 0) {
+                            // EOF detectado (-1): el descriptor TUN fue cerrado o la red conmutó
+                            consecutiveEofCount++
+                            if (consecutiveEofCount >= 3) {
+                                Log.w(TAG, "Descriptor TUN en EOF persistente (-1). Esperando estabilización de red...")
+                                delay(500)
+                            } else {
+                                delay(50)
+                            }
+                        } else {
+                            delay(25)
+                        }
+                    } catch (e: IOException) {
+                        if (!isActive) break
+                        Log.w(TAG, "IOException transitoria en socket TUN (conmutación de red o llamada): ${e.message}")
+                        delay(250)
+                    } catch (t: Throwable) {
+                        if (!isActive) break
+                        Log.e(TAG, "Excepción procesando paquete TUN: ${t.message}")
+                        delay(100)
+                    }
+                }
+            } catch (t: Throwable) {
+                Log.e(TAG, "Error iniciando stream TUN: ${t.message}")
+            } finally {
+                try {
+                    inputStream?.close()
                 } catch (e: Exception) {
-                    if (!isActive) break
-                    delay(50)
+                    // ignorar
                 }
             }
         }
@@ -194,6 +394,8 @@ class SamuVpnService : VpnService() {
 
     @Synchronized
     private fun stopVpn() {
+        unregisterAudioListener()
+        unregisterNetworkCallback()
         stopWatchdog()
         SamuSmartProxyServer.stop()
         packetJob?.cancel()

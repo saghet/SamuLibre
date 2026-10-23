@@ -18,6 +18,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.webkit.ProxyConfig
 import androidx.webkit.ProxyController
 import androidx.webkit.WebViewFeature
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -35,7 +36,10 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
     private val vpnRequestCode = 101
-    private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val mainCrashShield = CoroutineExceptionHandler { _, throwable ->
+        Log.e(TAG, "Excepción resguardada en ioScope de MainActivity: ${throwable.message}", throwable)
+    }
+    private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO + mainCrashShield)
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
