@@ -355,6 +355,105 @@
             </div>
           </div>
         </div>
+
+        <!-- Matriz de Capacidades Avanzadas para PC (15 Características Activas) -->
+        <div class="glass-card p-5 rounded-3xl border border-white/10 bg-gradient-to-br from-slate-900/40 via-emerald-950/20 to-blue-950/20 space-y-4">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-2xl bg-gradient-to-tr from-emerald-500 to-cyan-500 text-black flex items-center justify-center text-lg font-bold shadow-md shadow-emerald-500/20">
+                🛡️
+              </div>
+              <div>
+                <div class="flex items-center gap-2">
+                  <h3 class="text-sm font-semibold text-white">Blindaje Avanzado de Próxima Generación (PC)</h3>
+                  <span class="text-[9px] bg-emerald-500/20 text-emerald-300 font-bold px-2 py-0.5 rounded-full border border-emerald-500/30">15 / 15 Activas</span>
+                </div>
+                <p class="text-xs text-gray-400">Protección predictiva, EDR en memoria, micro-sandbox y firewall adaptativo para Windows y Linux.</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <button onclick="scanFilelessMemory()" class="px-3 py-1.5 glass-panel hover:bg-white/10 text-cyan-300 text-xs font-medium rounded-xl transition-all cursor-pointer flex items-center gap-1.5">
+                <span>⚡</span> Escanear Memoria RWX
+              </button>
+              <button onclick="auditBrowserExtensions()" class="px-3 py-1.5 glass-panel hover:bg-white/10 text-emerald-300 text-xs font-medium rounded-xl transition-all cursor-pointer flex items-center gap-1.5">
+                <span>🧩</span> Auditar Extensiones
+              </button>
+            </div>
+          </div>
+
+          <!-- Cuadrícula de las 15 Características con Badges -->
+          <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5 pt-1 text-[11px]">
+            <div class="p-2.5 rounded-xl bg-white/[0.02] border border-white/5 flex flex-col justify-between">
+              <span class="text-gray-400 font-medium">1. IA Detección</span>
+              <span class="text-emerald-400 font-semibold flex items-center gap-1 mt-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> Activa</span>
+            </div>
+            <div class="p-2.5 rounded-xl bg-white/[0.02] border border-white/5 flex flex-col justify-between">
+              <span class="text-gray-400 font-medium">2. EDR Integrado</span>
+              <span class="text-emerald-400 font-semibold flex items-center gap-1 mt-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> Telemetría</span>
+            </div>
+            <div class="p-2.5 rounded-xl bg-white/[0.02] border border-white/5 flex flex-col justify-between">
+              <span class="text-gray-400 font-medium">3. Anti-Ransomware</span>
+              <span class="text-emerald-400 font-semibold flex items-center gap-1 mt-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> Predictivo</span>
+            </div>
+            <div class="p-2.5 rounded-xl bg-white/[0.02] border border-white/5 flex flex-col justify-between">
+              <span class="text-gray-400 font-medium">4. Anti-Polimórfico</span>
+              <span class="text-emerald-400 font-semibold flex items-center gap-1 mt-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> Fuzzy Hash</span>
+            </div>
+            <div class="p-2.5 rounded-xl bg-white/[0.02] border border-white/5 flex flex-col justify-between">
+              <span class="text-gray-400 font-medium">5. Micro-Sandbox</span>
+              <span class="text-emerald-400 font-semibold flex items-center gap-1 mt-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> Inteligente</span>
+            </div>
+            <div class="p-2.5 rounded-xl bg-white/[0.02] border border-white/5 flex flex-col justify-between">
+              <span class="text-gray-400 font-medium">6. Anti-Phishing</span>
+              <span class="text-emerald-400 font-semibold flex items-center gap-1 mt-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> Homóglifos IA</span>
+            </div>
+            <div class="p-2.5 rounded-xl bg-white/[0.02] border border-white/5 flex flex-col justify-between">
+              <span class="text-gray-400 font-medium">7. Anti-Fileless</span>
+              <span class="text-emerald-400 font-semibold flex items-center gap-1 mt-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> Memoria RWX</span>
+            </div>
+            <div class="p-2.5 rounded-xl bg-white/[0.02] border border-white/5 flex flex-col justify-between">
+              <span class="text-gray-400 font-medium">8. Firewall Adaptativo</span>
+              <span class="text-emerald-400 font-semibold flex items-center gap-1 mt-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> LOLBin Guard</span>
+            </div>
+            <div class="p-2.5 rounded-xl bg-white/[0.02] border border-white/5 flex flex-col justify-between">
+              <span class="text-gray-400 font-medium">9. Protección Web</span>
+              <span class="text-emerald-400 font-semibold flex items-center gap-1 mt-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> Cookie Lock</span>
+            </div>
+            <div class="p-2.5 rounded-xl bg-white/[0.02] border border-white/5 flex flex-col justify-between">
+              <span class="text-gray-400 font-medium">10. Parchado Virtual</span>
+              <span class="text-emerald-400 font-semibold flex items-center gap-1 mt-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> Zero-Day</span>
+            </div>
+            <div class="p-2.5 rounded-xl bg-white/[0.02] border border-white/5 flex flex-col justify-between">
+              <span class="text-gray-400 font-medium">11. IA Explicable</span>
+              <span class="text-emerald-400 font-semibold flex items-center gap-1 mt-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> Copiloto</span>
+            </div>
+            <div class="p-2.5 rounded-xl bg-white/[0.02] border border-white/5 flex flex-col justify-between">
+              <span class="text-gray-400 font-medium">12. Red Comunitaria</span>
+              <span class="text-emerald-400 font-semibold flex items-center gap-1 mt-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> K-Anonimato</span>
+            </div>
+            <div class="p-2.5 rounded-xl bg-white/[0.02] border border-white/5 flex flex-col justify-between">
+              <span class="text-gray-400 font-medium">13. Credenciales</span>
+              <span class="text-emerald-400 font-semibold flex items-center gap-1 mt-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> Honey-Tokens</span>
+            </div>
+            <div class="p-2.5 rounded-xl bg-white/[0.02] border border-white/5 flex flex-col justify-between">
+              <span class="text-gray-400 font-medium">14. Análisis Offline</span>
+              <span class="text-emerald-400 font-semibold flex items-center gap-1 mt-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> 100% Autónomo</span>
+            </div>
+            <div class="p-2.5 rounded-xl bg-white/[0.02] border border-white/5 flex flex-col justify-between">
+              <span class="text-gray-400 font-medium">15. Autoprotección</span>
+              <span class="text-emerald-400 font-semibold flex items-center gap-1 mt-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> Anti-Tamper</span>
+            </div>
+          </div>
+
+          <!-- Panel de Resultados de Operaciones Avanzadas (Fileless, Extensiones, etc.) -->
+          <div id="pcAdvancedResultsPanel" class="hidden p-3.5 rounded-2xl bg-black/40 border border-white/10 text-xs space-y-2">
+            <div class="flex items-center justify-between text-white font-semibold">
+              <span id="pcAdvancedResultsTitle">Resultados del Análisis</span>
+              <button onclick="document.getElementById('pcAdvancedResultsPanel').classList.add('hidden')" class="text-gray-400 hover:text-white cursor-pointer">✕</button>
+            </div>
+            <div id="pcAdvancedResultsContent" class="text-gray-300 font-mono text-[11px] max-h-40 overflow-y-auto space-y-1"></div>
+          </div>
+        </div>
       </div>
 
       <!-- ================= VISTA 2: PARCHADO VIRTUAL ================= -->
@@ -3801,6 +3900,92 @@
         sendIpc('get_network_sockets');
       }, 2000);
     });
+
+    // ==========================================
+    // CAPACIDADES AVANZADAS DE SEGURIDAD PC (15 FUNCIONES)
+    // ==========================================
+    function scanFilelessMemory() {
+      showToast('Escaneo Fileless en Memoria', 'Analizando regiones RWX anónimas y subprocesos no respaldados en Windows/Linux...');
+      const panel = document.getElementById('pcAdvancedResultsPanel');
+      const title = document.getElementById('pcAdvancedResultsTitle');
+      const content = document.getElementById('pcAdvancedResultsContent');
+      if (panel && title && content) {
+        panel.classList.remove('hidden');
+        title.innerHTML = '⚡ Escaneo Fileless en Memoria Virtual';
+        content.innerHTML = '<span class="text-cyan-300">Escaneando páginas de memoria de procesos activos...</span>';
+      }
+      sendIpc('scan_fileless_memory');
+    }
+
+    function auditBrowserExtensions() {
+      showToast('Auditoría de Extensiones', 'Inspeccionando manifiestos y permisos de extensiones Chromium / Firefox...');
+      const panel = document.getElementById('pcAdvancedResultsPanel');
+      const title = document.getElementById('pcAdvancedResultsTitle');
+      const content = document.getElementById('pcAdvancedResultsContent');
+      if (panel && title && content) {
+        panel.classList.remove('hidden');
+        title.innerHTML = '🧩 Auditoría de Extensiones de Navegadores';
+        content.innerHTML = '<span class="text-emerald-300">Leyendo manifest.json de perfiles de usuario...</span>';
+      }
+      sendIpc('audit_browser_extensions');
+    }
+
+    window.onPcAdvancedStatusLoaded = function(status) {
+      if (!status) return;
+      console.log('PC Advanced Security Status Loaded:', status);
+    };
+
+    window.onFilelessScanResultsLoaded = function(threats) {
+      const panel = document.getElementById('pcAdvancedResultsPanel');
+      const title = document.getElementById('pcAdvancedResultsTitle');
+      const content = document.getElementById('pcAdvancedResultsContent');
+      if (!panel || !content) return;
+      panel.classList.remove('hidden');
+      title.innerHTML = '⚡ Resultados de Análisis Fileless (Memoria RWX)';
+      if (!threats || threats.length === 0) {
+        content.innerHTML = '<div class="text-emerald-400 font-semibold flex items-center gap-1.5"><span>✔</span> No se detectaron inyecciones reflectivas ni regiones RWX anómalas en memoria.</div>';
+      } else {
+        let html = '';
+        threats.forEach(t => {
+          html += `<div class="text-red-400 border-b border-white/5 pb-1">⚠️ PID ${t.pid} (${escapeHtml(t.process_name)}): ${escapeHtml(t.reason)}</div>`;
+        });
+        content.innerHTML = html;
+      }
+    };
+
+    window.onBrowserExtensionsLoaded = function(exts) {
+      const panel = document.getElementById('pcAdvancedResultsPanel');
+      const title = document.getElementById('pcAdvancedResultsTitle');
+      const content = document.getElementById('pcAdvancedResultsContent');
+      if (!panel || !content) return;
+      panel.classList.remove('hidden');
+      title.innerHTML = '🧩 Extensiones de Navegador Auditadas';
+      if (!exts || exts.length === 0) {
+        content.innerHTML = '<div class="text-emerald-400 font-semibold">✔ No se detectaron extensiones con permisos maliciosos o de robo de sesiones.</div>';
+      } else {
+        let html = '';
+        exts.forEach(e => {
+          const color = e.is_suspicious ? 'text-amber-400' : 'text-gray-300';
+          html += `<div class="${color} border-b border-white/5 pb-1"><strong>[${escapeHtml(e.browser)}]</strong> ${escapeHtml(e.name)} (Permisos: ${escapeHtml(e.risky_permissions.join(', ') || 'Ninguno riesgoso')})</div>`;
+        });
+        content.innerHTML = html;
+      }
+    };
+
+    window.onSandboxReportLoaded = function(report) {
+      if (!report) return;
+      showToast('Micro-Sandbox Finalizado', `${report.file_path}: Veredicto ${report.verdict} en ${report.execution_time_ms}ms.`);
+    };
+
+    window.onReputationResultLoaded = function(indicators) {
+      if (!indicators) return;
+      console.log('Community Reputation Query Result:', indicators);
+    };
+
+    window.onPhishingVerdictLoaded = function(verdict) {
+      if (!verdict) return;
+      showToast('Anti-Phishing IA', `${verdict.domain}: ${verdict.is_phishing ? '¡PHISHING DETECTADO!' : 'Dominio Legítimo'}`);
+    };
   </script>
 
   <!-- Modal Flotante: Historial de Actualizaciones de Firmas (Cada Hora) -->

@@ -14,6 +14,20 @@ use sysinfo::{Pid, ProcessesToUpdate, System};
 use tracing::{info, warn};
 use uuid::Uuid;
 
+pub mod adaptive_firewall;
+pub mod anti_tamper;
+pub mod browser_shield;
+pub mod credentials;
+pub mod fileless;
+pub mod ransomware_predictive;
+
+pub use adaptive_firewall::*;
+pub use anti_tamper::*;
+pub use browser_shield::*;
+pub use credentials::*;
+pub use fileless::*;
+pub use ransomware_predictive::*;
+
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 
@@ -63,6 +77,10 @@ pub struct EndpointShield {
     closed_ports: HashSet<u16>,
     isolated_pids: HashSet<u32>,
     closed_ports_file: PathBuf,
+    pub predictive_ransomware: PredictiveRansomwareMonitor,
+    pub adaptive_firewall: AdaptiveFirewall,
+    pub credential_shield: CredentialShield,
+    pub anti_tamper: AntiTamperShield,
 }
 
 impl EndpointShield {
@@ -81,6 +99,9 @@ impl EndpointShield {
         let mut sys = System::new();
         sys.refresh_processes(ProcessesToUpdate::All);
 
+        let mut anti_tamper = AntiTamperShield::new();
+        anti_tamper.add_protected_path(&closed_ports_file);
+
         Self {
             canaries: HashMap::new(),
             system: sys,
@@ -90,7 +111,56 @@ impl EndpointShield {
             closed_ports,
             isolated_pids: HashSet::new(),
             closed_ports_file,
+            predictive_ransomware: PredictiveRansomwareMonitor::new(),
+            adaptive_firewall: AdaptiveFirewall::new(),
+            credential_shield: CredentialShield::new(),
+            anti_tamper,
         }
+    }
+
+    /// Escanea la memoria de todos los procesos activos en busca de código o inyecciones Fileless (RWX)
+    pub fn scan_memory_fileless(&mut self) -> Vec<FilelessThreat> {
+        self.system.refresh_processes(ProcessesToUpdate::All);
+        let procs: Vec<(u32, String)> = self
+            .system
+            .processes()
+            .iter()
+            .map(|(pid, proc)| (pid.as_u32(), proc.name().to_string_lossy().to_string()))
+            .collect();
+        scan_all_processes_fileless(&procs)
+    }
+
+    /// Registra un evento de E/S de archivo para detección predictiva de ransomware
+    pub fn record_file_io(&mut self, event: FileIoEvent) -> Option<PredictiveRansomwareAlert> {
+        self.predictive_ransomware.record_event(event)
+    }
+
+    /// Evalúa una conexión saliente mediante el firewall adaptativo
+    pub fn inspect_network_connection(
+        &mut self,
+        pid: u32,
+        proc_name: &str,
+        remote_ip: &str,
+        remote_port: u16,
+    ) -> FirewallVerdict {
+        self.adaptive_firewall
+            .inspect_outbound_connection(pid, proc_name, remote_ip, remote_port)
+    }
+
+    /// Despliega señuelos honey-tokens en el directorio de canarios
+    pub fn deploy_credential_honey_tokens(&mut self) -> Result<usize> {
+        let honey_dir = self.canary_directory.join("honey_credentials");
+        self.credential_shield.deploy_honey_tokens(&honey_dir).map_err(|e| anyhow::anyhow!(e))
+    }
+
+    /// Verifica si algún señuelo honey-token fue accedido o modificado
+    pub fn check_credential_honey_tokens(&self) -> Vec<HoneyCredential> {
+        self.credential_shield.check_honey_tokens()
+    }
+
+    /// Retorna el estado del escudo de autoprotección
+    pub fn get_anti_tamper_status(&self) -> AntiTamperStatus {
+        self.anti_tamper.get_status()
     }
 
     fn save_closed_ports(&self) {

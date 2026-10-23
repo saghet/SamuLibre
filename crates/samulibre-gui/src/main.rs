@@ -173,6 +173,24 @@ enum CustomUserEvent {
     CopilotAnswerLoaded {
         response: samulibre_types::CopilotResponse,
     },
+    PcAdvancedStatusLoaded {
+        status: samulibre_core::PcAdvancedFeaturesStatus,
+    },
+    FilelessScanResultsLoaded {
+        threats: Vec<samulibre_shield::FilelessThreat>,
+    },
+    SandboxReportLoaded {
+        report: samulibre_core::SandboxReport,
+    },
+    ReputationResultLoaded {
+        indicators: Vec<samulibre_core::CommunityThreatIndicator>,
+    },
+    PhishingVerdictLoaded {
+        verdict: samulibre_scanner::PhishingVerdict,
+    },
+    BrowserExtensionsLoaded {
+        extensions: Vec<samulibre_shield::ExtensionAuditReport>,
+    },
     #[allow(dead_code)]
     ThreatDetected {
         record: samulibre_types::ThreatRecord,
@@ -1805,6 +1823,67 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                         });
                     }
 
+                    "get_pc_advanced_status" => {
+                        if let Ok(c) = core_for_ipc.lock() {
+                            let status = c.get_pc_advanced_features_status();
+                            let _ = proxy_for_ipc.send_event(CustomUserEvent::PcAdvancedStatusLoaded { status });
+                        }
+                    }
+
+                    "scan_fileless_memory" => {
+                        let core_cloned = Arc::clone(&core_for_ipc);
+                        let proxy_cloned = proxy_for_ipc.clone();
+                        std::thread::spawn(move || {
+                            if let Ok(c) = core_cloned.lock() {
+                                let threats = c.scan_fileless_memory();
+                                let _ = proxy_cloned.send_event(CustomUserEvent::FilelessScanResultsLoaded { threats });
+                            }
+                        });
+                    }
+
+                    "run_sandbox_analysis" => {
+                        let path_str = msg.payload.unwrap_or_default();
+                        let core_cloned = Arc::clone(&core_for_ipc);
+                        let proxy_cloned = proxy_for_ipc.clone();
+                        std::thread::spawn(move || {
+                            if let Ok(c) = core_cloned.lock() {
+                                let report = c.run_sandbox_analysis(&path_str);
+                                let _ = proxy_cloned.send_event(CustomUserEvent::SandboxReportLoaded { report });
+                            }
+                        });
+                    }
+
+                    "query_community_reputation" => {
+                        let hash_or_prefix = msg.payload.unwrap_or_default();
+                        let core_cloned = Arc::clone(&core_for_ipc);
+                        let proxy_cloned = proxy_for_ipc.clone();
+                        std::thread::spawn(move || {
+                            if let Ok(c) = core_cloned.lock() {
+                                let indicators = c.query_community_reputation(&hash_or_prefix);
+                                let _ = proxy_cloned.send_event(CustomUserEvent::ReputationResultLoaded { indicators });
+                            }
+                        });
+                    }
+
+                    "analyze_phishing_url" => {
+                        let url = msg.payload.unwrap_or_default();
+                        if let Ok(c) = core_for_ipc.lock() {
+                            let verdict = c.analyze_phishing_url(&url);
+                            let _ = proxy_for_ipc.send_event(CustomUserEvent::PhishingVerdictLoaded { verdict });
+                        }
+                    }
+
+                    "audit_browser_extensions" => {
+                        let core_cloned = Arc::clone(&core_for_ipc);
+                        let proxy_cloned = proxy_for_ipc.clone();
+                        std::thread::spawn(move || {
+                            if let Ok(c) = core_cloned.lock() {
+                                let extensions = c.audit_browser_extensions();
+                                let _ = proxy_cloned.send_event(CustomUserEvent::BrowserExtensionsLoaded { extensions });
+                            }
+                        });
+                    }
+
                     _ => {
                         info!("Acción IPC no reconocida: {}", msg.action);
                     }
@@ -1868,6 +1947,9 @@ fn run_app(app_root: PathBuf) -> Result<()> {
 
             let history = load_threat_history();
             let _ = proxy_init.send_event(CustomUserEvent::ThreatHistoryLoaded { history });
+
+            let pc_features = c.get_pc_advanced_features_status();
+            let _ = proxy_init.send_event(CustomUserEvent::PcAdvancedStatusLoaded { status: pc_features });
         }
     });
 
@@ -2203,6 +2285,60 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                 let script = format!(
                     "if (window.onCopilotAnswerLoaded) {{ window.onCopilotAnswerLoaded({}); }}",
                     res_json
+                );
+                let _ = webview.evaluate_script(&script);
+            }
+
+            Event::UserEvent(CustomUserEvent::PcAdvancedStatusLoaded { status }) => {
+                let status_json = serde_json::to_string(&status).unwrap_or_else(|_| "{}".to_string());
+                let script = format!(
+                    "if (window.onPcAdvancedStatusLoaded) {{ window.onPcAdvancedStatusLoaded({}); }}",
+                    status_json
+                );
+                let _ = webview.evaluate_script(&script);
+            }
+
+            Event::UserEvent(CustomUserEvent::FilelessScanResultsLoaded { threats }) => {
+                let threats_json = serde_json::to_string(&threats).unwrap_or_else(|_| "[]".to_string());
+                let script = format!(
+                    "if (window.onFilelessScanResultsLoaded) {{ window.onFilelessScanResultsLoaded({}); }}",
+                    threats_json
+                );
+                let _ = webview.evaluate_script(&script);
+            }
+
+            Event::UserEvent(CustomUserEvent::SandboxReportLoaded { report }) => {
+                let report_json = serde_json::to_string(&report).unwrap_or_else(|_| "{}".to_string());
+                let script = format!(
+                    "if (window.onSandboxReportLoaded) {{ window.onSandboxReportLoaded({}); }}",
+                    report_json
+                );
+                let _ = webview.evaluate_script(&script);
+            }
+
+            Event::UserEvent(CustomUserEvent::ReputationResultLoaded { indicators }) => {
+                let ind_json = serde_json::to_string(&indicators).unwrap_or_else(|_| "[]".to_string());
+                let script = format!(
+                    "if (window.onReputationResultLoaded) {{ window.onReputationResultLoaded({}); }}",
+                    ind_json
+                );
+                let _ = webview.evaluate_script(&script);
+            }
+
+            Event::UserEvent(CustomUserEvent::PhishingVerdictLoaded { verdict }) => {
+                let verd_json = serde_json::to_string(&verdict).unwrap_or_else(|_| "{}".to_string());
+                let script = format!(
+                    "if (window.onPhishingVerdictLoaded) {{ window.onPhishingVerdictLoaded({}); }}",
+                    verd_json
+                );
+                let _ = webview.evaluate_script(&script);
+            }
+
+            Event::UserEvent(CustomUserEvent::BrowserExtensionsLoaded { extensions }) => {
+                let ext_json = serde_json::to_string(&extensions).unwrap_or_else(|_| "[]".to_string());
+                let script = format!(
+                    "if (window.onBrowserExtensionsLoaded) {{ window.onBrowserExtensionsLoaded({}); }}",
+                    ext_json
                 );
                 let _ = webview.evaluate_script(&script);
             }

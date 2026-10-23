@@ -8,6 +8,12 @@ use std::io::{BufReader, Read};
 use std::path::Path;
 use std::time::Instant;
 
+pub mod polymorphic;
+pub use polymorphic::*;
+
+pub mod phishing;
+pub use phishing::*;
+
 /// Regla heurística / YARA para detección en memoria o en disco
 #[derive(Debug, Clone)]
 pub struct PatternRule {
@@ -345,6 +351,18 @@ impl MultiEngineScanner {
                 || ext == "com";
 
             if is_pe_or_exec {
+                let poly_profile = analyze_polymorphic_entropy(&content, &path_ref.to_string_lossy());
+                if poly_profile.is_likely_polymorphic {
+                    return Ok(ScanResult {
+                        file_path: path_ref.to_string_lossy().to_string(),
+                        sha256: sha256_hash,
+                        status: FileScanStatus::Suspicious,
+                        detection_name: Some(poly_profile.reason.unwrap_or_else(|| "Heuristic.Polymorphic.PackedPayload".to_string())),
+                        engine: "AI/PolymorphicEngine".to_string(),
+                        scan_time_ms: start.elapsed().as_millis() as u64,
+                    });
+                }
+
                 let sample_len = std::cmp::min(content.len(), 64 * 1024);
                 let entropy = calculate_entropy(&content[..sample_len]);
                 if entropy > 7.85 {
@@ -422,6 +440,26 @@ impl MultiEngineScanner {
                 };
             }
         } else if !is_archive_or_media && !is_doc && data.len() > 1024 * 10 {
+            let is_pe_or_exec = data.starts_with(b"MZ")
+                || data.starts_with(b"\x7FELF")
+                || name_hint.ends_with(".exe")
+                || name_hint.ends_with(".dll")
+                || name_hint.ends_with(".so");
+
+            if is_pe_or_exec {
+                let poly_profile = analyze_polymorphic_entropy(data, name_hint);
+                if poly_profile.is_likely_polymorphic {
+                    return ScanResult {
+                        file_path: name_hint.to_string(),
+                        sha256: sha256_hash,
+                        status: FileScanStatus::Suspicious,
+                        detection_name: Some(poly_profile.reason.unwrap_or_else(|| "Heuristic.Polymorphic.PackedPayload".to_string())),
+                        engine: "AI/PolymorphicEngine".to_string(),
+                        scan_time_ms: start.elapsed().as_millis().max(1) as u64,
+                    };
+                }
+            }
+
             let sample_len = std::cmp::min(data.len(), 64 * 1024);
             let entropy = calculate_entropy(&data[..sample_len]);
             if entropy > 7.85 {
