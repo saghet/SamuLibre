@@ -731,7 +731,12 @@ fn run_app(app_root: PathBuf) -> Result<()> {
     });
     log_step("run_app: Hilo de tray spawneado OK");
 
-    let raw_html = include_str!("../../../data/ui/index.html");
+    let raw_html = if let Ok(disk_html) = fs::read_to_string("data/ui/index.html") {
+        log_step("run_app: Cargando data/ui/index.html desde disco local");
+        disk_html
+    } else {
+        include_str!("../../../data/ui/index.html").to_string()
+    };
     const TAILWIND_JS: &str = include_str!("../../../data/ui/tailwindcss.min.js");
     let html_content = raw_html
         .replace(
