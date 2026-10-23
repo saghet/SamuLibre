@@ -2738,7 +2738,7 @@
 
       if (state.is_connected) {
         if (dot) dot.className = 'w-3.5 h-3.5 rounded-full bg-emerald-400 animate-pulse';
-        if (title) title.textContent = `VPN Conectada (${state.country_flag || '🌐'} ${state.country_name || 'Desconocido'})`;
+        if (title) title.innerHTML = `VPN Conectada (${getCountryFlagHtml(state.country_id, state.country_flag)} <span class="ml-1">${state.country_name || 'Desconocido'}</span>)`;
         if (sub) sub.textContent = state.multi_hop_route
           ? `Túnel con Doble Cifrado activo • ${state.multi_hop_route}`
           : `Túnel privado activo con DNS ${state.dns_active} y proxy de sistema enrutado.`;
@@ -2763,7 +2763,7 @@
           }
         }
 
-        if (countryEl) countryEl.textContent = `${state.country_flag || ''} ${state.country_name || 'N/A'}`;
+        if (countryEl) countryEl.innerHTML = `<div class="inline-flex items-center gap-1.5">${getCountryFlagHtml(state.country_id, state.country_flag)} <span>${state.country_name || 'N/A'}</span></div>`;
         if (ipEl) ipEl.textContent = state.assigned_ip || 'Verificada';
         if (protoEl) protoEl.textContent = state.encryption_cipher || state.protocol || 'Enrutamiento Privado';
         if (dnsEl) dnsEl.textContent = `${state.dns_active} (9.9.9.9)`;
@@ -2865,6 +2865,33 @@
       sendIpc('refresh_vpn_pings');
     }
 
+    const COUNTRY_FLAG_SVGS = {
+      co: '<svg viewBox="0 0 900 600" class="w-full h-full"><rect width="900" height="300" fill="#FCD116"/><rect y="300" width="900" height="150" fill="#003893"/><rect y="450" width="900" height="150" fill="#CE1126"/></svg>',
+      pa: '<svg viewBox="0 0 900 600" class="w-full h-full"><rect width="900" height="600" fill="#fff"/><rect x="450" width="450" height="300" fill="#D21034"/><rect y="300" width="450" height="300" fill="#005293"/><polygon points="225,80 242,132 297,132 252,165 269,217 225,185 181,217 198,165 153,132 208,132" fill="#005293"/><polygon points="675,380 692,432 747,432 702,465 719,517 675,485 631,517 648,465 603,432 658,432" fill="#D21034"/></svg>',
+      ca: '<svg viewBox="0 0 1000 500" class="w-full h-full"><rect width="250" height="500" fill="#D80621"/><rect x="250" width="500" height="500" fill="#fff"/><rect x="750" width="250" height="500" fill="#D80621"/><path d="M500,85 L525,180 L580,165 L555,225 L610,245 L585,295 L515,280 L520,380 L480,380 L485,280 L415,295 L390,245 L445,225 L420,165 L475,180 Z" fill="#D80621"/></svg>',
+      br: '<svg viewBox="0 0 1000 700" class="w-full h-full"><rect width="1000" height="700" fill="#009739"/><polygon points="500,90 920,350 500,610 80,350" fill="#FEDD00"/><circle cx="500" cy="350" r="175" fill="#012169"/></svg>',
+      nl: '<svg viewBox="0 0 900 600" class="w-full h-full"><rect width="900" height="200" fill="#AE1C28"/><rect y="200" width="900" height="200" fill="#FFFFFF"/><rect y="400" width="900" height="200" fill="#21468B"/></svg>',
+      ch: '<svg viewBox="0 0 1000 1000" class="w-full h-full"><rect width="1000" height="1000" fill="#D52B1E"/><rect x="380" y="200" width="240" height="600" fill="#FFFFFF"/><rect x="200" y="380" width="600" height="240" fill="#FFFFFF"/></svg>',
+      se: '<svg viewBox="0 0 1600 1000" class="w-full h-full"><rect width="1600" height="1000" fill="#006AA7"/><rect x="500" width="200" height="1000" fill="#FECC00"/><rect y="400" width="1600" height="200" fill="#FECC00"/></svg>',
+      is: '<svg viewBox="0 0 2500 1800" class="w-full h-full"><rect width="2500" height="1800" fill="#02529C"/><rect x="700" width="400" height="1800" fill="#FFFFFF"/><rect y="700" width="2500" height="400" fill="#FFFFFF"/><rect x="800" width="200" height="1800" fill="#DC1E35"/><rect y="800" width="2500" height="200" fill="#DC1E35"/></svg>'
+    };
+
+    function getCountryFlagHtml(countryId, fallbackEmoji) {
+      const code = (countryId || '').toLowerCase();
+      const svg = COUNTRY_FLAG_SVGS[code];
+      if (svg) {
+        return `<span class="inline-flex items-center justify-center w-7 h-5 rounded overflow-hidden shadow-sm border border-white/10 shrink-0 bg-slate-900">${svg}</span>`;
+      }
+      return `<span class="inline-flex items-center justify-center w-7 h-5 rounded overflow-hidden shadow-sm bg-slate-800/80 border border-white/10 shrink-0">
+        <img src="https://flagcdn.com/w40/${code}.png" 
+             srcset="https://flagcdn.com/w80/${code}.png 2x" 
+             alt="${countryId}" 
+             class="w-full h-full object-cover" 
+             loading="lazy" 
+             onerror="this.onerror=null; this.parentElement.innerHTML='<span class=\\'text-lg leading-none\\'>${fallbackEmoji || '🌐'}</span>';" />
+      </span>`;
+    }
+
     function renderVpnCountries() {
       const grid = document.getElementById('vpnCountriesGrid');
       if (!grid) return;
@@ -2896,7 +2923,7 @@
         card.innerHTML = `
           <div class="flex items-center justify-between mb-2">
             <div class="flex items-center gap-2.5">
-              <span class="text-2xl">${c.flag}</span>
+              ${getCountryFlagHtml(c.id, c.flag)}
               <div>
                 <h4 class="text-xs font-semibold text-white">${c.name}</h4>
                 <p class="text-[10px] text-gray-400 font-medium">${c.city}</p>
@@ -2936,7 +2963,8 @@
       if (currentVpnState && currentVpnState.is_connected) {
         disconnectVpn();
       } else {
-        connectToCountry('CH');
+        const target = (availableVpnCountries && availableVpnCountries.length > 0) ? availableVpnCountries[0].id : 'CO';
+        connectToCountry(target);
       }
     }
 
