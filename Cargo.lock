@@ -2339,6 +2339,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "image",
+ "libc",
  "rayon",
  "samulibre-ai",
  "samulibre-core",
