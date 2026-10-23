@@ -341,15 +341,21 @@ pub struct VpnManager {
 /// Si un CDN Anycast responde localmente, respeta el suelo físico de propagación en fibra óptica.
 pub fn probe_country_latency(country_id: &str) -> u32 {
     let (targets, floor, base_range): (&[&str], u32, (u32, u32)) = match country_id.to_uppercase().as_str() {
+        "CA" => (&["utoronto.ca:443", "umontreal.ca:443", "ca.pool.ntp.org:80"], 75, (81, 105)),
+        "US" => (&["cloudflare.com:443", "google.com:443", "1.1.1.1:53"], 80, (89, 115)),
+        "FR" => (&["ovh.com:443", "inria.fr:443", "fr.pool.ntp.org:80"], 130, (141, 165)),
+        "DE" => (&["fra-ix.net:443", "denic.de:443", "de.pool.ntp.org:80"], 140, (153, 175)),
+        "NL" => (&["ams-ix.net:443", "tudelft.nl:443", "nl.pool.ntp.org:80"], 160, (184, 198)),
+        "CH" => (&["switch.ch:443", "ethz.ch:443", "ch.pool.ntp.org:80"], 170, (196, 215)),
+        "SE" => (&["sunet.se:443", "kth.se:443", "se.pool.ntp.org:80"], 175, (200, 225)),
+        "RO" => (&["roedu.net:443", "uauim.ro:443", "ro.pool.ntp.org:80"], 185, (206, 230)),
+        "AT" => (&["univie.ac.at:443", "nic.at:443", "at.pool.ntp.org:80"], 185, (208, 235)),
+        "IS" => (&["isnic.is:443", "hi.is:443", "is.pool.ntp.org:80"], 185, (209, 238)),
+        "NO" => (&["uio.no:443", "norid.no:443", "no.pool.ntp.org:80"], 210, (247, 275)),
         "CO" => (&["181.143.212.1:80", "1.1.1.1:53", "8.8.8.8:53"], 15, (18, 32)),
         "PA" => (&["nic.pa:443", "utp.ac.pa:443", "200.46.252.1:53"], 45, (52, 76)),
-        "CA" => (&["utoronto.ca:443", "umontreal.ca:443", "ca.pool.ntp.org:80"], 85, (92, 128)),
         "BR" => (&["registro.br:443", "nic.br:443", "usp.br:443"], 80, (98, 138)),
-        "NL" => (&["ams-ix.net:443", "tudelft.nl:443", "nl.pool.ntp.org:80"], 145, (155, 192)),
-        "CH" => (&["switch.ch:443", "ethz.ch:443", "ch.pool.ntp.org:80"], 150, (168, 212)),
-        "SE" => (&["sunet.se:443", "kth.se:443", "se.pool.ntp.org:80"], 155, (175, 225)),
-        "IS" => (&["isnic.is:443", "hi.is:443", "is.pool.ntp.org:80"], 165, (190, 248)),
-        _ => (&["switch.ch:443"], 150, (168, 212)),
+        _ => (&["utoronto.ca:443"], 75, (81, 105)),
     };
 
     let mut measured = None;
@@ -396,66 +402,66 @@ impl VpnManager {
 
         let countries = vec![
             VpnCountryInfo {
-                id: "CO".to_string(),
-                name: "Colombia".to_string(),
-                city: "Bogotá / Medellín".to_string(),
-                flag: "🇨🇴".to_string(),
-                jurisdiction: "Ley 1581 / Habeas Data • Tráfico Neutro en Nodos Andinos".to_string(),
-                privacy_law: "Ley 1581 / Habeas Data".to_string(),
-                latency_ms: 24,
-                ping_ms: 24,
-                is_recommended: true,
-                exit_ip_example: "181.143.212.45".to_string(),
-                wireguard_endpoint: "co.privacy.samulibre.net:443".to_string(),
-            },
-            VpnCountryInfo {
-                id: "PA".to_string(),
-                name: "Panamá".to_string(),
-                city: "Ciudad de Panamá".to_string(),
-                flag: "🇵🇦".to_string(),
-                jurisdiction: "Jurisdicción extraterritorial • Fuera de tratados 14-Eyes".to_string(),
-                privacy_law: "Fuera de 14-Eyes Alliance".to_string(),
-                latency_ms: 62,
-                ping_ms: 62,
-                is_recommended: true,
-                exit_ip_example: "190.14.88.210".to_string(),
-                wireguard_endpoint: "pa.privacy.samulibre.net:443".to_string(),
-            },
-            VpnCountryInfo {
                 id: "CA".to_string(),
                 name: "Canadá".to_string(),
-                city: "Montreal / Toronto".to_string(),
+                city: "Montreal".to_string(),
                 flag: "🇨🇦".to_string(),
-                jurisdiction: "Enrutamiento seguro para América • PIPEDA Compliant".to_string(),
+                jurisdiction: "Protección Federal PIPEDA".to_string(),
                 privacy_law: "Protección Federal PIPEDA".to_string(),
-                latency_ms: 110,
-                ping_ms: 110,
-                is_recommended: false,
+                latency_ms: 81,
+                ping_ms: 81,
+                is_recommended: true,
                 exit_ip_example: "198.50.200.73".to_string(),
                 wireguard_endpoint: "ca.privacy.samulibre.net:443".to_string(),
             },
             VpnCountryInfo {
-                id: "BR".to_string(),
-                name: "Brasil".to_string(),
-                city: "São Paulo".to_string(),
-                flag: "🇧🇷".to_string(),
-                jurisdiction: "LGPD / Marco Civil • Cifrado de Tránsito Regional".to_string(),
-                privacy_law: "LGPD / Marco Civil".to_string(),
-                latency_ms: 115,
-                ping_ms: 115,
+                id: "US".to_string(),
+                name: "Estados Unidos".to_string(),
+                city: "Miami / NY".to_string(),
+                flag: "🇺🇸".to_string(),
+                jurisdiction: "Mayor Red Exit (950+)".to_string(),
+                privacy_law: "Mayor Red Exit (950+)".to_string(),
+                latency_ms: 89,
+                ping_ms: 89,
+                is_recommended: true,
+                exit_ip_example: "104.244.76.13".to_string(),
+                wireguard_endpoint: "us.privacy.samulibre.net:443".to_string(),
+            },
+            VpnCountryInfo {
+                id: "FR".to_string(),
+                name: "Francia".to_string(),
+                city: "París".to_string(),
+                flag: "🇫🇷".to_string(),
+                jurisdiction: "Infraestructura OVH Segura".to_string(),
+                privacy_law: "Infraestructura OVH Segura".to_string(),
+                latency_ms: 141,
+                ping_ms: 141,
                 is_recommended: false,
-                exit_ip_example: "177.136.250.88".to_string(),
-                wireguard_endpoint: "br.privacy.samulibre.net:443".to_string(),
+                exit_ip_example: "51.15.23.44".to_string(),
+                wireguard_endpoint: "fr.privacy.samulibre.net:443".to_string(),
+            },
+            VpnCountryInfo {
+                id: "DE".to_string(),
+                name: "Alemania".to_string(),
+                city: "Fráncfort".to_string(),
+                flag: "🇩🇪".to_string(),
+                jurisdiction: "Leyes BDSG / GDPR Estricto".to_string(),
+                privacy_law: "Leyes BDSG / GDPR Estricto".to_string(),
+                latency_ms: 153,
+                ping_ms: 153,
+                is_recommended: false,
+                exit_ip_example: "185.220.101.5".to_string(),
+                wireguard_endpoint: "de.privacy.samulibre.net:443".to_string(),
             },
             VpnCountryInfo {
                 id: "NL".to_string(),
                 name: "Países Bajos".to_string(),
                 city: "Ámsterdam".to_string(),
                 flag: "🇳🇱".to_string(),
-                jurisdiction: "Hub de alta velocidad europeo • Cifrado de alto rendimiento".to_string(),
+                jurisdiction: "Hub GDPR de Alta Velocidad".to_string(),
                 privacy_law: "Hub GDPR de Alta Velocidad".to_string(),
-                latency_ms: 172,
-                ping_ms: 172,
+                latency_ms: 184,
+                ping_ms: 184,
                 is_recommended: false,
                 exit_ip_example: "194.126.177.104".to_string(),
                 wireguard_endpoint: "nl.privacy.samulibre.net:443".to_string(),
@@ -465,10 +471,10 @@ impl VpnManager {
                 name: "Suiza".to_string(),
                 city: "Zúrich".to_string(),
                 flag: "🇨🇭".to_string(),
-                jurisdiction: "FADP • Sin retención obligatoria • Máxima privacidad digital".to_string(),
+                jurisdiction: "Leyes FADP / Cero Retención".to_string(),
                 privacy_law: "Leyes FADP / Cero Retención".to_string(),
-                latency_ms: 185,
-                ping_ms: 185,
+                latency_ms: 196,
+                ping_ms: 196,
                 is_recommended: true,
                 exit_ip_example: "195.176.3.23".to_string(),
                 wireguard_endpoint: "ch.privacy.samulibre.net:443".to_string(),
@@ -478,26 +484,65 @@ impl VpnManager {
                 name: "Suecia".to_string(),
                 city: "Estocolmo".to_string(),
                 flag: "🇸🇪".to_string(),
-                jurisdiction: "Protección constitucional a la privacidad de comunicaciones".to_string(),
+                jurisdiction: "Tránsito Neutral & Seguro".to_string(),
                 privacy_law: "Tránsito Neutral & Seguro".to_string(),
-                latency_ms: 195,
-                ping_ms: 195,
+                latency_ms: 200,
+                ping_ms: 200,
                 is_recommended: false,
                 exit_ip_example: "193.138.218.66".to_string(),
                 wireguard_endpoint: "se.privacy.samulibre.net:443".to_string(),
+            },
+            VpnCountryInfo {
+                id: "RO".to_string(),
+                name: "Rumanía".to_string(),
+                city: "Bucarest".to_string(),
+                flag: "🇷🇴".to_string(),
+                jurisdiction: "Garantía Anti-Retención".to_string(),
+                privacy_law: "Garantía Anti-Retención".to_string(),
+                latency_ms: 206,
+                ping_ms: 206,
+                is_recommended: false,
+                exit_ip_example: "185.165.169.8".to_string(),
+                wireguard_endpoint: "ro.privacy.samulibre.net:443".to_string(),
+            },
+            VpnCountryInfo {
+                id: "AT".to_string(),
+                name: "Austria".to_string(),
+                city: "Viena".to_string(),
+                flag: "🇦🇹".to_string(),
+                jurisdiction: "Privacidad Europea Central".to_string(),
+                privacy_law: "Privacidad Europea Central".to_string(),
+                latency_ms: 208,
+                ping_ms: 208,
+                is_recommended: false,
+                exit_ip_example: "193.170.130.40".to_string(),
+                wireguard_endpoint: "at.privacy.samulibre.net:443".to_string(),
             },
             VpnCountryInfo {
                 id: "IS".to_string(),
                 name: "Islandia".to_string(),
                 city: "Reikiavik".to_string(),
                 flag: "🇮🇸".to_string(),
-                jurisdiction: "Iniciativa IMMI • Libertad digital y neutralidad estricta".to_string(),
+                jurisdiction: "Garantía Constitucional IMMI".to_string(),
                 privacy_law: "Garantía Constitucional IMMI".to_string(),
-                latency_ms: 215,
-                ping_ms: 215,
+                latency_ms: 209,
+                ping_ms: 209,
                 is_recommended: true,
                 exit_ip_example: "185.112.82.19".to_string(),
                 wireguard_endpoint: "is.privacy.samulibre.net:443".to_string(),
+            },
+            VpnCountryInfo {
+                id: "NO".to_string(),
+                name: "Noruega".to_string(),
+                city: "Oslo".to_string(),
+                flag: "🇳🇴".to_string(),
+                jurisdiction: "Leyes Nórdicas Estrictas".to_string(),
+                privacy_law: "Leyes Nórdicas Estrictas".to_string(),
+                latency_ms: 247,
+                ping_ms: 247,
+                is_recommended: false,
+                exit_ip_example: "185.220.100.252".to_string(),
+                wireguard_endpoint: "no.privacy.samulibre.net:443".to_string(),
             },
         ];
 
@@ -626,15 +671,21 @@ impl VpnManager {
 
         // 2. Definir nodos de salida según el país
         let exit_nodes = match country.id.to_uppercase().as_str() {
-            "CH" => "{ch}",
-            "IS" => "{is},{se},{no}",
-            "NL" => "{nl}",
-            "SE" => "{se}",
-            "PA" => "{pa},{cr},{ca}",
             "CA" => "{ca}",
+            "US" => "{us}",
+            "FR" => "{fr}",
+            "DE" => "{de}",
+            "NL" => "{nl}",
+            "CH" => "{ch}",
+            "SE" => "{se}",
+            "RO" => "{ro}",
+            "AT" => "{at}",
+            "IS" => "{is},{se},{no}",
+            "NO" => "{no}",
             "CO" => "{co},{pa},{cr}",
+            "PA" => "{pa},{cr},{ca}",
             "BR" => "{br},{cl},{ar}",
-            _ => "{ch}",
+            _ => "{ca}",
         };
 
         // 3. Crear directorio de datos de Tor y archivo torrc limpio (sin BOM ni prefijos UNC)
@@ -1277,18 +1328,18 @@ mod tests {
     fn test_vpn_country_list() {
         let vpn = VpnManager::new("data/vpn");
         let countries = vpn.get_available_countries();
-        assert_eq!(countries.len(), 8);
-        assert_eq!(countries[0].id, "CO", "Primer nodo debe ser Colombia (CO) para paridad con el APK");
-        assert_eq!(countries[1].id, "PA", "Segundo nodo debe ser Panamá (PA)");
-        let ids: Vec<&str> = countries.iter().map(|c| c.id.as_str()).collect();
-        assert!(ids.contains(&"CH"));
-        assert!(ids.contains(&"IS"));
-        assert!(ids.contains(&"NL"));
-        assert!(ids.contains(&"SE"));
-        assert!(ids.contains(&"PA"));
-        assert!(ids.contains(&"CA"));
-        assert!(ids.contains(&"CO"));
-        assert!(ids.contains(&"BR"));
+        assert_eq!(countries.len(), 11, "Debe contener los 11 países del APK");
+        assert_eq!(countries[0].id, "CA", "Primer nodo debe ser Canadá (CA)");
+        assert_eq!(countries[1].id, "US", "Segundo nodo debe ser Estados Unidos (US)");
+        assert_eq!(countries[2].id, "FR", "Tercer nodo debe ser Francia (FR)");
+        assert_eq!(countries[3].id, "DE", "Cuarto nodo debe ser Alemania (DE)");
+        assert_eq!(countries[4].id, "NL", "Quinto nodo debe ser Países Bajos (NL)");
+        assert_eq!(countries[5].id, "CH", "Sexto nodo debe ser Suiza (CH)");
+        assert_eq!(countries[6].id, "SE", "Séptimo nodo debe ser Suecia (SE)");
+        assert_eq!(countries[7].id, "RO", "Octavo nodo debe ser Rumanía (RO)");
+        assert_eq!(countries[8].id, "AT", "Noveno nodo debe ser Austria (AT)");
+        assert_eq!(countries[9].id, "IS", "Décimo nodo debe ser Islandia (IS)");
+        assert_eq!(countries[10].id, "NO", "Undécimo nodo debe ser Noruega (NO)");
     }
 
     #[test]
@@ -1313,25 +1364,32 @@ mod tests {
 
     #[test]
     fn test_probe_country_latency() {
-        let latency_co = probe_country_latency("CO");
-        assert!(latency_co >= 14 && latency_co <= 150, "Latencia CO fuera de rango: {}", latency_co);
+        let latency_ca = probe_country_latency("CA");
+        assert!(latency_ca >= 70 && latency_ca <= 150, "Latencia CA fuera de rango: {}", latency_ca);
 
         let latency_ch = probe_country_latency("CH");
         assert!(latency_ch >= 140, "Latencia transatlántica a Suiza debe respetar límite físico (>=140ms): {}", latency_ch);
 
-        let latency_br = probe_country_latency("BR");
-        assert!(latency_br >= 75, "Latencia a Brasil debe respetar distancia continental (>=75ms): {}", latency_br);
+        let latency_no = probe_country_latency("NO");
+        assert!(latency_no >= 180, "Latencia a Noruega debe respetar distancia nórdica (>=180ms): {}", latency_no);
     }
 
     #[test]
     fn test_refresh_all_latencies() {
         let mut vpn = VpnManager::new("data/vpn");
         let map = vpn.refresh_all_latencies();
-        assert_eq!(map.len(), 8);
-        assert!(map.contains_key("CO"));
+        assert_eq!(map.len(), 11);
+        assert!(map.contains_key("CA"));
+        assert!(map.contains_key("US"));
+        assert!(map.contains_key("FR"));
+        assert!(map.contains_key("DE"));
+        assert!(map.contains_key("NL"));
         assert!(map.contains_key("CH"));
-        assert!(*map.get("CO").unwrap() >= 14);
-        assert!(*map.get("CH").unwrap() >= 140);
+        assert!(map.contains_key("SE"));
+        assert!(map.contains_key("RO"));
+        assert!(map.contains_key("AT"));
+        assert!(map.contains_key("IS"));
+        assert!(map.contains_key("NO"));
     }
 
     #[test]

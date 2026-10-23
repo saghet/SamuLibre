@@ -145,7 +145,7 @@
           </button>
           <button onclick="switchTab('vpn')" id="nav-vpn" class="nav-item w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium text-gray-400 hover:text-white hover:bg-white/5 transition-all">
             <span class="text-base">🔒</span> VPN & Privacidad
-            <span class="ml-auto text-[10px] bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-full font-semibold">8 Países</span>
+            <span class="ml-auto text-[10px] bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-full font-semibold">11 Países</span>
           </button>
           <button onclick="switchTab('audit')" id="nav-audit" class="nav-item w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium text-gray-400 hover:text-white hover:bg-white/5 transition-all">
             <span class="text-base">🛡️</span> Auditoría Interna
@@ -2908,14 +2908,20 @@
     }
 
     const COUNTRY_FLAG_SVGS = {
-      co: '<svg viewBox="0 0 900 600" class="w-full h-full"><rect width="900" height="300" fill="#FCD116"/><rect y="300" width="900" height="150" fill="#003893"/><rect y="450" width="900" height="150" fill="#CE1126"/></svg>',
-      pa: '<svg viewBox="0 0 900 600" class="w-full h-full"><rect width="900" height="600" fill="#fff"/><rect x="450" width="450" height="300" fill="#D21034"/><rect y="300" width="450" height="300" fill="#005293"/><polygon points="225,80 242,132 297,132 252,165 269,217 225,185 181,217 198,165 153,132 208,132" fill="#005293"/><polygon points="675,380 692,432 747,432 702,465 719,517 675,485 631,517 648,465 603,432 658,432" fill="#D21034"/></svg>',
       ca: '<svg viewBox="0 0 1000 500" class="w-full h-full"><rect width="250" height="500" fill="#D80621"/><rect x="250" width="500" height="500" fill="#fff"/><rect x="750" width="250" height="500" fill="#D80621"/><path d="M500,85 L525,180 L580,165 L555,225 L610,245 L585,295 L515,280 L520,380 L480,380 L485,280 L415,295 L390,245 L445,225 L420,165 L475,180 Z" fill="#D80621"/></svg>',
-      br: '<svg viewBox="0 0 1000 700" class="w-full h-full"><rect width="1000" height="700" fill="#009739"/><polygon points="500,90 920,350 500,610 80,350" fill="#FEDD00"/><circle cx="500" cy="350" r="175" fill="#012169"/></svg>',
+      us: '<svg viewBox="0 0 1900 1000" class="w-full h-full"><rect width="1900" height="1000" fill="#B22234"/><rect y="77" width="1900" height="77" fill="#fff"/><rect y="231" width="1900" height="77" fill="#fff"/><rect y="385" width="1900" height="77" fill="#fff"/><rect y="539" width="1900" height="77" fill="#fff"/><rect y="693" width="1900" height="77" fill="#fff"/><rect y="847" width="1900" height="77" fill="#fff"/><rect width="760" height="538" fill="#3C3B6E"/><circle cx="150" cy="130" r="28" fill="#fff"/><circle cx="380" cy="130" r="28" fill="#fff"/><circle cx="610" cy="130" r="28" fill="#fff"/><circle cx="265" cy="270" r="28" fill="#fff"/><circle cx="495" cy="270" r="28" fill="#fff"/><circle cx="150" cy="410" r="28" fill="#fff"/><circle cx="380" cy="410" r="28" fill="#fff"/><circle cx="610" cy="410" r="28" fill="#fff"/></svg>',
+      fr: '<svg viewBox="0 0 900 600" class="w-full h-full"><rect width="300" height="600" fill="#002654"/><rect x="300" width="300" height="600" fill="#FFFFFF"/><rect x="600" width="300" height="600" fill="#CE1126"/></svg>',
+      de: '<svg viewBox="0 0 1000 600" class="w-full h-full"><rect width="1000" height="200" fill="#000000"/><rect y="200" width="1000" height="200" fill="#DD0000"/><rect y="400" width="1000" height="200" fill="#FFCE00"/></svg>',
       nl: '<svg viewBox="0 0 900 600" class="w-full h-full"><rect width="900" height="200" fill="#AE1C28"/><rect y="200" width="900" height="200" fill="#FFFFFF"/><rect y="400" width="900" height="200" fill="#21468B"/></svg>',
       ch: '<svg viewBox="0 0 1000 1000" class="w-full h-full"><rect width="1000" height="1000" fill="#D52B1E"/><rect x="380" y="200" width="240" height="600" fill="#FFFFFF"/><rect x="200" y="380" width="600" height="240" fill="#FFFFFF"/></svg>',
       se: '<svg viewBox="0 0 1600 1000" class="w-full h-full"><rect width="1600" height="1000" fill="#006AA7"/><rect x="500" width="200" height="1000" fill="#FECC00"/><rect y="400" width="1600" height="200" fill="#FECC00"/></svg>',
-      is: '<svg viewBox="0 0 2500 1800" class="w-full h-full"><rect width="2500" height="1800" fill="#02529C"/><rect x="700" width="400" height="1800" fill="#FFFFFF"/><rect y="700" width="2500" height="400" fill="#FFFFFF"/><rect x="800" width="200" height="1800" fill="#DC1E35"/><rect y="800" width="2500" height="200" fill="#DC1E35"/></svg>'
+      ro: '<svg viewBox="0 0 900 600" class="w-full h-full"><rect width="300" height="600" fill="#002B7F"/><rect x="300" width="300" height="600" fill="#FCD116"/><rect x="600" width="300" height="600" fill="#CE1126"/></svg>',
+      at: '<svg viewBox="0 0 900 600" class="w-full h-full"><rect width="900" height="200" fill="#ED2939"/><rect y="200" width="900" height="200" fill="#FFFFFF"/><rect y="400" width="900" height="200" fill="#ED2939"/></svg>',
+      is: '<svg viewBox="0 0 2500 1800" class="w-full h-full"><rect width="2500" height="1800" fill="#02529C"/><rect x="700" width="400" height="1800" fill="#FFFFFF"/><rect y="700" width="2500" height="400" fill="#FFFFFF"/><rect x="800" width="200" height="1800" fill="#DC1E35"/><rect y="800" width="2500" height="200" fill="#DC1E35"/></svg>',
+      no: '<svg viewBox="0 0 2200 1600" class="w-full h-full"><rect width="2200" height="1600" fill="#BA0C2F"/><rect x="600" width="400" height="1600" fill="#FFFFFF"/><rect y="600" width="2200" height="400" fill="#FFFFFF"/><rect x="700" width="200" height="1600" fill="#00205B"/><rect y="700" width="2200" height="200" fill="#00205B"/></svg>',
+      co: '<svg viewBox="0 0 900 600" class="w-full h-full"><rect width="900" height="300" fill="#FCD116"/><rect y="300" width="900" height="150" fill="#003893"/><rect y="450" width="900" height="150" fill="#CE1126"/></svg>',
+      pa: '<svg viewBox="0 0 900 600" class="w-full h-full"><rect width="900" height="600" fill="#fff"/><rect x="450" width="450" height="300" fill="#D21034"/><rect y="300" width="450" height="300" fill="#005293"/><polygon points="225,80 242,132 297,132 252,165 269,217 225,185 181,217 198,165 153,132 208,132" fill="#005293"/><polygon points="675,380 692,432 747,432 702,465 719,517 675,485 631,517 648,465 603,432 658,432" fill="#D21034"/></svg>',
+      br: '<svg viewBox="0 0 1000 700" class="w-full h-full"><rect width="1000" height="700" fill="#009739"/><polygon points="500,90 920,350 500,610 80,350" fill="#FEDD00"/><circle cx="500" cy="350" r="175" fill="#012169"/></svg>'
     };
 
     function getCountryFlagHtml(countryId, fallbackEmoji) {
@@ -2940,14 +2946,17 @@
       grid.innerHTML = '';
 
       const list = availableVpnCountries.length > 0 ? availableVpnCountries : [
-        { id: "CO", name: "Colombia", flag: "🇨🇴", city: "Bogotá", ping_ms: 24, privacy_law: "Ley 1581 / Habeas Data", wireguard_endpoint: "co.privacy.samulibre.net:443" },
-        { id: "PA", name: "Panamá", flag: "🇵🇦", city: "Ciudad de Panamá", ping_ms: 62, privacy_law: "Fuera de 14-Eyes Alliance", wireguard_endpoint: "pa.privacy.samulibre.net:443" },
-        { id: "CA", name: "Canadá", flag: "🇨🇦", city: "Montreal", ping_ms: 110, privacy_law: "Protección Federal PIPEDA", wireguard_endpoint: "ca.privacy.samulibre.net:443" },
-        { id: "BR", name: "Brasil", flag: "🇧🇷", city: "São Paulo", ping_ms: 115, privacy_law: "LGPD / Marco Civil", wireguard_endpoint: "br.privacy.samulibre.net:443" },
-        { id: "NL", name: "Países Bajos", flag: "🇳🇱", city: "Ámsterdam", ping_ms: 172, privacy_law: "Hub GDPR de Alta Velocidad", wireguard_endpoint: "nl.privacy.samulibre.net:443" },
-        { id: "CH", name: "Suiza", flag: "🇨🇭", city: "Zúrich", ping_ms: 185, privacy_law: "Leyes FADP / Cero Retención", wireguard_endpoint: "ch.privacy.samulibre.net:443" },
-        { id: "SE", name: "Suecia", flag: "🇸🇪", city: "Estocolmo", ping_ms: 195, privacy_law: "Tránsito Neutral & Seguro", wireguard_endpoint: "se.privacy.samulibre.net:443" },
-        { id: "IS", name: "Islandia", flag: "🇮🇸", city: "Reikiavik", ping_ms: 215, privacy_law: "Garantía Constitucional", wireguard_endpoint: "is.privacy.samulibre.net:443" }
+        { id: "CA", name: "Canadá", flag: "🇨🇦", city: "Montreal", ping_ms: 81, privacy_law: "Protección Federal PIPEDA", wireguard_endpoint: "ca.privacy.samulibre.net:443" },
+        { id: "US", name: "Estados Unidos", flag: "🇺🇸", city: "Miami / NY", ping_ms: 89, privacy_law: "Mayor Red Exit (950+)", wireguard_endpoint: "us.privacy.samulibre.net:443" },
+        { id: "FR", name: "Francia", flag: "🇫🇷", city: "París", ping_ms: 141, privacy_law: "Infraestructura OVH Segura", wireguard_endpoint: "fr.privacy.samulibre.net:443" },
+        { id: "DE", name: "Alemania", flag: "🇩🇪", city: "Fráncfort", ping_ms: 153, privacy_law: "Leyes BDSG / GDPR Estricto", wireguard_endpoint: "de.privacy.samulibre.net:443" },
+        { id: "NL", name: "Países Bajos", flag: "🇳🇱", city: "Ámsterdam", ping_ms: 184, privacy_law: "Hub GDPR de Alta Velocidad", wireguard_endpoint: "nl.privacy.samulibre.net:443" },
+        { id: "CH", name: "Suiza", flag: "🇨🇭", city: "Zúrich", ping_ms: 196, privacy_law: "Leyes FADP / Cero Retención", wireguard_endpoint: "ch.privacy.samulibre.net:443" },
+        { id: "SE", name: "Suecia", flag: "🇸🇪", city: "Estocolmo", ping_ms: 200, privacy_law: "Tránsito Neutral & Seguro", wireguard_endpoint: "se.privacy.samulibre.net:443" },
+        { id: "RO", name: "Rumanía", flag: "🇷🇴", city: "Bucarest", ping_ms: 206, privacy_law: "Garantía Anti-Retención", wireguard_endpoint: "ro.privacy.samulibre.net:443" },
+        { id: "AT", name: "Austria", flag: "🇦🇹", city: "Viena", ping_ms: 208, privacy_law: "Privacidad Europea Central", wireguard_endpoint: "at.privacy.samulibre.net:443" },
+        { id: "IS", name: "Islandia", flag: "🇮🇸", city: "Reikiavik", ping_ms: 209, privacy_law: "Garantía Constitucional IMMI", wireguard_endpoint: "is.privacy.samulibre.net:443" },
+        { id: "NO", name: "Noruega", flag: "🇳🇴", city: "Oslo", ping_ms: 247, privacy_law: "Leyes Nórdicas Estrictas", wireguard_endpoint: "no.privacy.samulibre.net:443" }
       ];
 
       list.forEach(c => {
@@ -3005,7 +3014,7 @@
       if (currentVpnState && currentVpnState.is_connected) {
         disconnectVpn();
       } else {
-        const target = (availableVpnCountries && availableVpnCountries.length > 0) ? availableVpnCountries[0].id : 'CO';
+        const target = (availableVpnCountries && availableVpnCountries.length > 0) ? availableVpnCountries[0].id : 'CA';
         connectToCountry(target);
       }
     }
