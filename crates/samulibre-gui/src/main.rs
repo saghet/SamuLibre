@@ -1397,6 +1397,23 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                         });
                     }
 
+                    "dismiss_patch_rule" => {
+                        let cve = msg.payload.unwrap_or_default().trim().to_string();
+                        log_step(&format!("IPC: dismiss_patch_rule para {}", cve));
+                        let core_cloned = Arc::clone(&core_for_ipc);
+                        let proxy_cloned = proxy_for_ipc.clone();
+                        std::thread::spawn(move || {
+                            if let Ok(c) = core_cloned.lock() {
+                                let _ = c.dismiss_patch_rule(&cve);
+                                let rules = c.get_patch_rules();
+                                let os_info = c.get_os_info();
+                                let sentinel_status = Some(c.get_sentinel_status());
+                                let kb_monitor_status = Some(c.get_kb_monitor_status());
+                                let _ = proxy_cloned.send_event(CustomUserEvent::UpdatePatchRules { rules, os_info, sentinel_status, kb_monitor_status });
+                            }
+                        });
+                    }
+
                     "set_sentinel_auto_patch" => {
                         let enable = msg.payload.map(|p| p == "true" || p == "1").unwrap_or(true);
                         log_step(&format!("IPC: set_sentinel_auto_patch: {}", enable));

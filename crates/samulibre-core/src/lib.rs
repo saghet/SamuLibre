@@ -254,6 +254,14 @@ impl SamuLibreCore {
         }
     }
 
+    pub fn dismiss_patch_rule(&self, cve: &str) -> Result<String> {
+        if let Ok(mut patcher) = self.patcher.lock() {
+            patcher.dismiss_patch_rule(cve)
+        } else {
+            anyhow::bail!("Error adquiriendo lock de patcher")
+        }
+    }
+
     pub fn run_sentinel_audit_cycle(&self) -> (usize, usize, usize, Vec<String>) {
         if let Ok(mut patcher) = self.patcher.lock() {
             patcher.run_sentinel_audit_cycle()

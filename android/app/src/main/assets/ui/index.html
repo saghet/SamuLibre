@@ -1875,7 +1875,10 @@
           switchHtml = `<div class="apple-switch inactive cursor-pointer" title="Haga clic para aplicar parche virtual inmediatamente" onclick="toggleVirtualPatch('${rule.cve}', true)"><div class="apple-switch-thumb"></div></div>`;
         }
 
-        const sevScore = rule.severity === 'Critical' ? '9.8' : (rule.severity === 'High' ? '8.8' : '7.8');
+          const isFpCandidate = rule.status === 'Unmitigated' || rule.cve.startsWith('CVE-UNKNOWN-');
+          const dismissBtnHtml = isFpCandidate ? `<button onclick="dismissPatchRule('${rule.cve}')" class="px-2 py-1 text-[10px] text-gray-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors border border-white/5" title="Descartar si es un falso positivo o actualización de definiciones">Descartar</button>` : '';
+
+          const sevScore = rule.severity === 'Critical' ? '9.8' : (rule.severity === 'High' ? '8.8' : '7.8');
         const sevColor = rule.severity === 'Critical' ? 'amber' : 'blue';
 
         const card = document.createElement('div');
@@ -1895,6 +1898,7 @@
             </div>
           </div>
           <div class="flex items-center gap-3 shrink-0 ml-4">
+            ${dismissBtnHtml}
             ${actionText}
             ${switchHtml}
           </div>
@@ -2051,6 +2055,12 @@
         `Configurando regla en tiempo real para ${cve}...`
       );
       sendIpc('toggle_virtual_patch', JSON.stringify({ cve: cve, enable: enable }));
+    }
+
+    function dismissPatchRule(cve) {
+      if (!confirm(`¿Descartar ${cve} como falso positivo? La regla dinámica será eliminada del sistema.`)) return;
+      showToast('Descartando Falso Positivo', `Eliminando regla ${cve}...`);
+      sendIpc('dismiss_patch_rule', cve);
     }
 
     function toggleSentinelAutoPatch(elem) {

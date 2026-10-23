@@ -59,6 +59,15 @@ pub struct VirtualPatcher {
     ai_analyst: LocalAiAnalyst,
 }
 
+/// KBs conocidos de definiciones antivirus, componentes de plataforma y herramientas que NO son vulnerabilidades (CVEs)
+pub const KNOWN_NON_CVE_KBS: &[&str] = &[
+    "KB5007651", // Actualización de Windows Security platform (SecHealthUI)
+    "KB2267602", // Actualización de inteligencia de seguridad para Microsoft Defender
+    "KB4052623", // Actualización de la plataforma antimalware Microsoft Defender
+    "KB890830",  // Herramienta de eliminación de software malintencionado (MSRT)
+    "KB5005101", // Actualización de WebView2 / Edge
+];
+
 impl VirtualPatcher {
     pub fn new(dry_run: bool) -> Self {
         let mut patcher = Self {
@@ -767,12 +776,21 @@ impl VirtualPatcher {
                 if path.extension().and_then(|e| e.to_str()) == Some("json") {
                     if let Ok(content) = fs::read_to_string(&path) {
                         if let Ok(rule) = serde_json::from_str::<VirtualPatchRule>(&content) {
+                            // Purga automática de falsos positivos de boletines que no son CVEs
+                            if rule.cve.starts_with("CVE-UNKNOWN-") && rule.required_kb.iter().any(|kb| KNOWN_NON_CVE_KBS.contains(&kb.as_str())) {
+                                info!("Purgando regla de falso positivo dinámico: {} ({})", rule.cve, path.display());
+                                let _ = fs::remove_file(&path);
+                                continue;
+                            }
                             if !self.rules.iter().any(|r| r.cve == rule.cve) {
                                 info!("Regla dinámica cargada para {}", rule.cve);
                                 self.rules.push(rule);
                             }
                         } else if let Ok(rules_vec) = serde_json::from_str::<Vec<VirtualPatchRule>>(&content) {
                             for rule in rules_vec {
+                                if rule.cve.starts_with("CVE-UNKNOWN-") && rule.required_kb.iter().any(|kb| KNOWN_NON_CVE_KBS.contains(&kb.as_str())) {
+                                    continue;
+                                }
                                 if !self.rules.iter().any(|r| r.cve == rule.cve) {
                                     info!("Regla dinámica cargada para {}", rule.cve);
                                     self.rules.push(rule);
@@ -782,6 +800,33 @@ impl VirtualPatcher {
                     }
                 }
             }
+        }
+    }
+
+    /// Descarta o suprime una regla de parche virtual si fue clasificada como falso positivo o no aplicable
+    pub fn dismiss_patch_rule(&mut self, cve: &str) -> Result<String> {
+        let mut removed = false;
+        self.rules.retain(|r| {
+            if r.cve == cve {
+                removed = true;
+                false
+            } else {
+                true
+            }
+        });
+
+        // Borrar el archivo dinámico en disco si existe
+        let rules_dir = Path::new("data/cve_rules");
+        let rule_file = rules_dir.join(format!("dynamic_{}.json", cve.replace('-', "_")));
+        if rule_file.exists() {
+            let _ = fs::remove_file(&rule_file);
+        }
+
+        if removed {
+            info!("Regla de parche virtual {} descartada con éxito.", cve);
+            Ok(format!("Regla {} descartada y suprimida del sistema.", cve))
+        } else {
+            anyhow::bail!("No se encontró la regla de parche virtual '{}'", cve)
         }
     }
 
@@ -847,6 +892,7 @@ impl VirtualPatcher {
     }
 
     /// Consulta actualizaciones pendientes a través de la API local de Windows Update Agent (WUA)
+    /// aplicando filtrado estricto por Categoría y Palabras Clave para evitar falsos positivos de definiciones o apps
     pub fn fetch_pending_windows_updates(&self) -> HashSet<String> {
         let mut pending = HashSet::new();
 
@@ -856,16 +902,15 @@ impl VirtualPatcher {
             cmd.args([
                 "-NoProfile",
                 "-Command",
-                r#"$searcher = (New-Object -ComObject Microsoft.Update.Session).CreateUpdateSearcher(); $res = $searcher.Search("IsInstalled=0 and Type='Software'"); foreach ($u in $res.Updates) { if ($u.Title -notmatch 'Defender|Intelligence|Malicious Software Removal') { foreach ($kb in $u.KBArticleIDs) { "KB$kb" } } }"#,
+                r#"$searcher = (New-Object -ComObject Microsoft.Update.Session).CreateUpdateSearcher(); $res = $searcher.Search("IsInstalled=0 and Type='Software'"); foreach ($u in $res.Updates) { $cats = ($u.Categories | Select-Object -ExpandProperty Name) -join ', '; $isDef = $cats -match 'Definition|Security platform|Platform Update|Driver|Language|Tools'; $isTitleExcluded = $u.Title -match 'Defender|Intelligence|Malicious Software Removal|Security platform|Platform Update|Antivirus|Definition|Edge|OneDrive|LanguagePack|Driver'; if (-not $isDef -and -not $isTitleExcluded) { foreach ($kb in $u.KBArticleIDs) { "KB$kb" } } }"#,
             ]);
             cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
             if let Ok(output) = cmd.output() {
                 if output.status.success() {
                     let text = String::from_utf8_lossy(&output.stdout);
-                    const DEFINITION_KBS: &[&str] = &["KB2267602", "KB4052623", "KB890830"];
                     for line in text.lines() {
                         let t = line.trim().to_uppercase();
-                        if t.starts_with("KB") && t.len() > 2 && !DEFINITION_KBS.contains(&t.as_str()) {
+                        if t.starts_with("KB") && t.len() > 2 && !KNOWN_NON_CVE_KBS.contains(&t.as_str()) {
                             pending.insert(t);
                         }
                     }
@@ -878,6 +923,9 @@ impl VirtualPatcher {
 
     /// Analiza un KB con la IA local y sintetiza su parche virtual de mitigación
     pub fn analyze_kb(&mut self, advisory: &KbAdvisory) -> Result<AiPatchAnalysisResult> {
+        if KNOWN_NON_CVE_KBS.contains(&advisory.kb_id.as_str()) {
+            anyhow::bail!("KB {} está en la lista de exclusión de plataforma/definiciones (no es un CVE)", advisory.kb_id);
+        }
         let analysis = self.ai_analyst.analyze_kb(advisory)?;
 
         // Guardar la regla generada en disco si data/cve_rules existe
@@ -939,6 +987,9 @@ impl VirtualPatcher {
 
         let advisories = self.monitored_kbs.clone();
         for adv in &advisories {
+            if KNOWN_NON_CVE_KBS.contains(&adv.kb_id.as_str()) {
+                continue;
+            }
             let is_installed = installed_kbs.contains(&adv.kb_id.to_uppercase());
             let is_natively_protected = !adv.cves.is_empty() && adv.cves.iter().all(|c| {
                 if let Some((is_native, _)) = check_cve_native_mitigation(c, os_info.as_ref()) {
@@ -1012,6 +1063,9 @@ impl VirtualPatcher {
         let mut new_kbs_found = 0;
 
         for pending_kb in &pending_wua {
+            if KNOWN_NON_CVE_KBS.contains(&pending_kb.as_str()) {
+                continue;
+            }
             if !self.monitored_kbs.iter().any(|k| k.kb_id.eq_ignore_ascii_case(pending_kb)) {
                 new_kbs_found += 1;
                 let adv = KbAdvisory {
@@ -1500,6 +1554,18 @@ mod tests {
 
         let status_after = patcher.get_kb_monitor_status();
         assert!(status_after.ai_analyzed_count > 0);
+    }
+
+    #[test]
+    fn test_non_cve_kb_never_generates_rule() {
+        let mut patcher = VirtualPatcher::new(true);
+        // KB5007651 (Windows Security platform) no debe sintetizar reglas CVE-UNKNOWN
+        let res = patcher.analyze_raw_kb("KB5007651", "Windows Security platform", "Platform update");
+        assert!(res.is_err());
+        assert!(!patcher.get_rules().iter().any(|r| r.cve == "CVE-UNKNOWN-KB5007651"));
+
+        // Descartar una regla inexistente devuelve error controlado
+        assert!(patcher.dismiss_patch_rule("CVE-UNKNOWN-KB0000000").is_err());
     }
 }
 
