@@ -788,13 +788,13 @@ impl SamuLibreCore {
         {
             if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
                 let p = PathBuf::from(local_app_data);
-                // Chrome Extensions
-                let chrome_ext_dir = p.join("Google").join("Chrome").join("User Data").join("Default").join("Extensions");
-                audit_extensions_in_dir(&chrome_ext_dir, "Google Chrome", &mut reports);
+                // Chrome profiles
+                let chrome_user_data = p.join("Google").join("Chrome").join("User Data");
+                audit_browser_profiles(&chrome_user_data, "Google Chrome", &mut reports);
 
-                // Edge Extensions
-                let edge_ext_dir = p.join("Microsoft").join("Edge").join("User Data").join("Default").join("Extensions");
-                audit_extensions_in_dir(&edge_ext_dir, "Microsoft Edge", &mut reports);
+                // Edge profiles
+                let edge_user_data = p.join("Microsoft").join("Edge").join("User Data");
+                audit_browser_profiles(&edge_user_data, "Microsoft Edge", &mut reports);
             }
         }
 
@@ -802,21 +802,20 @@ impl SamuLibreCore {
         {
             if let Ok(home) = std::env::var("HOME") {
                 let p = PathBuf::from(home);
-                let chrome_ext_dir = p.join(".config").join("google-chrome").join("Default").join("Extensions");
-                audit_extensions_in_dir(&chrome_ext_dir, "Google Chrome", &mut reports);
+                let chrome_user_data = p.join(".config").join("google-chrome");
+                audit_browser_profiles(&chrome_user_data, "Google Chrome", &mut reports);
 
-                let mozilla_dir = p.join(".mozilla").join("firefox");
-                // Firefox profiles
-                if let Ok(entries) = std::fs::read_dir(&mozilla_dir) {
-                    for entry in entries.flatten() {
-                        let ext_dir = entry.path().join("extensions");
-                        audit_extensions_in_dir(&ext_dir, "Mozilla Firefox", &mut reports);
-                    }
-                }
+                let edge_user_data = p.join(".config").join("microsoft-edge");
+                audit_browser_profiles(&edge_user_data, "Microsoft Edge", &mut reports);
             }
         }
 
         reports
+    }
+
+    /// Desinstala y elimina limpiamente una extensión de navegador
+    pub fn uninstall_browser_extension(&self, browser: &str, profile: &str, ext_id: &str) -> Result<String> {
+        samulibre_shield::remove_browser_extension(browser, profile, ext_id)
     }
 
     /// Retorna el estado consolidado de las 15 características de seguridad avanzadas para PC
@@ -856,7 +855,26 @@ impl SamuLibreCore {
 }
 
 #[allow(dead_code)]
-fn audit_extensions_in_dir(dir: &Path, browser_name: &str, reports: &mut Vec<samulibre_shield::ExtensionAuditReport>) {
+fn audit_browser_profiles(user_data_dir: &Path, browser_name: &str, reports: &mut Vec<samulibre_shield::ExtensionAuditReport>) {
+    if !user_data_dir.exists() {
+        return;
+    }
+    if let Ok(entries) = std::fs::read_dir(user_data_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                let folder_name = entry.file_name().to_string_lossy().to_string();
+                if folder_name == "Default" || folder_name.starts_with("Profile ") {
+                    let ext_dir = path.join("Extensions");
+                    audit_extensions_in_dir(&ext_dir, browser_name, &folder_name, reports);
+                }
+            }
+        }
+    }
+}
+
+#[allow(dead_code)]
+fn audit_extensions_in_dir(dir: &Path, browser_name: &str, profile_name: &str, reports: &mut Vec<samulibre_shield::ExtensionAuditReport>) {
     if !dir.exists() {
         return;
     }
@@ -868,7 +886,7 @@ fn audit_extensions_in_dir(dir: &Path, browser_name: &str, reports: &mut Vec<sam
                     for sub in sub_entries.flatten() {
                         let manifest = sub.path().join("manifest.json");
                         if manifest.exists() {
-                            if let Some(r) = samulibre_shield::audit_extension_manifest(&manifest, browser_name) {
+                            if let Some(r) = samulibre_shield::audit_extension_manifest(&manifest, browser_name, profile_name) {
                                 reports.push(r);
                             }
                         }

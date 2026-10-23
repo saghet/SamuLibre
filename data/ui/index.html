@@ -446,12 +446,12 @@
           </div>
 
           <!-- Panel de Resultados de Operaciones Avanzadas (Fileless, Extensiones, etc.) -->
-          <div id="pcAdvancedResultsPanel" class="hidden p-3.5 rounded-2xl bg-black/40 border border-white/10 text-xs space-y-2">
-            <div class="flex items-center justify-between text-white font-semibold">
-              <span id="pcAdvancedResultsTitle">Resultados del Análisis</span>
-              <button onclick="document.getElementById('pcAdvancedResultsPanel').classList.add('hidden')" class="text-gray-400 hover:text-white cursor-pointer">✕</button>
+          <div id="pcAdvancedResultsPanel" class="hidden p-4 rounded-2xl bg-black/50 border border-white/10 text-xs space-y-3">
+            <div class="flex items-center justify-between text-white font-semibold pb-2 border-b border-white/10">
+              <span id="pcAdvancedResultsTitle" class="flex items-center gap-2">Resultados del Análisis</span>
+              <button onclick="document.getElementById('pcAdvancedResultsPanel').classList.add('hidden')" class="w-6 h-6 rounded-full bg-white/10 hover:bg-white/20 text-gray-400 hover:text-white flex items-center justify-center text-xs cursor-pointer transition-all">✕</button>
             </div>
-            <div id="pcAdvancedResultsContent" class="text-gray-300 font-mono text-[11px] max-h-40 overflow-y-auto space-y-1"></div>
+            <div id="pcAdvancedResultsContent" class="text-gray-300 text-[11px] max-h-[30rem] overflow-y-auto space-y-2 pr-1"></div>
           </div>
         </div>
       </div>
@@ -3959,18 +3959,87 @@
       const content = document.getElementById('pcAdvancedResultsContent');
       if (!panel || !content) return;
       panel.classList.remove('hidden');
-      title.innerHTML = '🧩 Extensiones de Navegador Auditadas';
+      title.innerHTML = '🧩 Auditoría Forense de Extensiones de Navegador';
       if (!exts || exts.length === 0) {
-        content.innerHTML = '<div class="text-emerald-400 font-semibold">✔ No se detectaron extensiones con permisos maliciosos o de robo de sesiones.</div>';
+        content.innerHTML = '<div class="text-emerald-400 font-semibold p-3 bg-emerald-500/10 rounded-xl">✔ No se detectaron extensiones instaladas en los perfiles analizados.</div>';
       } else {
-        let html = '';
-        exts.forEach(e => {
-          const color = e.is_suspicious ? 'text-amber-400' : 'text-gray-300';
-          html += `<div class="${color} border-b border-white/5 pb-1"><strong>[${escapeHtml(e.browser)}]</strong> ${escapeHtml(e.name)} (Permisos: ${escapeHtml(e.risky_permissions.join(', ') || 'Ninguno riesgoso')})</div>`;
+        // Ordenar por severidad de riesgo (Crítica > Alta > Media > Inocua)
+        const riskOrder = { 'Crítica': 0, 'Alta': 1, 'Media': 2, 'Baja': 3, 'Inocua': 4 };
+        const sorted = [...exts].sort((a, b) => (riskOrder[a.risk_level] ?? 5) - (riskOrder[b.risk_level] ?? 5));
+
+        let html = '<div class="space-y-2.5">';
+        sorted.forEach(e => {
+          let badgeClass = 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30';
+          let borderClass = 'border-white/10 bg-white/[0.02]';
+          if (e.risk_level === 'Crítica') {
+            badgeClass = 'bg-red-500/20 text-red-300 border-red-500/30 animate-pulse';
+            borderClass = 'border-red-500/30 bg-red-950/20';
+          } else if (e.risk_level === 'Alta') {
+            badgeClass = 'bg-amber-500/20 text-amber-300 border-amber-500/30';
+            borderClass = 'border-amber-500/30 bg-amber-950/20';
+          } else if (e.risk_level === 'Media') {
+            badgeClass = 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30';
+            borderClass = 'border-yellow-500/20 bg-yellow-950/10';
+          }
+
+          let permPills = '';
+          if (e.risky_permissions && e.risky_permissions.length > 0) {
+            e.risky_permissions.forEach(p => {
+              let label = p;
+              if (p === 'nativeMessaging') label = '💻 Binarios Nativos (.exe)';
+              else if (p === 'cookies') label = '🍪 Lectura de Cookies';
+              else if (p === '<all_urls>' || p === '*://*/*') label = '🌐 Todas las Webs';
+              else if (p === 'webRequestBlocking') label = '🛑 Bloqueo de Red';
+              else if (p === 'browsingData') label = '🧹 Datos de Navegación';
+              else if (p === 'declarativeNetRequestFeedback') label = '📡 Inspección Tráfico';
+              permPills += `<span class="text-[9px] bg-red-500/15 text-red-300 px-1.5 py-0.5 rounded border border-red-500/20 font-mono">${escapeHtml(label)}</span> `;
+            });
+          } else {
+            permPills = '<span class="text-[9px] text-gray-500">Ningún permiso de riesgo</span>';
+          }
+
+          const browserIcon = e.browser.includes('Edge') ? '🌊' : '🌐';
+
+          html += `
+            <div class="p-3 rounded-xl border ${borderClass} flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div class="space-y-1 max-w-xl">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="text-xs">${browserIcon}</span>
+                  <span class="font-bold text-white text-xs">${escapeHtml(e.name)}</span>
+                  <span class="text-[9px] bg-white/10 text-gray-300 px-1.5 py-0.2 rounded font-mono">${escapeHtml(e.browser)} (${escapeHtml(e.profile)})</span>
+                  <span class="text-[9px] font-bold px-2 py-0.5 rounded-full border ${badgeClass}">Riesgo ${escapeHtml(e.risk_level)}</span>
+                  <span class="text-[9px] text-gray-400 font-mono">v${escapeHtml(e.version)}</span>
+                </div>
+                ${e.risk_summary ? `<p class="text-[10px] text-amber-200/90 leading-tight">${escapeHtml(e.risk_summary)}</p>` : ''}
+                <div class="pt-1 flex items-center gap-1.5 flex-wrap">
+                  <span class="text-[10px] text-gray-400">Permisos:</span>
+                  ${permPills}
+                </div>
+                <div class="text-[9px] text-gray-400 font-mono">ID: ${escapeHtml(e.id)}</div>
+              </div>
+              <div class="shrink-0 flex items-center gap-2">
+                <button onclick="confirmUninstallExtension('${escapeHtml(e.browser)}', '${escapeHtml(e.profile)}', '${escapeHtml(e.id)}', '${escapeHtml(e.name)}')" class="px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/30 rounded-xl text-xs font-semibold flex items-center gap-1.5 active:scale-95 transition-all cursor-pointer">
+                  <span>🗑️</span> Desinstalar
+                </button>
+              </div>
+            </div>
+          `;
         });
+        html += '</div>';
         content.innerHTML = html;
       }
     };
+
+    function confirmUninstallExtension(browser, profile, extId, extName) {
+      if (confirm(`¿Estás seguro de que deseas desinstalar y eliminar permanentemente la extensión '${extName}' de ${browser} (${profile})?\n\nSamuLibre eliminará su carpeta física y limpiará su registro del navegador.`)) {
+        showToast('Desinstalando Extensión', `Eliminando ${extName} de ${browser}...`);
+        sendIpc('uninstall_browser_extension', JSON.stringify({
+          browser: browser,
+          profile: profile,
+          ext_id: extId
+        }));
+      }
+    }
 
     window.onSandboxReportLoaded = function(report) {
       if (!report) return;

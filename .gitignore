@@ -14,3 +14,5 @@ data/threat_history.json.bk
 crates/samulibre-vpn/data/
 crates/samulibre-patcher/data/
 *.zip
+samulibre-gui.exe
+*.WebView2/

@@ -1884,6 +1884,41 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                         });
                     }
 
+                    "uninstall_browser_extension" => {
+                        let payload_str = msg.payload.unwrap_or_default();
+                        let core_cloned = Arc::clone(&core_for_ipc);
+                        let proxy_cloned = proxy_for_ipc.clone();
+                        std::thread::spawn(move || {
+                            #[derive(Deserialize)]
+                            struct UninstallReq {
+                                browser: String,
+                                profile: String,
+                                ext_id: String,
+                            }
+                            if let Ok(req) = serde_json::from_str::<UninstallReq>(&payload_str) {
+                                if let Ok(c) = core_cloned.lock() {
+                                    match c.uninstall_browser_extension(&req.browser, &req.profile, &req.ext_id) {
+                                        Ok(msg) => {
+                                            let _ = proxy_cloned.send_event(CustomUserEvent::RealTimeAlert {
+                                                title: "Extensión Eliminada".to_string(),
+                                                details: msg,
+                                            });
+                                        }
+                                        Err(e) => {
+                                            let _ = proxy_cloned.send_event(CustomUserEvent::RealTimeAlert {
+                                                title: "Error al Eliminar Extensión".to_string(),
+                                                details: format!("{}", e),
+                                            });
+                                        }
+                                    }
+                                    // Re-auditar para refrescar la lista de inmediato
+                                    let extensions = c.audit_browser_extensions();
+                                    let _ = proxy_cloned.send_event(CustomUserEvent::BrowserExtensionsLoaded { extensions });
+                                }
+                            }
+                        });
+                    }
+
                     _ => {
                         info!("Acción IPC no reconocida: {}", msg.action);
                     }
