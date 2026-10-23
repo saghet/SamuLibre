@@ -85,16 +85,11 @@ elif [ -f "${SCRIPT_DIR}/../../target/release/samulibre-cli" ]; then
 fi
 
 echo "==> Instalando recursos web, firmas y configuración..."
-if [ -d "${SCRIPT_DIR}/ui" ]; then
-    cp -r "${SCRIPT_DIR}/ui/"* "${APP_DATA_DIR}/data/ui/"
+if [ -d "${SCRIPT_DIR}/data" ]; then
+    # Bundle completo: UI, firmas, catálogo KB, reglas CVE, sandbox, canarios
+    cp -r "${SCRIPT_DIR}/data/"* "${APP_DATA_DIR}/data/"
 elif [ -d "${SCRIPT_DIR}/../../data/ui" ]; then
-    cp -r "${SCRIPT_DIR}/../../data/ui/"* "${APP_DATA_DIR}/data/ui/"
-fi
-
-if [ -d "${SCRIPT_DIR}/signatures" ]; then
-    cp -r "${SCRIPT_DIR}/signatures/"* "${APP_DATA_DIR}/data/signatures/"
-elif [ -d "${SCRIPT_DIR}/../../data/signatures" ]; then
-    cp -r "${SCRIPT_DIR}/../../data/signatures/"* "${APP_DATA_DIR}/data/signatures/"
+    (cd "${SCRIPT_DIR}/../.." && bash scripts/packaging/stage_data.sh "${APP_DATA_DIR}/data")
 fi
 
 echo "==> Instalando acceso directo de escritorio e iconos..."

@@ -38,3 +38,21 @@ jobs:
 
       - name: Run Test Suite
         run: cargo test --workspace --verbose
+
+  test-arch:
+    name: Build & Test on Arch Linux (Garuda)
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Install Arch Dependencies
+        run: |
+          pacman -Syu --noconfirm --needed base-devel git rust webkit2gtk-4.1 gtk3 libayatana-appindicator tor iptables
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Cargo Check
+        run: cargo check --workspace --exclude samulibre-android
+
+      - name: Run Test Suite
+        run: cargo test --workspace --exclude samulibre-android

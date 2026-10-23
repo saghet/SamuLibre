@@ -1,19 +1,21 @@
 # Maintainer: SamuLibre Security Team <security@samulibre.org>
 pkgname=samulibre
-pkgver=0.2.0
+pkgver=0.2.1
 pkgrel=1
 pkgdesc="Suite de Seguridad, EDR y Antivirus Open Source con VPN Tor integrada"
 arch=('x86_64')
-url="https://github.com/samulibre/samulibre"
+url="https://github.com/saghet/SamuLibre"
 license=('GPL3')
 depends=('webkit2gtk-4.1' 'gtk3' 'tor' 'iptables')
 optdepends=(
+    'libayatana-appindicator: Icono en la bandeja del sistema'
     'kdialog: Diálogos nativos de archivo para KDE Plasma / Garuda Linux'
     'zenity: Diálogos nativos de archivo para GNOME / GTK'
     'snapper: Instantáneas de restauración del sistema Btrfs recomendadas en Garuda Linux'
 )
 provides=('samulibre')
 conflicts=('samulibre-git')
+options=('!strip' '!debug')
 
 package() {
     # Binarios
@@ -27,10 +29,7 @@ package() {
     # Unidad de systemd
     install -Dm644 "${srcdir}/samulibre.service" "${pkgdir}/usr/lib/systemd/user/samulibre.service"
 
-    # Recursos web y UI
-    mkdir -p "${pkgdir}/usr/share/samulibre/data"
-    cp -r "${srcdir}/ui" "${pkgdir}/usr/share/samulibre/data/"
-    if [ -d "${srcdir}/signatures" ]; then
-        cp -r "${srcdir}/signatures" "${pkgdir}/usr/share/samulibre/data/"
-    fi
+    # Recursos completos (UI, firmas, catálogo KB, reglas CVE, sandbox, canarios)
+    mkdir -p "${pkgdir}/usr/share/samulibre"
+    cp -r "${srcdir}/data" "${pkgdir}/usr/share/samulibre/"
 }

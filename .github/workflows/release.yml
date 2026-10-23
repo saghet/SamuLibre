@@ -83,9 +83,33 @@ jobs:
             target/samulibre_*.deb
             target/samulibre-*.tar.gz
 
+  build-arch:
+    name: Build Garuda / Arch Linux Package (.pkg.tar.zst)
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Install Arch Dependencies
+        run: |
+          pacman -Syu --noconfirm --needed base-devel git rust webkit2gtk-4.1 gtk3 libayatana-appindicator tor iptables
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Pacman Package (makepkg as non-root)
+        run: |
+          useradd -m builder
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+          su builder -c "cd '$GITHUB_WORKSPACE' && bash scripts/packaging/build_arch.sh"
+
+      - name: Upload Arch Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: arch-release
+          path: target/*.pkg.tar.zst
+
   publish-release:
     name: Publish Multi-Platform GitHub Release
-    needs: [build-windows, build-linux]
+    needs: [build-windows, build-linux, build-arch]
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
@@ -96,6 +120,7 @@ jobs:
           mkdir -p release_assets
           cp windows-release/* release_assets/ || true
           cp linux-release/* release_assets/ || true
+          cp arch-release/* release_assets/ || true
           ls -la release_assets/
 
       - name: Publish GitHub Release
@@ -116,7 +141,8 @@ jobs:
             
             ### Installation:
             - **Windows**: Download `samulibre-windows-x64.zip`, extract, and launch `samulibre.exe`.
-            - **Ubuntu / Debian**: Download and install `samulibre_0.2.0_amd64.deb` with `sudo dpkg -i samulibre_0.2.0_amd64.deb`.
-            - **Red Hat / Fedora / Garuda / Arch / Other Linux**: Download `samulibre-0.2.0-linux-x86_64.tar.gz`, extract, and run `sudo ./install.sh`.
+            - **Ubuntu / Debian**: `sudo apt install ./samulibre_<version>_amd64.deb`
+            - **Garuda / Arch / Manjaro**: `sudo pacman -U samulibre-<version>-1-x86_64.pkg.tar.zst`
+            - **Red Hat / Fedora / Other Linux**: Download `samulibre-<version>-linux-x86_64.tar.gz`, extract, and run `sudo ./install.sh`.
           draft: false
           prerelease: false

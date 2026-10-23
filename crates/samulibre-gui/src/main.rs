@@ -243,22 +243,43 @@ fn get_project_root() -> PathBuf {
     }
     #[cfg(not(target_os = "windows"))]
     {
-        if let Ok(home) = std::env::var("HOME") {
-            let user_data = PathBuf::from(&home).join(".local/share/samulibre");
+        let user_root = std::env::var("HOME")
+            .ok()
+            .map(|home| PathBuf::from(home).join(".local/share/samulibre"));
+        if let Some(user_data) = &user_root {
             if user_data.join("data").exists() {
-                return user_data;
+                return user_data.clone();
             }
         }
-        let sys_opt = PathBuf::from("/opt/samulibre");
-        if sys_opt.join("data").exists() {
-            return sys_opt;
-        }
-        let usr_share = PathBuf::from("/usr/share/samulibre");
-        if usr_share.join("data").exists() {
-            return usr_share;
+        // Instalación del sistema (solo lectura): sembrar una copia escribible en ~/.local/share/samulibre
+        for sys_root in [PathBuf::from("/opt/samulibre"), PathBuf::from("/usr/share/samulibre")] {
+            if sys_root.join("data").exists() {
+                if let Some(user_data) = &user_root {
+                    if copy_dir_recursive(&sys_root.join("data"), &user_data.join("data")).is_ok() {
+                        return user_data.clone();
+                    }
+                }
+                return sys_root;
+            }
         }
     }
     std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+}
+
+/// Copia recursivamente un directorio (usado para sembrar los datos de usuario en Linux)
+#[cfg(not(target_os = "windows"))]
+fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let target = dst.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir_recursive(&entry.path(), &target)?;
+        } else if !target.exists() {
+            fs::copy(entry.path(), &target)?;
+        }
+    }
+    Ok(())
 }
 
 #[cfg(target_os = "windows")]
@@ -1944,7 +1965,19 @@ fn run_app(app_root: PathBuf) -> Result<()> {
         });
 
     log_step("run_app: Llamando a builder.build(&window)...");
-    let webview = match builder.build(&window) {
+    // En Linux, `build` solo funciona en X11; `build_gtk` soporta Wayland (Garuda KDE, Ubuntu GNOME) y X11
+    #[cfg(target_os = "linux")]
+    let build_result = {
+        use tao::platform::unix::WindowExtUnix;
+        use wry::WebViewBuilderExtUnix;
+        match window.default_vbox() {
+            Some(vbox) => builder.build_gtk(vbox),
+            None => builder.build(&window),
+        }
+    };
+    #[cfg(not(target_os = "linux"))]
+    let build_result = builder.build(&window);
+    let webview = match build_result {
         Ok(w) => {
             log_step("run_app: WebView creado con éxito");
             w

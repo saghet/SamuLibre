@@ -3,19 +3,18 @@ set -euo pipefail
 
 # ==============================================================================
 # SamuLibre - Empaquetador de Tarball Universal Autónomo para Linux
-# Genera: target/samulibre-0.2.0-linux-x86_64.tar.gz
+# Genera: target/samulibre-<version>-linux-x86_64.tar.gz
 # ==============================================================================
 
-VERSION="0.2.0"
+VERSION="$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)"
 BUNDLE_DIR="target/bundle/samulibre-${VERSION}-linux-x86_64"
 
-echo "==> Compilando binarios de SamuLibre en modo release..."
+echo "==> Compilando binarios de SamuLibre ${VERSION} en modo release..."
 cargo build --release -p samulibre-gui -p samulibre-cli
 
 echo "==> Ensamblando bundle portable..."
 rm -rf "${BUNDLE_DIR}"
-mkdir -p "${BUNDLE_DIR}/ui"
-mkdir -p "${BUNDLE_DIR}/signatures"
+mkdir -p "${BUNDLE_DIR}"
 
 cp target/release/samulibre-gui "${BUNDLE_DIR}/"
 cp target/release/samulibre-cli "${BUNDLE_DIR}/"
@@ -27,10 +26,8 @@ cp data/samulibre.service "${BUNDLE_DIR}/"
 cp scripts/packaging/install.sh "${BUNDLE_DIR}/"
 chmod 755 "${BUNDLE_DIR}/install.sh"
 
-cp -r data/ui/* "${BUNDLE_DIR}/ui/"
-if [ -d "data/signatures" ]; then
-    cp -r data/signatures/* "${BUNDLE_DIR}/signatures/" || true
-fi
+# Recursos completos (UI, firmas, catálogo KB, reglas CVE, sandbox, canarios)
+bash scripts/packaging/stage_data.sh "${BUNDLE_DIR}/data"
 
 echo "==> Creando archivo comprimido .tar.gz..."
 cd target/bundle
