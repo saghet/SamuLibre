@@ -62,6 +62,23 @@ class SamuVpnService : VpnService() {
 
         /** Notificado cuando el watchdog detecta un evento del túnel. */
         @Volatile var onProxyFallback: ((String) -> Unit)? = null
+
+        @Volatile var instance: SamuVpnService? = null
+            private set
+
+        /**
+         * Protege sockets de salida del proxy y procesos locales para que nunca
+         * sean absorbidos por la interfaz TUN (previniendo bucles de enrutamiento).
+         */
+        fun protectSocket(socket: java.net.Socket): Boolean {
+            val vpn = instance ?: return true
+            return try {
+                vpn.protect(socket)
+            } catch (e: Exception) {
+                Log.w(TAG, "No se pudo proteger socket con protect(): ${e.message}")
+                true
+            }
+        }
     }
 
     private enum class Mode { SHIELD, SECURE_DNS, PROXY }
@@ -94,6 +111,11 @@ class SamuVpnService : VpnService() {
                    mode == AudioManager.MODE_IN_CALL ||
                    mode == AudioManager.MODE_IN_COMMUNICATION
         }
+
+    override fun onCreate() {
+        super.onCreate()
+        instance = this
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         try {
@@ -143,22 +165,33 @@ class SamuVpnService : VpnService() {
                         Mode.PROXY -> "SamuLibre Multi-Hop Privacy VPN"
                     }
                 )
-                if (mode != Mode.SHIELD) {
-                    try {
-                        addDnsServer("9.9.9.9")
-                        addDnsServer("149.112.112.112")
-                    } catch (e: Exception) {
-                        Log.w(TAG, "No se pudo fijar DNS Quad9: ${e.message}")
-                    }
-                }
+                // Enrutamiento seguro:
+                // No inyectamos servidores DNS crudos en la interfaz TUN con ruta acotada /24
+                // para evitar que el resolver de Android (netd) desvíe consultas UDP 53 a un blackhole.
+                // La resolución DNS cifrada y segura se gestiona en SamuSmartProxyServer (Quad9 DoH) y Tor SOCKS5 remoto.
+
                 if (mode == Mode.PROXY && proxyPort != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     setHttpProxy(ProxyInfo.buildDirectProxy("127.0.0.1", proxyPort))
                 }
-                // Exclusión de paquetes críticos de telefonía, telecom, IMS y dialers
-                // para que llamadas de voz (VoLTE/VoWiFi/CSFB) no intenten enrutarse por el TUN
-                // ni provoquen que el watchdog telefónico del sistema operativo revoque la VPN.
-                val telephonyPackages = listOf(
+
+                // Exclusión de aplicaciones críticas (Split-Tunneling / Bypass Nativo) para garantizar
+                // que NINGUNA aplicación pierda acceso a internet ni sufra bloqueos de nodos Tor:
+                // 1. Meta / Facebook: usan QUIC (UDP 443), MQTT y sufren bloqueo activo en nodos de salida Tor.
+                // 2. Telefonía, llamadas de voz (VoLTE/VoWiFi/CSFB), IMS y dialers.
+                // 3. Google Play Services (FCM) para notificaciones push instantáneas sin latencia.
+                val bypassPackages = listOf(
                     packageName,
+                    // Meta / Facebook / WhatsApp (QUIC sobre UDP 443, llamadas de voz y push persistente)
+                    "com.facebook.katana",
+                    "com.facebook.orca",
+                    "com.facebook.lite",
+                    "com.facebook.pages.app",
+                    "com.instagram.android",
+                    "com.whatsapp",
+                    "com.whatsapp.w4b",
+                    // Google Play Services / Notificaciones Push
+                    "com.google.android.gms",
+                    // Telefonía celular y voz sobre LTE/WiFi
                     "com.android.phone",
                     "com.android.server.telecom",
                     "com.android.incallui",
@@ -171,7 +204,7 @@ class SamuVpnService : VpnService() {
                     "com.sec.phone",
                     "com.samsung.android.messaging"
                 )
-                for (pkg in telephonyPackages) {
+                for (pkg in bypassPackages) {
                     try {
                         addDisallowedApplication(pkg)
                     } catch (e: Exception) {
@@ -414,6 +447,7 @@ class SamuVpnService : VpnService() {
     }
 
     override fun onDestroy() {
+        if (instance == this) instance = null
         stopVpn()
         super.onDestroy()
     }

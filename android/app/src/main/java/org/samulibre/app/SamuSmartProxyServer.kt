@@ -34,6 +34,28 @@ object SamuSmartProxyServer {
     const val DEFAULT_PORT = 8118
     const val TOR_SOCKS_PORT = 9050
 
+    // Servicios y CDNs que bloquean activamente las direcciones IP de nodos de salida Tor
+    // o que requieren protocolos nativos directos. Para estos dominios, el Smart Proxy enruta
+    // de forma directa y protegida para asegurar que la app nunca se quede sin conexión.
+    private val TOR_BLOCKED_DOMAINS = listOf(
+        "facebook.com",
+        "fbcdn.net",
+        "fbsbx.com",
+        "fb.com",
+        "fb.me",
+        "instagram.com",
+        "cdninstagram.com",
+        "whatsapp.com",
+        "whatsapp.net",
+        "messenger.com",
+        "meta.com"
+    )
+
+    fun isTorBlockedHost(host: String): Boolean {
+        val h = host.lowercase().trim()
+        return TOR_BLOCKED_DOMAINS.any { h == it || h.endsWith(".$it") }
+    }
+
     private val isRunning = AtomicBoolean(false)
     private var serverSocket: ServerSocket? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -137,23 +159,28 @@ object SamuSmartProxyServer {
 
         var remoteSocket: Socket? = null
 
-        // 1. Intentar salida por Tor SOCKS5 si Tor está listo o puerto abierto
-        if (isTorReady || isPortOpen("127.0.0.1", targetSocksPort)) {
+        // 1. Bypass inteligente para servicios que bloquean activamente nodos Tor (Meta / Facebook / WhatsApp):
+        // Conectar directamente de forma protegida para garantizar que nunca se queden sin internet.
+        val bypassTor = isTorBlockedHost(host)
+
+        if (!bypassTor && (isTorReady || isPortOpen("127.0.0.1", targetSocksPort))) {
             try {
-                remoteSocket = connectViaSocks5("127.0.0.1", targetSocksPort, host, port, 8000)
+                // Timeout ágil de 1.800 ms: si Tor tarda o no responde, conmuta de inmediato al socket directo
+                remoteSocket = connectViaSocks5("127.0.0.1", targetSocksPort, host, port, 1800)
                 isTorReady = true
             } catch (e: Exception) {
-                Log.w(TAG, "Fallo conectando vía Tor SOCKS5 hacia $destination: ${e.message}")
+                Log.w(TAG, "Tor SOCKS5 no disponible para $destination (${e.message}). Conmutando a salida protegida directa.")
             }
         }
 
-        // 2. Fallback de alta velocidad: si Tor aún no responde, salir directo con DNS Quad9 para no cortar la navegación
+        // 2. Fallback de alta velocidad y conexión directa protegida
         if (remoteSocket == null) {
             try {
                 remoteSocket = Socket().apply {
                     tcpNoDelay = true
                     soTimeout = 45_000
-                    connect(InetSocketAddress(host, port), 6000)
+                    SamuVpnService.protectSocket(this)
+                    connect(InetSocketAddress(host, port), 4000)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "No se pudo conectar a $destination: ${e.message}")
@@ -166,7 +193,7 @@ object SamuSmartProxyServer {
             }
         }
 
-        // 3. Responder a Chrome: Túnel HTTPS establecido con éxito
+        // 3. Responder al cliente: Túnel HTTPS establecido con éxito
         try {
             clientOut.write("HTTP/1.1 200 Connection Established\r\nProxy-Agent: SamuLibre-Gateway/1.99.12\r\n\r\n".toByteArray())
             clientOut.flush()
@@ -176,7 +203,7 @@ object SamuSmartProxyServer {
             return
         }
 
-        // 4. Puente bidireccional transparente entre Chrome y el nodo de salida
+        // 4. Puente bidireccional transparente entre cliente y el nodo de salida
         bridgeSockets(client, remoteSocket)
     }
 
@@ -191,10 +218,11 @@ object SamuSmartProxyServer {
         val host = uri.host ?: url.substringBefore("/").substringBefore(":")
         val port = if (uri.port > 0) uri.port else 80
 
+        val bypassTor = isTorBlockedHost(host)
         var remoteSocket: Socket? = null
-        if (isTorReady || isPortOpen("127.0.0.1", targetSocksPort)) {
+        if (!bypassTor && (isTorReady || isPortOpen("127.0.0.1", targetSocksPort))) {
             try {
-                remoteSocket = connectViaSocks5("127.0.0.1", targetSocksPort, host, port, 8000)
+                remoteSocket = connectViaSocks5("127.0.0.1", targetSocksPort, host, port, 1800)
                 isTorReady = true
             } catch (e: Exception) {
                 // fallback
@@ -206,7 +234,8 @@ object SamuSmartProxyServer {
                 remoteSocket = Socket().apply {
                     tcpNoDelay = true
                     soTimeout = 45_000
-                    connect(InetSocketAddress(host, port), 6000)
+                    SamuVpnService.protectSocket(this)
+                    connect(InetSocketAddress(host, port), 4000)
                 }
             } catch (e: Exception) {
                 try { client.close() } catch (ignored: Exception) {}
@@ -242,6 +271,7 @@ object SamuSmartProxyServer {
         val socket = Socket()
         socket.tcpNoDelay = true
         socket.soTimeout = 45_000
+        SamuVpnService.protectSocket(socket)
         socket.connect(InetSocketAddress(proxyHost, proxyPort), timeoutMs)
 
         val out = socket.getOutputStream()
@@ -382,7 +412,11 @@ object SamuSmartProxyServer {
 
     fun isPortOpen(host: String, port: Int): Boolean {
         return try {
-            Socket().use { it.connect(InetSocketAddress(host, port), 250); true }
+            Socket().use {
+                SamuVpnService.protectSocket(it)
+                it.connect(InetSocketAddress(host, port), 250)
+                true
+            }
         } catch (e: Exception) {
             false
         }
