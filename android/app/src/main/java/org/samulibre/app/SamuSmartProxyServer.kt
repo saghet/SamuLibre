@@ -45,6 +45,8 @@ object SamuSmartProxyServer {
         "fb.com",
         "fb.me",
         "fbwat.ch",
+        "akamaihd.net",
+        "akamaized.net",
         "instagram.com",
         "cdninstagram.com",
         "whatsapp.com",
@@ -52,6 +54,7 @@ object SamuSmartProxyServer {
         "messenger.com",
         "meta.com",
         "threads.net",
+        "threadsapp.net",
         "m.me",
         "oculus.com"
     )
@@ -380,7 +383,7 @@ object SamuSmartProxyServer {
         val remoteOut = remote.getOutputStream()
 
         val j1 = scope.launch {
-            val buffer = ByteArray(16384)
+            val buffer = ByteArray(65536)
             try {
                 var len: Int
                 while (clientIn.read(buffer).also { len = it } != -1) {
@@ -394,7 +397,7 @@ object SamuSmartProxyServer {
         }
 
         val j2 = scope.launch {
-            val buffer = ByteArray(16384)
+            val buffer = ByteArray(65536)
             try {
                 var len: Int
                 while (remoteIn.read(buffer).also { len = it } != -1) {
