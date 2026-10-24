@@ -11,8 +11,8 @@ android {
         applicationId = "org.samulibre.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 8
-        versionName = "1.99.15"
+        versionCode = 9
+        versionName = "2.00.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
