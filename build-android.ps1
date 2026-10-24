@@ -31,11 +31,14 @@ $env:ANDROID_NDK_HOME = $NdkDir
 Write-Host "[+] ANDROID_HOME: $SdkDir" -ForegroundColor Gray
 Write-Host "[+] ANDROID_NDK_HOME: $NdkDir" -ForegroundColor Gray
 
-# 2. Sincronizar Assets UI
+# 2. Sincronizar Assets UI (preservando index.html específico de Android si ya existe)
 Write-Host "[+] Sincronizando interfaz web en assets de Android..." -ForegroundColor Cyan
 $AssetsUiDir = "android/app/src/main/assets/ui"
 New-Item -ItemType Directory -Force -Path $AssetsUiDir | Out-Null
-Copy-Item -Path "data/ui/*" -Destination $AssetsUiDir -Recurse -Force
+Get-ChildItem -Path "data/ui/*" -Exclude "index.html" | Copy-Item -Destination $AssetsUiDir -Recurse -Force
+if (-not (Test-Path "$AssetsUiDir/index.html")) {
+    Copy-Item -Path "data/ui/index.html" -Destination $AssetsUiDir -Force
+}
 
 # 3. Compilar Bibliotecas Nativas con cargo-ndk
 $JniLibsDir = "android/app/src/main/jniLibs"

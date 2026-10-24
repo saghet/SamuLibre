@@ -229,7 +229,7 @@
             <button id="btnToggleTunShield" onclick="toggleTunShield()" class="px-3.5 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-black font-semibold text-xs rounded-xl shadow transition-all cursor-pointer">
               🛡️ Activar Escudo TUN
             </button>
-            <button onclick="sendIpc('audit_device_apps')" class="px-3.5 py-1.5 glass-panel hover:bg-white/10 text-white font-medium text-xs rounded-xl transition-all cursor-pointer">
+            <button onclick="startAppPermissionAudit()" class="px-3.5 py-1.5 glass-panel hover:bg-white/10 text-white font-medium text-xs rounded-xl transition-all cursor-pointer">
               🔍 Auditar Apps
             </button>
           </div>
@@ -1645,12 +1645,9 @@
       }
     };
 
-    window.onAndroidPackagesAudited = function(alerts) {
-      if (!alerts || !Array.isArray(alerts)) return;
-      if (alerts.length > 0) {
-        showToast('Auditoría de Apps Finalizada', `Se identificaron ${alerts.length} aplicaciones con permisos sensibles (Superposición / Accesibilidad).`, true);
-      } else {
-        showToast('Auditoría de Apps Limpia', 'Ninguna aplicación instalada abusa de permisos de superposición bancaria o accesibilidad.');
+        window.onAndroidPackagesAudited = function(data) {
+      if (window.handleAndroidPackagesAuditedResult) {
+        window.handleAndroidPackagesAuditedResult(data);
       }
     };
 
@@ -4065,6 +4062,639 @@
       if (!verdict) return;
       showToast('Anti-Phishing IA', `${verdict.domain}: ${verdict.is_phishing ? '¡PHISHING DETECTADO!' : 'Dominio Legítimo'}`);
     };
+
+    // =========================================================================
+    // AUDITORÍA INTELIGENTE DE PERMISOS EN ANDROID (ESTUDIO DE MERCADO & UX ADVISOR)
+    // =========================================================================
+    let _auditedAppsStore = [];
+    let _auditedAlertsStore = [];
+    let _currentAuditFilter = 'all';
+    let _searchAuditQuery = '';
+
+    const ANDROID_PERMISSIONS_DB = {
+      'android.permission.ACCESS_FINE_LOCATION': { name: 'Ubicación Precisa', icon: '📍', category: 'location' },
+      'android.permission.ACCESS_COARSE_LOCATION': { name: 'Ubicación Aproximada', icon: '📍', category: 'location' },
+      'android.permission.ACCESS_BACKGROUND_LOCATION': { name: 'Ubicación 24/7 en Segundo Plano', icon: '🛰️', category: 'location' },
+      'android.permission.CAMERA': { name: 'Cámara', icon: '📷', category: 'camera' },
+      'android.permission.RECORD_AUDIO': { name: 'Micrófono', icon: '🎙️', category: 'mic' },
+      'android.permission.READ_CONTACTS': { name: 'Leer Contactos', icon: '👥', category: 'contacts' },
+      'android.permission.WRITE_CONTACTS': { name: 'Modificar Contactos', icon: '👥', category: 'contacts' },
+      'android.permission.GET_ACCOUNTS': { name: 'Ver Cuentas del Dispositivo', icon: '👤', category: 'contacts' },
+      'android.permission.READ_SMS': { name: 'Leer Mensajes SMS', icon: '💬', category: 'sms' },
+      'android.permission.SEND_SMS': { name: 'Enviar SMS', icon: '💬', category: 'sms' },
+      'android.permission.RECEIVE_SMS': { name: 'Recibir SMS', icon: '💬', category: 'sms' },
+      'android.permission.READ_CALL_LOG': { name: 'Historial de Llamadas', icon: '📞', category: 'phone' },
+      'android.permission.READ_PHONE_STATE': { name: 'Estado del Teléfono / IMEI', icon: '📱', category: 'phone' },
+      'android.permission.CALL_PHONE': { name: 'Hacer Llamadas Directas', icon: '📞', category: 'phone' },
+      'android.permission.SYSTEM_ALERT_WINDOW': { name: 'Mostrar sobre Otras Apps', icon: '🪟', category: 'overlay' },
+      'android.permission.BIND_ACCESSIBILITY_SERVICE': { name: 'Servicio de Accesibilidad', icon: '♿', category: 'accessibility' },
+      'android.permission.READ_EXTERNAL_STORAGE': { name: 'Leer Almacenamiento / Fotos', icon: '📁', category: 'storage' },
+      'android.permission.WRITE_EXTERNAL_STORAGE': { name: 'Escribir Almacenamiento', icon: '📁', category: 'storage' },
+      'android.permission.MANAGE_EXTERNAL_STORAGE': { name: 'Control Total de Archivos', icon: '💾', category: 'storage' },
+      'android.permission.READ_MEDIA_IMAGES': { name: 'Fotos y Galerías', icon: '🖼️', category: 'storage' },
+      'android.permission.READ_MEDIA_VIDEO': { name: 'Vídeos', icon: '🎬', category: 'storage' },
+      'android.permission.READ_MEDIA_AUDIO': { name: 'Archivos de Audio', icon: '🎵', category: 'storage' }
+    };
+
+    function classifyAppCategory(pkg, name) {
+      const q = ((pkg || '') + ' ' + (name || '')).toLowerCase();
+      if (/torch|flashlight|linterna|calc|calculadora|scanner|qr|compass|brújula|brujula|wallpaper|fondo|cleaner|limpiador|battery|batería|bateria|clock|reloj|alarm|timer|note|bloc|recorder|grabadora|file|archivos|pdf/.test(q)) {
+        return { id: 'utility', label: 'Herramienta / Utilidad', icon: '🛠️' };
+      }
+      if (/game|juego|puzzle|simulator|sim|racer|racing|subway|clash|candy|runner|craft|sniper|shooter|casino|arcade|play|pokemon|fifa|roblox|free fire/.test(q)) {
+        return { id: 'game', label: 'Juego', icon: '🎮' };
+      }
+      if (/shop|compra|amazon|aliexpress|temu|shein|mercadolibre|mercado|ebay|uber|rappi|pedidos|didi|delivery|glovo|falabella|walmart|food/.test(q)) {
+        return { id: 'shopping', label: 'Comercio / Delivery', icon: '🛍️' };
+      }
+      if (/whatsapp|telegram|instagram|tiktok|facebook|messenger|discord|snapchat|twitter|x\.corp|reddit|signal|threads|wechat|social/.test(q)) {
+        return { id: 'social', label: 'Red Social / Chat', icon: '💬' };
+      }
+      if (/spotify|netflix|youtube|music|vlc|prime|disney|soundcloud|deezer|twitch|video|player|stream|radio/.test(q)) {
+        return { id: 'media', label: 'Streaming / Multimedia', icon: '🎵' };
+      }
+      if (/browser|chrome|firefox|opera|edge|brave|navegador|ucbrowser|duckduckgo/.test(q)) {
+        return { id: 'browser', label: 'Navegador Web', icon: '🌐' };
+      }
+      if (/bank|banco|wallet|bcp|bbva|santander|nu|nequi|daviplata|binance|crypto|pay|mercado pago/.test(q)) {
+        return { id: 'finance', label: 'Finanzas / Banca', icon: '💳' };
+      }
+      return { id: 'general', label: 'App de Usuario', icon: '📱' };
+    }
+
+    function evaluateAppPermissionsInsight(app) {
+      const cat = classifyAppCategory(app.package_name, app.app_name);
+      const granted = app.granted_permissions || [];
+      const requested = app.requested_permissions || [];
+      const hasPerm = (p) => granted.includes(p) || requested.includes(p);
+      const isGranted = (p) => granted.includes(p);
+
+      const recommendations = [];
+      let zeroImpactCount = 0;
+      let reducibleCount = 0;
+      let criticalCount = 0;
+
+      // 1. Detección de Superposición (SYSTEM_ALERT_WINDOW)
+      if (app.has_overlay_permission || hasPerm('android.permission.SYSTEM_ALERT_WINDOW')) {
+        criticalCount++;
+        recommendations.push({
+          level: 'critical',
+          badge: '⚠️ Riesgo Crítico',
+          color: 'red',
+          title: 'Superposición de Pantalla (Mostrar sobre otras apps)',
+          detail: 'Permite a la aplicación dibujar pantallas flotantes transparentes o falsas sobre otras apps (riesgo de tapjacking o captura de contraseñas y datos bancarios).',
+          uxImpact: 'Impacto en UX: Si no es una burbuja de chat o grabador de pantalla esencial, desactívalo de inmediato en Ajustes.'
+        });
+      }
+
+      // 2. Detección de Accesibilidad (BIND_ACCESSIBILITY_SERVICE)
+      if (app.has_accessibility_service || hasPerm('android.permission.BIND_ACCESSIBILITY_SERVICE')) {
+        criticalCount++;
+        recommendations.push({
+          level: 'critical',
+          badge: '⚠️ Alerta Máxima',
+          color: 'red',
+          title: 'Servicio de Accesibilidad Activado',
+          detail: 'Otorga control absoluto para leer todos los textos en pantalla (incluyendo contraseñas y chats) y simular toques automáticamente.',
+          uxImpact: 'Impacto en UX: Únicamente debe estar activo en herramientas asistivas o gestores autorizados por ti.'
+        });
+      }
+
+      // 3. Reglas Contextuales por Categoría (Estudio de Mercado & Impacto UX)
+      if (cat.id === 'utility') {
+        if (hasPerm('android.permission.ACCESS_FINE_LOCATION') || hasPerm('android.permission.ACCESS_COARSE_LOCATION') || hasPerm('android.permission.ACCESS_BACKGROUND_LOCATION')) {
+          zeroImpactCount++;
+          recommendations.push({
+            level: 'zero',
+            badge: '🟢 Impacto NULO (100% Seguro Quitar)',
+            color: 'emerald',
+            title: 'Ubicación Geográfica Innecesaria',
+            detail: 'Una herramienta (linterna, calculadora, notas o limpiador) no necesita conocer tus coordenadas GPS para funcionar.',
+            uxImpact: 'Impacto en UX: NINGUNO. La aplicación seguirá ejecutándose exactamente igual sin compartir tu ubicación.'
+          });
+        }
+        if (hasPerm('android.permission.READ_CONTACTS') || hasPerm('android.permission.WRITE_CONTACTS') || hasPerm('android.permission.GET_ACCOUNTS')) {
+          zeroImpactCount++;
+          recommendations.push({
+            level: 'zero',
+            badge: '🟢 Impacto NULO (100% Seguro Quitar)',
+            color: 'emerald',
+            title: 'Acceso a Libreta de Contactos',
+            detail: 'Esta herramienta no requiere leer ni sincronizar tus contactos personales.',
+            uxImpact: 'Impacto en UX: NINGUNO. Protege la información de tus amigos y familiares sin alterar el uso de la app.'
+          });
+        }
+        if (hasPerm('android.permission.READ_SMS') || hasPerm('android.permission.SEND_SMS') || hasPerm('android.permission.RECEIVE_SMS')) {
+          zeroImpactCount++;
+          recommendations.push({
+            level: 'zero',
+            badge: '🟢 Impacto NULO (100% Seguro Quitar)',
+            color: 'emerald',
+            title: 'Acceso a Mensajes de Texto (SMS)',
+            detail: 'Las utilidades no deben leer mensajes SMS (podrían interceptar códigos 2FA bancarios).',
+            uxImpact: 'Impacto en UX: NINGUNO. Quitar de inmediato en los ajustes de Android.'
+          });
+        }
+        if ((hasPerm('android.permission.RECORD_AUDIO') || hasPerm('android.permission.CAMERA')) && !/recorder|grabadora|scan|qr|cam/.test((app.package_name + ' ' + app.app_name).toLowerCase())) {
+          zeroImpactCount++;
+          recommendations.push({
+            level: 'zero',
+            badge: '🟢 Impacto NULO (100% Seguro Quitar)',
+            color: 'emerald',
+            title: 'Acceso a Micrófono / Cámara',
+            detail: 'Esta herramienta no tiene funciones de audio o captura visual primarias justificadas.',
+            uxImpact: 'Impacto en UX: NINGUNO. Mantiene tus micrófonos y lentes apagados.'
+          });
+        }
+      } else if (cat.id === 'game') {
+        if (hasPerm('android.permission.ACCESS_BACKGROUND_LOCATION')) {
+          zeroImpactCount++;
+          recommendations.push({
+            level: 'zero',
+            badge: '🟢 Impacto NULO (100% Seguro Quitar)',
+            color: 'emerald',
+            title: 'Ubicación 24/7 en Segundo Plano',
+            detail: 'Los videojuegos no deben rastrear tus desplazamientos cuando la pantalla está apagada.',
+            uxImpact: 'Impacto en UX: NINGUNO. Ahorra considerablemente la batería y evita telemetría publicitaria.'
+          });
+        } else if (hasPerm('android.permission.ACCESS_FINE_LOCATION') || hasPerm('android.permission.ACCESS_COARSE_LOCATION')) {
+          zeroImpactCount++;
+          recommendations.push({
+            level: 'zero',
+            badge: '🟢 Impacto NULO (100% Seguro Quitar)',
+            color: 'emerald',
+            title: 'Ubicación GPS en Juego',
+            detail: 'Las partidas (offline u online) funcionan sin conocer tu dirección exacta de residencia.',
+            uxImpact: 'Impacto en UX: NINGUNO. Puedes jugar sin limitaciones.'
+          });
+        }
+        if (hasPerm('android.permission.READ_CONTACTS') || hasPerm('android.permission.GET_ACCOUNTS')) {
+          zeroImpactCount++;
+          recommendations.push({
+            level: 'zero',
+            badge: '🟢 Impacto NULO (100% Seguro Quitar)',
+            color: 'emerald',
+            title: 'Lectura de Contactos en Juego',
+            detail: 'Suele usarse para recolectar agendas telefónicas y perfilar usuarios con fines publicitarios.',
+            uxImpact: 'Impacto en UX: NINGUNO. No afecta partidas ni puntuaciones.'
+          });
+        }
+        if (hasPerm('android.permission.READ_SMS') || hasPerm('android.permission.READ_CALL_LOG')) {
+          criticalCount++;
+          recommendations.push({
+            level: 'critical',
+            badge: '⚠️ Permiso Abusivo',
+            color: 'red',
+            title: 'Lectura de SMS o Llamadas en Juego',
+            detail: 'Comportamiento sospechoso: los juegos nunca deben inspeccionar registros de llamadas o SMS.',
+            uxImpact: 'Impacto en UX: Debe ser revocado sin demora.'
+          });
+        }
+      } else if (cat.id === 'shopping') {
+        if (hasPerm('android.permission.ACCESS_BACKGROUND_LOCATION')) {
+          reducibleCount++;
+          recommendations.push({
+            level: 'reducible',
+            badge: '🟡 Impacto MÍNIMO (Modo Recomendado)',
+            color: 'amber',
+            title: 'Ubicación Permanente de Fondo',
+            detail: 'La app no necesita saber dónde estás a las 3 a.m. para entregarte un pedido.',
+            uxImpact: 'Impacto en UX: Configura en "Solo mientras la app está en uso". Podrás rastrear repartidores en vivo sin ser monitorizado 24/7.'
+          });
+        }
+        if (hasPerm('android.permission.READ_CONTACTS')) {
+          zeroImpactCount++;
+          recommendations.push({
+            level: 'zero',
+            badge: '🟢 Impacto NULO (100% Seguro Quitar)',
+            color: 'emerald',
+            title: 'Contactos en App de Compras',
+            detail: 'Para comprar o recibir productos basta con ingresar el nombre y dirección manualmente.',
+            uxImpact: 'Impacto en UX: NINGUNO. Realizarás compras con total normalidad.'
+          });
+        }
+        if (hasPerm('android.permission.RECORD_AUDIO')) {
+          zeroImpactCount++;
+          recommendations.push({
+            level: 'zero',
+            badge: '🟢 Impacto NULO (100% Seguro Quitar)',
+            color: 'emerald',
+            title: 'Micrófono en Comercio Electrónico',
+            detail: 'Usado para búsqueda por voz, pero escribir en la barra de búsqueda es más preciso y privado.',
+            uxImpact: 'Impacto en UX: CERO si buscas escribiendo con tu teclado.'
+          });
+        }
+      } else if (cat.id === 'social') {
+        if (hasPerm('android.permission.ACCESS_BACKGROUND_LOCATION')) {
+          reducibleCount++;
+          recommendations.push({
+            level: 'reducible',
+            badge: '🟡 Impacto MÍNIMO (Modo Recomendado)',
+            color: 'amber',
+            title: 'Rastreo Continuo de Fondo',
+            detail: 'Las redes sociales recolectan historiales de movimiento para perfilar gustos e intereses.',
+            uxImpact: 'Impacto en UX: Configura en "Solo mientras la app está en uso". Podrás adjuntar tu ubicación en chats o fotos cuando tú lo decidas.'
+          });
+        }
+        if (hasPerm('android.permission.READ_SMS') || hasPerm('android.permission.READ_CALL_LOG')) {
+          reducibleCount++;
+          recommendations.push({
+            level: 'reducible',
+            badge: '🟡 Impacto MÍNIMO (Modo Recomendado)',
+            color: 'amber',
+            title: 'Lectura Automática de SMS / Llamadas',
+            detail: 'Solo se utiliza para autocompletar códigos de verificación OTP de 6 dígitos.',
+            uxImpact: 'Impacto en UX: Escribir el código SMS manualmente toma solo 3 segundos y evita que la app lea toda tu bandeja de entrada.'
+          });
+        }
+      } else if (cat.id === 'media') {
+        if (hasPerm('android.permission.ACCESS_FINE_LOCATION') || hasPerm('android.permission.ACCESS_COARSE_LOCATION')) {
+          zeroImpactCount++;
+          recommendations.push({
+            level: 'zero',
+            badge: '🟢 Impacto NULO (100% Seguro Quitar)',
+            color: 'emerald',
+            title: 'Ubicación GPS en Reproductor de Medios',
+            detail: 'La música y vídeos se transmiten por internet sin requerir tu posición satelital.',
+            uxImpact: 'Impacto en UX: NINGUNO. Tus listas de reproducción y descargas funcionan sin cambios.'
+          });
+        }
+        if (hasPerm('android.permission.READ_CONTACTS')) {
+          zeroImpactCount++;
+          recommendations.push({
+            level: 'zero',
+            badge: '🟢 Impacto NULO (100% Seguro Quitar)',
+            color: 'emerald',
+            title: 'Contactos en Streaming Multimedia',
+            detail: 'Innecesario para escuchar canciones o ver series.',
+            uxImpact: 'Impacto en UX: NINGUNO.'
+          });
+        }
+      } else {
+        // General apps
+        if (hasPerm('android.permission.ACCESS_BACKGROUND_LOCATION')) {
+          reducibleCount++;
+          recommendations.push({
+            level: 'reducible',
+            badge: '🟡 Impacto MÍNIMO',
+            color: 'amber',
+            title: 'Ubicación Permanente 24/7',
+            detail: 'Pocas apps justifican consultar tu GPS con la pantalla apagada.',
+            uxImpact: 'Impacto en UX: Cambiar a "Solo con la app en uso" ahorra batería y protege tu rutina diaria.'
+          });
+        }
+        if (hasPerm('android.permission.READ_CONTACTS') && !/contact|agenda|tel|phone|call/.test(app.package_name)) {
+          zeroImpactCount++;
+          recommendations.push({
+            level: 'zero',
+            badge: '🟢 Impacto NULO (100% Seguro Quitar)',
+            color: 'emerald',
+            title: 'Lectura de Agenda Telefónica',
+            detail: 'No parece esencial para la funcionalidad descrita de esta aplicación.',
+            uxImpact: 'Impacto en UX: NINGUNO en la gran mayoría de casos de uso.'
+          });
+        }
+      }
+
+      // Conteo de permisos sensibles activos para badge visual
+      const sensitiveActive = [];
+      Object.keys(ANDROID_PERMISSIONS_DB).forEach(p => {
+        if (isGranted(p)) {
+          sensitiveActive.push(ANDROID_PERMISSIONS_DB[p]);
+        }
+      });
+
+      return {
+        ...app,
+        category: cat,
+        recommendations,
+        zeroImpactCount,
+        reducibleCount,
+        criticalCount,
+        sensitiveActive
+      };
+    }
+
+    function startAppPermissionAudit() {
+      const modal = document.getElementById('modalAppPermissionAudit');
+      if (!modal) return;
+      modal.classList.remove('hidden');
+      document.body.style.overflow = 'hidden';
+
+      const stateLoading = document.getElementById('stateAuditLoading');
+      const cardsList = document.getElementById('auditedAppsCardsList');
+      const stateEmpty = document.getElementById('stateAuditEmpty');
+
+      if (stateLoading) stateLoading.classList.remove('hidden');
+      if (cardsList) cardsList.classList.add('hidden');
+      if (stateEmpty) stateEmpty.classList.add('hidden');
+
+      sendIpc('audit_device_apps');
+    }
+
+    function closeAppPermissionAuditModal() {
+      const modal = document.getElementById('modalAppPermissionAudit');
+      if (modal) modal.classList.add('hidden');
+      document.body.style.overflow = '';
+    }
+
+    function openAppDetailsSettings(pkgName) {
+      if (!pkgName) return;
+      sendIpc('open_app_details_settings', pkgName);
+      showToast('Ajustes de Android', `Abriendo configuración de permisos para ${pkgName}...`);
+    }
+
+    window.handleAndroidPackagesAuditedResult = function(data) {
+      let alerts = [];
+      let apps = [];
+      if (Array.isArray(data)) {
+        alerts = data;
+      } else if (data && typeof data === 'object') {
+        alerts = data.alerts || [];
+        apps = data.apps || [];
+      }
+
+      _auditedAlertsStore = alerts;
+      _auditedAppsStore = apps.map(app => evaluateAppPermissionsInsight(app));
+
+      // Ordenar: primero las que tienen sugerencias de impacto nulo o críticas
+      _auditedAppsStore.sort((a, b) => {
+        const scoreA = (a.criticalCount * 10) + (a.zeroImpactCount * 3) + (a.reducibleCount * 1);
+        const scoreB = (b.criticalCount * 10) + (b.zeroImpactCount * 3) + (b.reducibleCount * 1);
+        return scoreB - scoreA;
+      });
+
+      updateAuditMetricsAndFilters();
+      applyCurrentAuditFilter();
+
+      const stateLoading = document.getElementById('stateAuditLoading');
+      if (stateLoading) stateLoading.classList.add('hidden');
+
+      if (alerts.length > 0) {
+        showToast('Auditoría Finalizada', `Se auditaron ${_auditedAppsStore.length} apps. Detectadas ${alerts.length} alertas sensibles.`, true);
+      } else {
+        showToast('Auditoría Completada', `Se auditaron ${_auditedAppsStore.length} aplicaciones con éxito.`);
+      }
+    };
+
+    function updateAuditMetricsAndFilters() {
+      const totalApps = _auditedAppsStore.length;
+      let totalZero = 0;
+      let totalReducible = 0;
+      let totalCritical = 0;
+      let totalLocation = 0;
+      let totalMicCam = 0;
+      let totalContacts = 0;
+
+      _auditedAppsStore.forEach(app => {
+        totalZero += app.zeroImpactCount;
+        totalReducible += app.reducibleCount;
+        totalCritical += app.criticalCount;
+
+        const granted = app.granted_permissions || [];
+        const requested = app.requested_permissions || [];
+        const has = (p) => granted.includes(p) || requested.includes(p);
+
+        if (has('android.permission.ACCESS_FINE_LOCATION') || has('android.permission.ACCESS_COARSE_LOCATION') || has('android.permission.ACCESS_BACKGROUND_LOCATION')) {
+          totalLocation++;
+        }
+        if (has('android.permission.CAMERA') || has('android.permission.RECORD_AUDIO')) {
+          totalMicCam++;
+        }
+        if (has('android.permission.READ_CONTACTS') || has('android.permission.READ_SMS') || has('android.permission.READ_CALL_LOG')) {
+          totalContacts++;
+        }
+      });
+
+      // Calcular Score de Privacidad (100 base)
+      let score = 100 - (totalZero * 3) - (totalReducible * 2) - (totalCritical * 10);
+      if (score < 20) score = 20;
+      if (totalApps === 0) score = 100;
+
+      const elScoreVal = document.getElementById('permAuditScoreVal');
+      const elScoreIcon = document.getElementById('permAuditScoreIcon');
+      if (elScoreVal) {
+        elScoreVal.innerText = `${score}%`;
+        if (score >= 80) {
+          elScoreVal.className = 'text-base sm:text-lg font-bold text-emerald-400';
+          if (elScoreIcon) elScoreIcon.innerText = '🛡️';
+        } else if (score >= 55) {
+          elScoreVal.className = 'text-base sm:text-lg font-bold text-amber-400';
+          if (elScoreIcon) elScoreIcon.innerText = '⚡';
+        } else {
+          elScoreVal.className = 'text-base sm:text-lg font-bold text-red-400';
+          if (elScoreIcon) elScoreIcon.innerText = '⚠️';
+        }
+      }
+
+      const elTotalApps = document.getElementById('permAuditTotalApps');
+      if (elTotalApps) elTotalApps.innerText = totalApps;
+
+      const elZeroCount = document.getElementById('permAuditZeroImpactCount');
+      if (elZeroCount) elZeroCount.innerText = totalZero;
+
+      const elCriticalCount = document.getElementById('permAuditCriticalCount');
+      if (elCriticalCount) elCriticalCount.innerText = totalCritical;
+
+      // Actualizar conteos de chips
+      const setTxt = (id, txt) => { const el = document.getElementById(id); if (el) el.innerText = txt; };
+      setTxt('countChip-all', totalApps);
+      setTxt('countChip-zero', _auditedAppsStore.filter(a => a.zeroImpactCount > 0).length);
+      setTxt('countChip-reducible', _auditedAppsStore.filter(a => a.reducibleCount > 0).length);
+      setTxt('countChip-location', totalLocation);
+      setTxt('countChip-miccam', totalMicCam);
+      setTxt('countChip-contacts', totalContacts);
+      setTxt('countChip-critical', _auditedAppsStore.filter(a => a.criticalCount > 0).length);
+    }
+
+    function filterAuditedApps(filterType) {
+      _currentAuditFilter = filterType;
+      
+      // Actualizar estilo visual de los chips
+      const chipIds = ['all', 'zero-impact', 'reducible', 'location', 'mic-cam', 'contacts-sms', 'critical'];
+      chipIds.forEach(id => {
+        const chip = document.getElementById('chipFilter-' + id);
+        if (!chip) return;
+        if (id === filterType) {
+          chip.className = 'px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 whitespace-nowrap font-medium transition-all cursor-pointer';
+        } else {
+          chip.className = 'px-2.5 py-1 rounded-lg bg-white/5 text-gray-400 hover:text-white border border-white/10 whitespace-nowrap font-medium transition-all cursor-pointer';
+        }
+      });
+
+      applyCurrentAuditFilter();
+    }
+
+    function onSearchAuditedAppsChange(query) {
+      _searchAuditQuery = (query || '').trim().toLowerCase();
+      applyCurrentAuditFilter();
+    }
+
+    function applyCurrentAuditFilter() {
+      let filtered = _auditedAppsStore.slice();
+
+      // Filtro por texto
+      if (_searchAuditQuery) {
+        filtered = filtered.filter(app => {
+          const appName = (app.app_name || '').toLowerCase();
+          const pkgName = (app.package_name || '').toLowerCase();
+          return appName.includes(_searchAuditQuery) || pkgName.includes(_searchAuditQuery);
+        });
+      }
+
+      // Filtro por tipo
+      if (_currentAuditFilter === 'zero-impact') {
+        filtered = filtered.filter(a => a.zeroImpactCount > 0);
+      } else if (_currentAuditFilter === 'reducible') {
+        filtered = filtered.filter(a => a.reducibleCount > 0);
+      } else if (_currentAuditFilter === 'critical') {
+        filtered = filtered.filter(a => a.criticalCount > 0);
+      } else if (_currentAuditFilter === 'location') {
+        filtered = filtered.filter(app => {
+          const p = (app.granted_permissions || []).concat(app.requested_permissions || []);
+          return p.some(x => x.includes('LOCATION'));
+        });
+      } else if (_currentAuditFilter === 'mic-cam') {
+        filtered = filtered.filter(app => {
+          const p = (app.granted_permissions || []).concat(app.requested_permissions || []);
+          return p.some(x => x.includes('CAMERA') || x.includes('RECORD_AUDIO'));
+        });
+      } else if (_currentAuditFilter === 'contacts-sms') {
+        filtered = filtered.filter(app => {
+          const p = (app.granted_permissions || []).concat(app.requested_permissions || []);
+          return p.some(x => x.includes('CONTACTS') || x.includes('SMS') || x.includes('CALL_LOG'));
+        });
+      }
+
+      renderAuditedAppsCards(filtered);
+    }
+
+    function renderAuditedAppsCards(apps) {
+      const cardsList = document.getElementById('auditedAppsCardsList');
+      const stateEmpty = document.getElementById('stateAuditEmpty');
+      if (!cardsList) return;
+
+      if (apps.length === 0) {
+        cardsList.innerHTML = '';
+        cardsList.classList.add('hidden');
+        if (stateEmpty) stateEmpty.classList.remove('hidden');
+        return;
+      }
+
+      if (stateEmpty) stateEmpty.classList.add('hidden');
+      cardsList.classList.remove('hidden');
+      cardsList.innerHTML = '';
+
+      apps.forEach(app => {
+        const card = document.createElement('div');
+        card.className = 'glass-card p-3 sm:p-4 rounded-2xl border border-white/10 hover:border-white/20 transition-all flex flex-col gap-3';
+
+        // Fuente de instalación
+        let installerLabel = '📦 Instalación Externa (APK)';
+        let installerClass = 'bg-amber-500/10 text-amber-300 border-amber-500/20';
+        if (app.installer_package_name && app.installer_package_name.includes('vending')) {
+          installerLabel = '🛍️ Google Play';
+          installerClass = 'bg-blue-500/10 text-blue-300 border-blue-500/20';
+        } else if (app.is_system_app) {
+          installerLabel = '⚙️ Sistema';
+          installerClass = 'bg-purple-500/10 text-purple-300 border-purple-500/20';
+        }
+
+        // Insignias de resumen
+        let statusBadge = '';
+        if (app.criticalCount > 0) {
+          statusBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-500/20 text-red-300 border border-red-500/30">⚠️ Riesgo Crítico</span>';
+        } else if (app.zeroImpactCount > 0) {
+          statusBadge = `<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">🟢 ${app.zeroImpactCount} Permisos Seguros de Quitar</span>`;
+        } else if (app.reducibleCount > 0) {
+          statusBadge = `<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">🟡 Optimizable</span>`;
+        } else {
+          statusBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-white/10 text-gray-300 border border-white/10">✨ Permisos Óptimos</span>';
+        }
+
+        // Permisos sensibles activos chips
+        let sensitiveTagsHtml = '';
+        if (app.sensitiveActive && app.sensitiveActive.length > 0) {
+          sensitiveTagsHtml = app.sensitiveActive.map(p => `
+            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-[10px] text-gray-300">
+              <span>${p.icon}</span> <span>${escapeHtml(p.name)}</span>
+            </span>
+          `).join('');
+        } else {
+          sensitiveTagsHtml = '<span class="text-[10px] text-gray-500 italic">Sin permisos sensibles de fondo detectados</span>';
+        }
+
+        // Consejos de SamuLibre (Estudio de Mercado / UX Impact)
+        let adviceHtml = '';
+        if (app.recommendations && app.recommendations.length > 0) {
+          adviceHtml = app.recommendations.map(r => {
+            let boxColor = 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300';
+            let titleColor = 'text-emerald-300';
+            if (r.level === 'critical') {
+              boxColor = 'bg-red-500/10 border-red-500/20 text-red-300';
+              titleColor = 'text-red-300';
+            } else if (r.level === 'reducible') {
+              boxColor = 'bg-amber-500/10 border-amber-500/20 text-amber-300';
+              titleColor = 'text-amber-300';
+            }
+            return `
+              <div class="p-2.5 rounded-xl border ${boxColor} space-y-1">
+                <div class="flex items-center justify-between text-[11px] font-semibold ${titleColor}">
+                  <span>💡 ${escapeHtml(r.title)}</span>
+                  <span class="text-[9px] px-1.5 py-0.2 rounded border uppercase font-mono">${escapeHtml(r.badge)}</span>
+                </div>
+                <p class="text-[11px] text-gray-300">${escapeHtml(r.detail)}</p>
+                <div class="text-[11px] font-medium text-white/90 pt-0.5 border-t border-white/5">
+                  👉 <b>${escapeHtml(r.uxImpact)}</b>
+                </div>
+              </div>
+            `;
+          }).join('');
+        }
+
+        // Primer letra para el avatar
+        const firstLetter = (app.app_name || app.package_name || 'A').charAt(0).toUpperCase();
+
+        card.innerHTML = `
+          <div class="flex items-start justify-between gap-3">
+            <div class="flex items-center gap-3 min-w-0">
+              <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500/20 to-cyan-500/20 border border-white/10 flex items-center justify-center text-base font-bold text-emerald-400 shrink-0">
+                ${firstLetter}
+              </div>
+              <div class="min-w-0">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <h4 class="text-xs sm:text-sm font-bold text-white truncate">${escapeHtml(app.app_name)}</h4>
+                  <span class="px-2 py-0.5 rounded-md text-[9px] font-medium border ${installerClass}">${installerLabel}</span>
+                  <span class="px-2 py-0.5 rounded-md text-[9px] font-medium bg-white/5 border border-white/10 text-gray-300">${app.category.icon} ${app.category.label}</span>
+                </div>
+                <div class="text-[10px] text-gray-400 font-mono truncate mt-0.5">${escapeHtml(app.package_name)}</div>
+              </div>
+            </div>
+            <div class="shrink-0">
+              ${statusBadge}
+            </div>
+          </div>
+
+          <!-- Permisos Sensibles Activos -->
+          <div class="flex items-center gap-1.5 flex-wrap">
+            <span class="text-[10px] text-gray-400 font-medium">Permisos activos:</span>
+            ${sensitiveTagsHtml}
+          </div>
+
+          <!-- Evaluaciones y Consejos de SamuLibre -->
+          ${adviceHtml ? `<div class="space-y-1.5 pt-1">${adviceHtml}</div>` : ''}
+
+          <!-- Botón de Acción Directo -->
+          <div class="flex items-center justify-end gap-2 pt-1 border-t border-white/5">
+            <button onclick="openAppDetailsSettings('${escapeHtml(app.package_name)}')" class="px-3 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 font-semibold text-xs rounded-xl flex items-center gap-1.5 active:scale-95 transition-all cursor-pointer">
+              <span>⚙️</span> Gestionar en Ajustes de Android
+            </button>
+          </div>
+        `;
+
+        cardsList.appendChild(card);
+      });
+    }
   </script>
 
   <!-- Modal Flotante: Historial de Actualizaciones de Firmas (Cada Hora) -->
@@ -4312,6 +4942,136 @@
           </button>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- Modal: Auditoría Inteligente de Permisos en Android (Estudio de Mercado & UX Advisor) -->
+  <div id="modalAppPermissionAudit" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-xl flex items-center justify-center p-2 sm:p-4 hidden select-none">
+    <div class="glass-panel bg-[#0B0D13]/95 max-w-4xl w-full rounded-3xl border border-white/15 p-4 sm:p-6 shadow-2xl flex flex-col max-h-[92vh] overflow-hidden animate-fade-in">
+      
+      <!-- Encabezado del Modal -->
+      <div class="flex items-center justify-between border-b border-white/10 pb-4 mb-3">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xl shadow-inner border border-emerald-500/30">
+            🔍
+          </div>
+          <div>
+            <h3 class="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+              Auditoría Inteligente de Permisos
+              <span class="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">Asesor de UX & Privacidad</span>
+            </h3>
+            <p class="text-xs text-gray-400">Protege tu privacidad sin degradar la funcionalidad de tus aplicaciones</p>
+          </div>
+        </div>
+        <button onclick="closeAppPermissionAuditModal()" class="w-8 h-8 rounded-xl glass-panel hover:bg-white/10 text-gray-400 hover:text-white flex items-center justify-center transition-all cursor-pointer">
+          ✕
+        </button>
+      </div>
+
+      <!-- Barra de Resumen y Métricas Clave -->
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
+        <div class="p-3 rounded-2xl bg-white/[0.03] border border-white/10 flex items-center gap-3">
+          <div class="text-2xl" id="permAuditScoreIcon">🛡️</div>
+          <div>
+            <div class="text-[10px] text-gray-400 font-medium">Salud de Privacidad</div>
+            <div class="text-base sm:text-lg font-bold text-emerald-400" id="permAuditScoreVal">--%</div>
+          </div>
+        </div>
+        <div class="p-3 rounded-2xl bg-white/[0.03] border border-white/10 flex items-center gap-3">
+          <div class="text-2xl">📦</div>
+          <div>
+            <div class="text-[10px] text-gray-400 font-medium">Apps Analizadas</div>
+            <div class="text-base sm:text-lg font-bold text-white" id="permAuditTotalApps">0</div>
+          </div>
+        </div>
+        <div class="p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center gap-3 cursor-pointer active:scale-95 transition-all" onclick="filterAuditedApps('zero-impact')">
+          <div class="text-2xl">🟢</div>
+          <div>
+            <div class="text-[10px] text-emerald-300 font-medium">Quitar Seguro (0 Impacto)</div>
+            <div class="text-base sm:text-lg font-bold text-emerald-400" id="permAuditZeroImpactCount">0</div>
+          </div>
+        </div>
+        <div class="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center gap-3 cursor-pointer active:scale-95 transition-all" onclick="filterAuditedApps('critical')">
+          <div class="text-2xl">⚠️</div>
+          <div>
+            <div class="text-[10px] text-amber-300 font-medium">Riesgos Críticos</div>
+            <div class="text-base sm:text-lg font-bold text-amber-400" id="permAuditCriticalCount">0</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Barra de Búsqueda y Chips de Filtro -->
+      <div class="space-y-2 mb-3">
+        <div class="relative">
+          <span class="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs">🔍</span>
+          <input type="text" id="inputSearchAuditedApps" oninput="onSearchAuditedAppsChange(this.value)" placeholder="Buscar aplicación por nombre o paquete..." class="w-full pl-9 pr-4 py-2 bg-white/5 border border-white/10 rounded-xl text-xs text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50 transition-all">
+        </div>
+
+        <div class="flex items-center gap-1.5 overflow-x-auto pb-1 text-[11px] no-scrollbar">
+          <button id="chipFilter-all" onclick="filterAuditedApps('all')" class="px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 whitespace-nowrap font-medium transition-all cursor-pointer">
+            Todas (<span id="countChip-all">0</span>)
+          </button>
+          <button id="chipFilter-zero-impact" onclick="filterAuditedApps('zero-impact')" class="px-2.5 py-1 rounded-lg bg-white/5 text-gray-400 hover:text-white border border-white/10 whitespace-nowrap font-medium transition-all cursor-pointer">
+            🟢 Impacto NULO (<span id="countChip-zero">0</span>)
+          </button>
+          <button id="chipFilter-reducible" onclick="filterAuditedApps('reducible')" class="px-2.5 py-1 rounded-lg bg-white/5 text-gray-400 hover:text-white border border-white/10 whitespace-nowrap font-medium transition-all cursor-pointer">
+            🟡 Reducibles (<span id="countChip-reducible">0</span>)
+          </button>
+          <button id="chipFilter-location" onclick="filterAuditedApps('location')" class="px-2.5 py-1 rounded-lg bg-white/5 text-gray-400 hover:text-white border border-white/10 whitespace-nowrap font-medium transition-all cursor-pointer">
+            📍 Ubicación (<span id="countChip-location">0</span>)
+          </button>
+          <button id="chipFilter-mic-cam" onclick="filterAuditedApps('mic-cam')" class="px-2.5 py-1 rounded-lg bg-white/5 text-gray-400 hover:text-white border border-white/10 whitespace-nowrap font-medium transition-all cursor-pointer">
+            🎙️/📷 Micro & Cámara (<span id="countChip-miccam">0</span>)
+          </button>
+          <button id="chipFilter-contacts-sms" onclick="filterAuditedApps('contacts-sms')" class="px-2.5 py-1 rounded-lg bg-white/5 text-gray-400 hover:text-white border border-white/10 whitespace-nowrap font-medium transition-all cursor-pointer">
+            👥/💬 Contactos & SMS (<span id="countChip-contacts">0</span>)
+          </button>
+          <button id="chipFilter-critical" onclick="filterAuditedApps('critical')" class="px-2.5 py-1 rounded-lg bg-white/5 text-gray-400 hover:text-white border border-white/10 whitespace-nowrap font-medium transition-all cursor-pointer">
+            ⚠️ Críticos (<span id="countChip-critical">0</span>)
+          </button>
+        </div>
+      </div>
+
+      <!-- Contenedor con Scroll de Tarjetas de Aplicaciones -->
+      <div id="containerAuditedAppsList" class="flex-1 overflow-y-auto space-y-2.5 pr-1 custom-scrollbar min-h-[240px]">
+        <!-- Estado de Carga / Animación Radar -->
+        <div id="stateAuditLoading" class="py-12 flex flex-col items-center justify-center text-center space-y-4">
+          <div class="relative w-16 h-16 flex items-center justify-center">
+            <div class="absolute inset-0 rounded-full border-2 border-emerald-500/40 animate-ping"></div>
+            <div class="w-12 h-12 rounded-full bg-emerald-500/20 border border-emerald-400 flex items-center justify-center text-xl animate-pulse">
+              🛡️
+            </div>
+          </div>
+          <div>
+            <div class="text-sm font-semibold text-white">Inspeccionando aplicaciones y evaluando permisos...</div>
+            <p class="text-xs text-gray-400 max-w-sm mt-1">Cruzando categorías de apps y modelos de impacto en UX para generar consejos personalizados.</p>
+          </div>
+        </div>
+
+        <!-- Lista generada por JS -->
+        <div id="auditedAppsCardsList" class="space-y-3 hidden"></div>
+
+        <!-- Estado Vacío -->
+        <div id="stateAuditEmpty" class="py-12 flex flex-col items-center justify-center text-center space-y-2 hidden">
+          <div class="text-3xl">✨</div>
+          <div class="text-sm font-semibold text-white">No se encontraron aplicaciones con este filtro</div>
+          <p class="text-xs text-gray-400">Tu dispositivo está optimizado o no hay apps que coincidan con la búsqueda.</p>
+        </div>
+      </div>
+
+      <!-- Pie del Modal con Leyenda de Seguridad -->
+      <div class="border-t border-white/10 pt-3 mt-3 flex flex-col sm:flex-row items-center justify-between gap-2 text-[11px] text-gray-400">
+        <div class="flex items-center gap-2">
+          <span>💡</span>
+          <span>Toca <b>"⚙️ Gestionar en Ajustes"</b> para revocar permisos de forma nativa e inmediata en Android.</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <button onclick="startAppPermissionAudit()" class="px-3 py-1 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-all flex items-center gap-1 cursor-pointer">
+            <span>🔄</span> Re-auditar
+          </button>
+        </div>
+      </div>
+
     </div>
   </div>
 

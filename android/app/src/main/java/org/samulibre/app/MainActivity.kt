@@ -4,10 +4,13 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Intent
 import android.content.pm.ApplicationInfo
+import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.util.Log
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
@@ -37,7 +40,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var webView: WebView
     private val vpnRequestCode = 101
     private val mainCrashShield = CoroutineExceptionHandler { _, throwable ->
-        Log.e(TAG, "Excepción resguardada en ioScope de MainActivity: ${throwable.message}", throwable)
+        Log.e(TAG, "ExcepciÃ³n resguardada en ioScope de MainActivity: ${throwable.message}", throwable)
     }
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO + mainCrashShield)
 
@@ -46,10 +49,10 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
 
         // CrashGuard: registra el error y lo DELEGA al manejador del sistema.
-        // Tragarse la excepción dejaba el hilo principal muerto → pantalla negra + "SamuLibre no responde".
+        // Tragarse la excepciÃ³n dejaba el hilo principal muerto â†’ pantalla negra + "SamuLibre no responde".
         val systemHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
-            Log.e("SamuLibre_CrashGuard", "Excepción no capturada en ${thread.name}: ${throwable.message}", throwable)
+            Log.e("SamuLibre_CrashGuard", "ExcepciÃ³n no capturada en ${thread.name}: ${throwable.message}", throwable)
             systemHandler?.uncaughtException(thread, throwable)
         }
 
@@ -102,12 +105,12 @@ class MainActivity : AppCompatActivity() {
             try {
                 if (::webView.isInitialized) webView.evaluateJavascript(script, null)
             } catch (t: Throwable) {
-                Log.w(TAG, "evaluateJavascript falló: ${t.message}")
+                Log.w(TAG, "evaluateJavascript fallÃ³: ${t.message}")
             }
         }
     }
 
-    /** Envía un evento de VPN a la UI (JSON serializado de forma segura, sin inyección de comillas). */
+    /** EnvÃ­a un evento de VPN a la UI (JSON serializado de forma segura, sin inyecciÃ³n de comillas). */
     private fun postVpnEvent(type: String, message: String, ip: String?) {
         val payload = JSONObject().apply {
             put("type", type)
@@ -204,7 +207,7 @@ class MainActivity : AppCompatActivity() {
             if (pendingCountry != null) {
                 pendingCountry = null
                 ioScope.launch { NativeBridge.dispatchIpc("""{"action":"disconnect_vpn"}""") }
-                postVpnEvent("denied", "Permiso VPN no concedido. La conexión fue cancelada.", null)
+                postVpnEvent("denied", "Permiso VPN no concedido. La conexiÃ³n fue cancelada.", null)
             }
             return
         }
@@ -223,7 +226,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startTorTunnel(countryCode: String) {
-        postVpnEvent("progress", "Gateway Activo (127.0.0.1:8118 • DNS Quad9). Enlazando a $countryCode…", null)
+        postVpnEvent("progress", "Gateway Activo (127.0.0.1:8118 - DNS Quad9). Enlazando a ${countryCode}...", null)
         TorManager.startTorForCountry(
             this,
             countryCode,
@@ -235,7 +238,7 @@ class MainActivity : AppCompatActivity() {
                     val fallbackIp = TorManager.verifiedPublicIp
                     postVpnEvent(
                         "verified",
-                        "Túnel protegido activo hacia $countryCode. Navegación fluida.",
+                        "TÃºnel protegido activo hacia ${countryCode}. NavegaciÃ³n fluida.",
                         fallbackIp
                     )
                 }
@@ -257,7 +260,7 @@ class MainActivity : AppCompatActivity() {
     private fun applyWebViewProxy(port: Int) {
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) return
         try {
-            // Formato válido de androidx.webkit: "host:puerto" (sin prefijos http=/https=).
+            // Formato vÃ¡lido de androidx.webkit: "host:puerto" (sin prefijos http=/https=).
             val config = ProxyConfig.Builder().addProxyRule("127.0.0.1:$port").build()
             ProxyController.getInstance().setProxyOverride(config, { it.run() }) {
                 Log.i(TAG, "WebView Proxy Override activo en 127.0.0.1:$port")
@@ -303,7 +306,7 @@ class MainActivity : AppCompatActivity() {
                         }
                         JSONObject().apply {
                             put("success", true)
-                            put("message", "Solicitando autorización de VpnService")
+                            put("message", "Solicitando autorizaciÃ³n de VpnService")
                         }.toString()
                     }
 
@@ -318,7 +321,7 @@ class MainActivity : AppCompatActivity() {
                         val raw = NativeBridge.dispatchIpc(jsonString)
                         try {
                             val res = JSONObject(raw)
-                            res.optJSONObject("data")?.optJSONObject("state")?.put("assigned_ip", "Verificando túnel…")
+                            res.optJSONObject("data")?.optJSONObject("state")?.put("assigned_ip", "Verificando tÃºnelâ€¦")
                             res.toString()
                         } catch (e: Exception) {
                             raw
@@ -361,18 +364,21 @@ class MainActivity : AppCompatActivity() {
                         }.toString()
                     }
 
-                    // Auditoría de aplicaciones 100% asíncrona para un inicio fluido.
+                    // Auditoría inteligente de aplicaciones con estudio de permisos
                     "audit_device_apps" -> {
                         ioScope.launch {
                             try {
+                                val appsList = getInstalledAppsDetailsFast()
                                 val req = JSONObject().apply {
                                     put("action", "audit_android_packages")
-                                    put("payload", getInstalledAppsDetailsFast().toString())
+                                    put("payload", appsList.toString())
                                 }
-                                val alerts = JSONObject(NativeBridge.dispatchIpc(req.toString())).optJSONArray("data")
-                                if (alerts != null) {
-                                    evalJs("if (window.onAndroidPackagesAudited) window.onAndroidPackagesAudited($alerts);")
+                                val alerts = JSONObject(NativeBridge.dispatchIpc(req.toString())).optJSONArray("data") ?: JSONArray()
+                                val auditBundle = JSONObject().apply {
+                                    put("alerts", alerts)
+                                    put("apps", appsList)
                                 }
+                                evalJs("if (window.onAndroidPackagesAudited) window.onAndroidPackagesAudited($auditBundle);")
                             } catch (t: Throwable) {
                                 Log.e(TAG, "Error en auditoría en background: ${t.message}")
                             }
@@ -382,6 +388,24 @@ class MainActivity : AppCompatActivity() {
                             put("action", "audit_device_apps")
                             put("status", "scanning_in_background")
                         }.toString()
+                    }
+
+                    // Abre directamente la pantalla de permisos/ajustes de una app en el sistema Android
+                    "open_app_details_settings" -> {
+                        try {
+                            val payloadObj = JSONObject(jsonString)
+                            val pkgName = payloadObj.optString("payload").ifEmpty { payloadObj.optString("package_name") }
+                            if (pkgName.isNotEmpty()) {
+                                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                    data = Uri.fromParts("package", pkgName, null)
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                                startActivity(intent)
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error abriendo ajustes de app: ${e.message}")
+                        }
+                        JSONObject().apply { put("success", true) }.toString()
                     }
 
                     else -> NativeBridge.dispatchIpc(jsonString)
@@ -403,22 +427,45 @@ class MainActivity : AppCompatActivity() {
             for (pkg in packages) {
                 val appInfo = pkg.applicationInfo ?: continue
                 val isSystem = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+                val isUpdatedSystem = (appInfo.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
+                val isUserApp = !isSystem || isUpdatedSystem
+
                 val reqPerms = pkg.requestedPermissions ?: emptyArray()
+                val reqFlags = pkg.requestedPermissionsFlags ?: IntArray(0)
+
+                val grantedPerms = ArrayList<String>()
+                for (i in reqPerms.indices) {
+                    if (i < reqFlags.size && (reqFlags[i] and PackageInfo.REQUESTED_PERMISSION_GRANTED) != 0) {
+                        grantedPerms.add(reqPerms[i])
+                    }
+                }
+
                 val hasOverlay = reqPerms.contains("android.permission.SYSTEM_ALERT_WINDOW")
                 val hasAccessibility = reqPerms.contains("android.permission.BIND_ACCESSIBILITY_SERVICE")
 
-                // Optimización ultra-rápida: ignorar paquetes del sistema sin permisos de riesgo
-                if (isSystem && !hasOverlay && !hasAccessibility) continue
+                // Para rapidez y no saturar con daemons del sistema sin permisos sensibles
+                if (!isUserApp && grantedPerms.isEmpty() && !hasOverlay && !hasAccessibility) {
+                    continue
+                }
 
-                // Solo se resuelve la etiqueta (lectura de disco) para apps de usuario o con permisos de riesgo.
                 val appName = try { pm.getApplicationLabel(appInfo).toString() } catch (e: Exception) { pkg.packageName }
+                val installerName = try {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        pm.getInstallSourceInfo(pkg.packageName).installingPackageName
+                    } else {
+                        @Suppress("DEPRECATION")
+                        pm.getInstallerPackageName(pkg.packageName)
+                    }
+                } catch (e: Exception) { null }
+
                 result.put(JSONObject().apply {
                     put("package_name", pkg.packageName)
                     put("app_name", appName)
                     put("version_name", pkg.versionName ?: "1.0")
-                    put("is_system_app", isSystem)
-                    put("installer_package_name", JSONObject.NULL)
+                    put("is_system_app", !isUserApp)
+                    put("installer_package_name", installerName ?: JSONObject.NULL)
                     put("requested_permissions", JSONArray(reqPerms.toList()))
+                    put("granted_permissions", JSONArray(grantedPerms))
                     put("has_overlay_permission", hasOverlay)
                     put("has_accessibility_service", hasAccessibility)
                     put("apk_path", appInfo.sourceDir)
