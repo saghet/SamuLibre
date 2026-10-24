@@ -30,7 +30,7 @@ import java.io.IOException
 import java.nio.ByteBuffer
 
 /**
- * Servicio VPN de SamuLibre (v2.00.1).
+ * Servicio VPN de SamuLibre (v2.00.2).
  *
  * Modos:
  *  - Escudo (ACTION_START / ACTION_START_SHIELD): filtrado TUN sin proxy.
@@ -535,16 +535,41 @@ class SamuVpnService : VpnService() {
             this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE
         )
         val (title, text) = when (mode) {
-            Mode.SHIELD -> "SamuLibre Shield Activo (v2.00.1)" to "Filtrando tráfico, puertos de riesgo y exploits ASB (Zero-Root)"
-            Mode.SECURE_DNS -> "SamuLibre VPN (v2.00.1)" to "Construyendo circuito cifrado. Tu navegación sigue activa con DNS Quad9."
-            Mode.PROXY -> "SamuLibre VPN Multi-Salto Activa (v2.00.1)" to "Tráfico HTTPS enrutado por nodo internacional verificado"
+            Mode.SHIELD -> "SamuLibre Cyber-Shield Activo (v2.00.2)" to "Protección activa Zero-Root contra malware y exploits"
+            Mode.SECURE_DNS -> "SamuLibre VPN (v2.00.2)" to "Sincronizando túnel privado. Navegación segura con DNS Quad9."
+            Mode.PROXY -> "SamuLibre VPN Ultra-Segura Activa (v2.00.2)" to "Tráfico blindado y anonimizado en nodo internacional verificado"
         }
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(text)
-            .setSmallIcon(android.R.drawable.ic_lock_lock)
+            .setSmallIcon(R.drawable.ic_stat_samulibre_shield)
+            .setColor(0xFF00F2FE.toInt()) // Neón Cian Cyber-Shield
             .setContentIntent(pendingIntent)
             .setOngoing(true)
-            .build()
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+
+        // Acción Rápida (One-Tap Action estilo Bitdefender):
+        // Permite conectar o pausar la VPN directamente desde la persiana de notificaciones
+        if (mode == Mode.PROXY) {
+            val pauseIntent = Intent(this, SamuVpnService::class.java).apply {
+                action = ACTION_START_SHIELD
+            }
+            val pausePendingIntent = PendingIntent.getService(
+                this, 101, pauseIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
+            builder.addAction(R.drawable.ic_vpn_key_toggle, "⏸️ Pausar VPN", pausePendingIntent)
+        } else {
+            val connectIntent = Intent(this, SamuVpnService::class.java).apply {
+                action = ACTION_START_PROXY_VPN
+                putExtra(EXTRA_PROXY_PORT, SamuSmartProxyServer.DEFAULT_PORT)
+            }
+            val connectPendingIntent = PendingIntent.getService(
+                this, 102, connectIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
+            builder.addAction(R.drawable.ic_vpn_key_toggle, "⚡ Conectar VPN", connectPendingIntent)
+        }
+
+        return builder.build()
     }
 }

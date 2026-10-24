@@ -25,9 +25,9 @@ import java.net.Socket
 import java.net.URL
 
 /**
- * Gestor del túnel Tor móvil (v2.00.1).
+ * Gestor del túnel Tor móvil (v2.00.2).
  *
- * Mejoras de estabilidad y velocidad v2.00.1:
+ * Mejoras de estabilidad y velocidad v2.00.2:
  *  - Integración nativa de base de datos GeoIP (copiada a almacenamiento interno).
  *  - Eliminación de AvoidDiskWrites 1 para permitir el guardado del consenso y microdescriptores
  *    en disco: las reconexiones pasan de 90s a <2s.
@@ -260,7 +260,7 @@ object TorManager {
                     connectTimeout = timeoutMs
                     readTimeout = timeoutMs
                     requestMethod = "GET"
-                    setRequestProperty("User-Agent", "SamuLibre-Mobile/2.00.1")
+                    setRequestProperty("User-Agent", "SamuLibre-Mobile/2.00.2")
                 }
                 if (conn.responseCode == 200) {
                     val body = conn.inputStream.bufferedReader().use { it.readText() }.trim()
