@@ -34,7 +34,7 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "SamuLibre"
-        const val APP_VERSION = "2.00.3"
+        const val APP_VERSION = "2.00.4"
     }
 
     private lateinit var webView: WebView
@@ -98,23 +98,47 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Si el permiso VPN ya fue concedido previamente por el usuario, iniciar el Escudo Cyber-Shield
-        // de inmediato para que el icono protector y la tarjeta de conexión rápida estén siempre visibles arriba
-        if (android.net.VpnService.prepare(this) == null && SamuVpnService.instance == null) {
-            try {
-                val shieldIntent = Intent(this, SamuVpnService::class.java).apply {
-                    action = SamuVpnService.ACTION_START_SHIELD
-                }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    startForegroundService(shieldIntent)
-                } else {
-                    startService(shieldIntent)
-                }
-            } catch (t: Throwable) {
-                Log.w(TAG, "No se pudo iniciar Cyber-Shield en arranque: ${t.message}")
-            }
-        }
+        // Iniciar el Escudo Cyber-Shield de inmediato en primer plano (estilo Bitdefender)
+        // para que el icono protector y la tarjeta de conexión rápida estén SIEMPRE visibles arriba
+        // desde la primera apertura de la aplicación.
+        startCyberShieldService()
+        checkAutoConnectVpn(intent)
         webView.loadUrl("file:///android_asset/ui/index.html")
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        checkAutoConnectVpn(intent)
+    }
+
+    private fun checkAutoConnectVpn(intent: Intent?) {
+        if (intent?.getBooleanExtra("EXTRA_AUTO_CONNECT_VPN", false) == true) {
+            intent.removeExtra("EXTRA_AUTO_CONNECT_VPN")
+            beginVpnConnection("CH")
+        }
+    }
+
+    private fun startCyberShieldService() {
+        try {
+            val shieldIntent = Intent(this, SamuVpnService::class.java).apply {
+                action = SamuVpnService.ACTION_START_SHIELD
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(shieldIntent)
+            } else {
+                startService(shieldIntent)
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "No se pudo iniciar Cyber-Shield en arranque: ${t.message}")
+        }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 2002) {
+            startCyberShieldService()
+        }
     }
 
     override fun onDestroy() {

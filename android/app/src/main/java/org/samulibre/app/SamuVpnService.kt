@@ -12,6 +12,7 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.ProxyInfo
 import android.net.VpnService
+import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.util.Log
@@ -30,7 +31,7 @@ import java.io.IOException
 import java.nio.ByteBuffer
 
 /**
- * Servicio VPN de SamuLibre (v2.00.3).
+ * Servicio VPN de SamuLibre (v2.00.4).
  *
  * Modos:
  *  - Escudo (ACTION_START / ACTION_START_SHIELD): filtrado TUN sin proxy.
@@ -56,7 +57,7 @@ class SamuVpnService : VpnService() {
         const val ACTION_START_PROXY_VPN = "org.samulibre.app.START_PROXY_VPN"
         const val ACTION_STOP = "org.samulibre.app.STOP_VPN"
         const val EXTRA_PROXY_PORT = "extra_proxy_port"
-        private const val CHANNEL_ID = "samulibre_status_shield_v3"
+        private const val CHANNEL_ID = "samulibre_status_shield_v4"
         private const val NOTIFICATION_ID = 2001
         private const val WATCHDOG_INTERVAL_MS = 5_000L
 
@@ -148,6 +149,16 @@ class SamuVpnService : VpnService() {
             startForeground(NOTIFICATION_ID, notification)
         } catch (t: Throwable) {
             Log.e(TAG, "startForeground falló: ${t.message}", t)
+        }
+
+        // Si el usuario aún no ha concedido el permiso VPN a nivel de sistema (prepare != null),
+        // mantenemos el servicio activo en modo Escudo Centinela en primer plano.
+        // Esto mantiene el icono visible en la barra de estado y la tarjeta de notificación siempre activa
+        // sin intentar crear la interfaz TUN prematuramente.
+        if (mode == Mode.SHIELD && VpnService.prepare(this) != null) {
+            Log.i(TAG, "Permiso VPN pendiente: Escudo Cyber-Shield activo en modo centinela permanente")
+            currentMode = mode
+            return
         }
 
         try {
@@ -523,6 +534,8 @@ class SamuVpnService : VpnService() {
             // Eliminar canal antiguo con prioridad baja para que no oculte el icono
             try { nm?.deleteNotificationChannel("samulibre_vpn_channel") } catch (e: Exception) {}
 
+            try { nm?.deleteNotificationChannel("samulibre_status_shield_v3") } catch (e: Exception) {}
+
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 "SamuLibre Cyber-Shield & VPN",
@@ -530,6 +543,8 @@ class SamuVpnService : VpnService() {
             ).apply {
                 description = "Icono permanente en barra de estado y acceso rápido a la VPN de SamuLibre"
                 setShowBadge(true)
+                setSound(null, null)
+                enableVibration(false)
                 lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
             }
             nm?.createNotificationChannel(channel)
@@ -542,17 +557,17 @@ class SamuVpnService : VpnService() {
         )
         val (title, text, details) = when (mode) {
             Mode.SHIELD -> Triple(
-                "🛡️ SamuLibre Cyber-Shield Activo (v2.00.3)",
+                "🛡️ SamuLibre Cyber-Shield Activo (v2.00.4)",
                 "Dispositivo blindado en tiempo real contra amenazas y malware.",
                 "Tu navegación está protegida por el motor Zero-Root. Toca abajo para activar la VPN ultrarrápida."
             )
             Mode.SECURE_DNS -> Triple(
-                "🛡️ SamuLibre VPN (v2.00.3)",
+                "🛡️ SamuLibre VPN (v2.00.4)",
                 "Sincronizando túnel privado internacional...",
                 "Tu tráfico está protegido con DNS cifrado Quad9 mientras se valida el circuito internacional."
             )
             Mode.PROXY -> Triple(
-                "🛡️ SamuLibre VPN Ultra-Segura Activa (v2.00.3)",
+                "🛡️ SamuLibre VPN Ultra-Segura Activa (v2.00.4)",
                 "Tráfico HTTPS y DNS blindados en nodo internacional.",
                 "Identidad e IP de tu ISP 100% ocultas. Navegación privada y anónima activa."
             )
@@ -563,11 +578,22 @@ class SamuVpnService : VpnService() {
             .setSummaryText("SamuLibre Seguridad")
             .bigText("$text\n$details")
 
+        val largeIcon = try {
+            BitmapFactory.decodeResource(resources, R.mipmap.ic_launcher)
+        } catch (e: Exception) {
+            null
+        }
+
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(text)
             .setStyle(bigStyle)
             .setSmallIcon(R.drawable.ic_stat_samulibre_shield)
+            .apply {
+                if (largeIcon != null) {
+                    setLargeIcon(largeIcon)
+                }
+            }
             .setColor(0xFF00F2FE.toInt()) // Neón Cian Cyber-Shield
             .setContentIntent(pendingIntent)
             .setOngoing(true)
@@ -585,13 +611,25 @@ class SamuVpnService : VpnService() {
             )
             builder.addAction(R.drawable.ic_vpn_key_toggle, "⏸️ Pausar VPN", pausePendingIntent)
         } else {
-            val connectIntent = Intent(this, SamuVpnService::class.java).apply {
-                action = ACTION_START_PROXY_VPN
-                putExtra(EXTRA_PROXY_PORT, SamuSmartProxyServer.DEFAULT_PORT)
+            // Si el permiso VPN ya está concedido, conectamos directamente en background con 1 toque.
+            // Si falta concederlo, abrimos MainActivity para que Android muestre el diálogo de permiso inmediatamente.
+            val connectPendingIntent = if (VpnService.prepare(this) == null) {
+                val connectIntent = Intent(this, SamuVpnService::class.java).apply {
+                    action = ACTION_START_PROXY_VPN
+                    putExtra(EXTRA_PROXY_PORT, SamuSmartProxyServer.DEFAULT_PORT)
+                }
+                PendingIntent.getService(
+                    this, 102, connectIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                )
+            } else {
+                val openMainIntent = Intent(this, MainActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    putExtra("EXTRA_AUTO_CONNECT_VPN", true)
+                }
+                PendingIntent.getActivity(
+                    this, 103, openMainIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                )
             }
-            val connectPendingIntent = PendingIntent.getService(
-                this, 102, connectIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-            )
             builder.addAction(R.drawable.ic_vpn_key_toggle, "⚡ Conectar VPN", connectPendingIntent)
         }
 
