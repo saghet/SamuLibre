@@ -171,7 +171,37 @@ class SamuVpnService : VpnService() {
                 // La resolución DNS cifrada y segura se gestiona en SamuSmartProxyServer (Quad9 DoH) y Tor SOCKS5 remoto.
 
                 if (mode == Mode.PROXY && proxyPort != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    setHttpProxy(ProxyInfo.buildDirectProxy("127.0.0.1", proxyPort))
+                    val proxyExclusions = listOf(
+                        "*.facebook.com",
+                        "facebook.com",
+                        "*.facebook.net",
+                        "facebook.net",
+                        "*.fbcdn.net",
+                        "fbcdn.net",
+                        "*.fbsbx.com",
+                        "fbsbx.com",
+                        "*.fb.com",
+                        "fb.com",
+                        "*.fb.me",
+                        "fb.me",
+                        "*.fbwat.ch",
+                        "*.instagram.com",
+                        "instagram.com",
+                        "*.cdninstagram.com",
+                        "*.whatsapp.com",
+                        "whatsapp.com",
+                        "*.whatsapp.net",
+                        "whatsapp.net",
+                        "*.messenger.com",
+                        "messenger.com",
+                        "*.meta.com",
+                        "meta.com",
+                        "*.threads.net",
+                        "threads.net",
+                        "localhost",
+                        "127.0.0.1"
+                    )
+                    setHttpProxy(ProxyInfo.buildDirectProxy("127.0.0.1", proxyPort, proxyExclusions))
                 }
 
                 // Exclusión de aplicaciones críticas (Split-Tunneling / Bypass Nativo) para garantizar
@@ -186,6 +216,9 @@ class SamuVpnService : VpnService() {
                     "com.facebook.orca",
                     "com.facebook.lite",
                     "com.facebook.pages.app",
+                    "com.facebook.services",
+                    "com.facebook.system",
+                    "com.facebook.appmanager",
                     "com.instagram.android",
                     "com.whatsapp",
                     "com.whatsapp.w4b",
@@ -204,7 +237,25 @@ class SamuVpnService : VpnService() {
                     "com.sec.phone",
                     "com.samsung.android.messaging"
                 )
-                for (pkg in bypassPackages) {
+
+                val allBypassSet = mutableSetOf<String>()
+                allBypassSet.addAll(bypassPackages)
+
+                // Detección dinámica: cualquier paquete instalado en el dispositivo que corresponda a
+                // Meta, Facebook, Instagram, WhatsApp o Messenger (incluyendo clones de dual app o variantes OEM)
+                try {
+                    val installed = packageManager.getInstalledPackages(0)
+                    for (p in installed) {
+                        val pn = p.packageName.lowercase()
+                        if (pn.contains("facebook") || pn.contains("instagram") || pn.contains("whatsapp") || pn.contains("messenger")) {
+                            allBypassSet.add(p.packageName)
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Detección dinámica de paquetes bypass omitida: ${e.message}")
+                }
+
+                for (pkg in allBypassSet) {
                     try {
                         addDisallowedApplication(pkg)
                     } catch (e: Exception) {

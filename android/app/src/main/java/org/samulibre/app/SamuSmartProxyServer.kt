@@ -35,25 +35,48 @@ object SamuSmartProxyServer {
     const val TOR_SOCKS_PORT = 9050
 
     // Servicios y CDNs que bloquean activamente las direcciones IP de nodos de salida Tor
-    // o que requieren protocolos nativos directos. Para estos dominios, el Smart Proxy enruta
-    // de forma directa y protegida para asegurar que la app nunca se quede sin conexión.
+    // o que requieren protocolos nativos directos. Para estos dominios y rangos IP, el Smart Proxy
+    // enruta de forma directa y protegida para asegurar que la app nunca se quede sin conexión.
     private val TOR_BLOCKED_DOMAINS = listOf(
         "facebook.com",
+        "facebook.net",
         "fbcdn.net",
         "fbsbx.com",
         "fb.com",
         "fb.me",
+        "fbwat.ch",
         "instagram.com",
         "cdninstagram.com",
         "whatsapp.com",
         "whatsapp.net",
         "messenger.com",
-        "meta.com"
+        "meta.com",
+        "threads.net",
+        "m.me",
+        "oculus.com"
     )
 
     fun isTorBlockedHost(host: String): Boolean {
         val h = host.lowercase().trim()
-        return TOR_BLOCKED_DOMAINS.any { h == it || h.endsWith(".$it") }
+        // 1. Coincidencia por nombres de dominio y subdominios de Meta
+        if (TOR_BLOCKED_DOMAINS.any { h == it || h.endsWith(".$it") }) {
+            return true
+        }
+        // 2. Coincidencia por bloques de direcciones IP públicas de Meta (AS32934 / AS63293)
+        // La app móvil de Facebook resuelve y se conecta frecuentemente por IP directa (Happy Eyeballs)
+        if (h.startsWith("157.240.") ||
+            h.startsWith("31.13.") ||
+            h.startsWith("69.63.") ||
+            h.startsWith("69.171.") ||
+            h.startsWith("66.220.") ||
+            h.startsWith("129.134.") ||
+            h.startsWith("173.252.") ||
+            h.startsWith("179.60.") ||
+            h.startsWith("185.60.") ||
+            h.startsWith("204.15.")) {
+            return true
+        }
+        return false
     }
 
     private val isRunning = AtomicBoolean(false)
@@ -160,14 +183,14 @@ object SamuSmartProxyServer {
         var remoteSocket: Socket? = null
 
         // 1. Bypass inteligente para servicios que bloquean activamente nodos Tor (Meta / Facebook / WhatsApp):
-        // Conectar directamente de forma protegida para garantizar que nunca se queden sin internet.
+        // Conectar directamente de forma protegida para garantizar 100% de navegación sin 403 ni reseteos TLS.
         val bypassTor = isTorBlockedHost(host)
 
-        if (!bypassTor && (isTorReady || isPortOpen("127.0.0.1", targetSocksPort))) {
+        // 2. Solo intentar Tor si el host NO es de Meta y Tor ya ha verificado el túnel con salida real
+        if (!bypassTor && TorManager.isTunnelVerified) {
             try {
                 // Timeout ágil de 1.800 ms: si Tor tarda o no responde, conmuta de inmediato al socket directo
                 remoteSocket = connectViaSocks5("127.0.0.1", targetSocksPort, host, port, 1800)
-                isTorReady = true
             } catch (e: Exception) {
                 Log.w(TAG, "Tor SOCKS5 no disponible para $destination (${e.message}). Conmutando a salida protegida directa.")
             }
@@ -220,10 +243,9 @@ object SamuSmartProxyServer {
 
         val bypassTor = isTorBlockedHost(host)
         var remoteSocket: Socket? = null
-        if (!bypassTor && (isTorReady || isPortOpen("127.0.0.1", targetSocksPort))) {
+        if (!bypassTor && TorManager.isTunnelVerified) {
             try {
                 remoteSocket = connectViaSocks5("127.0.0.1", targetSocksPort, host, port, 1800)
-                isTorReady = true
             } catch (e: Exception) {
                 // fallback
             }
