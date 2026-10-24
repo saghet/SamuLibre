@@ -30,7 +30,7 @@ import java.io.IOException
 import java.nio.ByteBuffer
 
 /**
- * Servicio VPN de SamuLibre (v2.00.2).
+ * Servicio VPN de SamuLibre (v2.00.3).
  *
  * Modos:
  *  - Escudo (ACTION_START / ACTION_START_SHIELD): filtrado TUN sin proxy.
@@ -56,7 +56,7 @@ class SamuVpnService : VpnService() {
         const val ACTION_START_PROXY_VPN = "org.samulibre.app.START_PROXY_VPN"
         const val ACTION_STOP = "org.samulibre.app.STOP_VPN"
         const val EXTRA_PROXY_PORT = "extra_proxy_port"
-        private const val CHANNEL_ID = "samulibre_vpn_channel"
+        private const val CHANNEL_ID = "samulibre_status_shield_v3"
         private const val NOTIFICATION_ID = 2001
         private const val WATCHDOG_INTERVAL_MS = 5_000L
 
@@ -519,14 +519,20 @@ class SamuVpnService : VpnService() {
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val nm = getSystemService(NotificationManager::class.java)
+            // Eliminar canal antiguo con prioridad baja para que no oculte el icono
+            try { nm?.deleteNotificationChannel("samulibre_vpn_channel") } catch (e: Exception) {}
+
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "SamuLibre Escudo de Red",
-                NotificationManager.IMPORTANCE_LOW
+                "SamuLibre Cyber-Shield & VPN",
+                NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
-                description = "Protección de red y filtrado de vulnerabilidades ASB en tiempo real"
+                description = "Icono permanente en barra de estado y acceso rápido a la VPN de SamuLibre"
+                setShowBadge(true)
+                lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
             }
-            getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+            nm?.createNotificationChannel(channel)
         }
     }
 
@@ -534,23 +540,42 @@ class SamuVpnService : VpnService() {
         val pendingIntent = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE
         )
-        val (title, text) = when (mode) {
-            Mode.SHIELD -> "SamuLibre Cyber-Shield Activo (v2.00.2)" to "Protección activa Zero-Root contra malware y exploits"
-            Mode.SECURE_DNS -> "SamuLibre VPN (v2.00.2)" to "Sincronizando túnel privado. Navegación segura con DNS Quad9."
-            Mode.PROXY -> "SamuLibre VPN Ultra-Segura Activa (v2.00.2)" to "Tráfico blindado y anonimizado en nodo internacional verificado"
+        val (title, text, details) = when (mode) {
+            Mode.SHIELD -> Triple(
+                "🛡️ SamuLibre Cyber-Shield Activo (v2.00.3)",
+                "Dispositivo blindado en tiempo real contra amenazas y malware.",
+                "Tu navegación está protegida por el motor Zero-Root. Toca abajo para activar la VPN ultrarrápida."
+            )
+            Mode.SECURE_DNS -> Triple(
+                "🛡️ SamuLibre VPN (v2.00.3)",
+                "Sincronizando túnel privado internacional...",
+                "Tu tráfico está protegido con DNS cifrado Quad9 mientras se valida el circuito internacional."
+            )
+            Mode.PROXY -> Triple(
+                "🛡️ SamuLibre VPN Ultra-Segura Activa (v2.00.3)",
+                "Tráfico HTTPS y DNS blindados en nodo internacional.",
+                "Identidad e IP de tu ISP 100% ocultas. Navegación privada y anónima activa."
+            )
         }
+
+        val bigStyle = NotificationCompat.BigTextStyle()
+            .setBigContentTitle(title)
+            .setSummaryText("SamuLibre Seguridad")
+            .bigText("$text\n$details")
 
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(text)
+            .setStyle(bigStyle)
             .setSmallIcon(R.drawable.ic_stat_samulibre_shield)
             .setColor(0xFF00F2FE.toInt()) // Neón Cian Cyber-Shield
             .setContentIntent(pendingIntent)
             .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
 
         // Acción Rápida (One-Tap Action estilo Bitdefender):
-        // Permite conectar o pausar la VPN directamente desde la persiana de notificaciones
+        // Permite conectar o pausar la VPN directamente desde el menú desplegable de notificaciones
         if (mode == Mode.PROXY) {
             val pauseIntent = Intent(this, SamuVpnService::class.java).apply {
                 action = ACTION_START_SHIELD

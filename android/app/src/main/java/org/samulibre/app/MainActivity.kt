@@ -34,7 +34,7 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "SamuLibre"
-        const val APP_VERSION = "2.00.2"
+        const val APP_VERSION = "2.00.3"
     }
 
     private lateinit var webView: WebView
@@ -90,6 +90,30 @@ class MainActivity : AppCompatActivity() {
         }
 
         setContentView(webView)
+                // Solicitar permiso de notificaciones en tiempo de ejecución (Android 13+ / API 33+)
+        // Esto garantiza que el icono en la barra de estado y el menú desplegable se muestren inmediatamente
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 2002)
+            }
+        }
+
+        // Si el permiso VPN ya fue concedido previamente por el usuario, iniciar el Escudo Cyber-Shield
+        // de inmediato para que el icono protector y la tarjeta de conexión rápida estén siempre visibles arriba
+        if (android.net.VpnService.prepare(this) == null && SamuVpnService.instance == null) {
+            try {
+                val shieldIntent = Intent(this, SamuVpnService::class.java).apply {
+                    action = SamuVpnService.ACTION_START_SHIELD
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(shieldIntent)
+                } else {
+                    startService(shieldIntent)
+                }
+            } catch (t: Throwable) {
+                Log.w(TAG, "No se pudo iniciar Cyber-Shield en arranque: ${t.message}")
+            }
+        }
         webView.loadUrl("file:///android_asset/ui/index.html")
     }
 

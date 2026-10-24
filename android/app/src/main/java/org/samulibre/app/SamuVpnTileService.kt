@@ -8,7 +8,7 @@ import android.service.quicksettings.TileService
 import androidx.annotation.RequiresApi
 
 /**
- * Mosaico de Ajustes Rápidos (Quick Settings Tile) de SamuLibre (v2.00.2).
+ * Mosaico de Ajustes Rápidos (Quick Settings Tile) de SamuLibre (v2.00.3).
  *
  * Permite al usuario conectar y desconectar la VPN de SamuLibre con un solo toque
  * desde la persiana superior de Android en cualquier momento (estilo Bitdefender / Cloudflare WARP).
