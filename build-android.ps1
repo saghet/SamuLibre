@@ -1,4 +1,4 @@
-# SamuLibre Mobile - Script de Compilación Automatizada para Android (.apk)
+# SamuLibre Mobile - Script de Compilacion Automatizada para Android (.apk)
 param (
     [string]$TargetAbi = "all", # "all", "arm64-v8a", "armeabi-v7a", "x86_64"
     [string]$BuildType = "debug", # "debug" o "release"
@@ -8,7 +8,7 @@ param (
 $ErrorActionPreference = "Stop"
 
 Write-Host "==========================================================" -ForegroundColor Cyan
-Write-Host "  🛡️  Antivirus SamuLibre - Compilador de APK para Android" -ForegroundColor Green
+Write-Host "  Antivirus SamuLibre - Compilador de APK para Android" -ForegroundColor Green
 Write-Host "  Zero-Root Virtual Patching & ASB Real-Time Mitigation" -ForegroundColor Yellow
 Write-Host "==========================================================" -ForegroundColor Cyan
 
@@ -56,10 +56,14 @@ if ($TargetAbi -eq "all") {
 
 foreach ($target in $Targets) {
     Write-Host "[*] Compilando libsamulibre_android.so para $target..." -ForegroundColor Yellow
-    cargo ndk -t $target -o $JniLibsDir build -p samulibre-android $(if ($BuildType -eq "release") { "--release" })
+    if ($BuildType -eq "release") {
+        cargo ndk -t $target -o $JniLibsDir build -p samulibre-android --release
+    } else {
+        cargo ndk -t $target -o $JniLibsDir build -p samulibre-android
+    }
 }
 
-Write-Host "[✓] Bibliotecas nativas C-ABI compiladas en: $JniLibsDir" -ForegroundColor Green
+Write-Host "[OK] Bibliotecas nativas C-ABI compiladas en: $JniLibsDir" -ForegroundColor Green
 
 # 4. Compilar APK con Gradle
 Set-Location android
@@ -70,20 +74,20 @@ $GradleTask = if ($BuildType -eq "release") { "assembleRelease" } else { "assemb
 
 try {
     & $GradleCmd $GradleTask
-    Write-Host "[✓] ¡Compilación de APK completada exitosamente!" -ForegroundColor Green
+    Write-Host "[OK] Compilacion de APK completada exitosamente!" -ForegroundColor Green
     $ApkPath = Get-ChildItem -Path "app/build/outputs/apk" -Filter "*.apk" -Recurse | Select-Object -First 1 -ExpandProperty FullName
     if ($ApkPath) {
-        Write-Host "📦 APK Generado: $ApkPath" -ForegroundColor White
+        Write-Host "APK Generado: $ApkPath" -ForegroundColor White
         $ApkSize = [math]::Round(((Get-Item $ApkPath).Length / 1MB), 2)
-        Write-Host "📊 Tamaño: $ApkSize MB" -ForegroundColor Gray
+        Write-Host "Tamano: $ApkSize MB" -ForegroundColor Gray
 
         if ($InstallAdb) {
-            Write-Host "[*] Instalando en dispositivo Android vía ADB..." -ForegroundColor Cyan
+            Write-Host "[*] Instalando en dispositivo Android via ADB..." -ForegroundColor Cyan
             & "$SdkDir\platform-tools\adb.exe" install -r $ApkPath
         }
     }
 } catch {
-    Write-Host "[!] Nota: La invocación de Gradle completó la generación nativa y de assets." -ForegroundColor Yellow
+    Write-Host "[!] Error o advertencia en Gradle: $_" -ForegroundColor Yellow
 } finally {
     Set-Location ..
 }

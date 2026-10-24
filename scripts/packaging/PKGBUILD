@@ -21,6 +21,7 @@ package() {
     # Binarios
     install -Dm755 "${srcdir}/samulibre-gui" "${pkgdir}/usr/bin/samulibre-gui"
     install -Dm755 "${srcdir}/samulibre-cli" "${pkgdir}/usr/bin/samulibre-cli"
+    ln -sf samulibre-cli "${pkgdir}/usr/bin/samulibre"
 
     # Lanzador de escritorio e iconos
     install -Dm644 "${srcdir}/samulibre.desktop" "${pkgdir}/usr/share/applications/samulibre.desktop"

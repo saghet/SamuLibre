@@ -34,7 +34,7 @@ jobs:
           Copy-Item target/release/samulibre-gui.exe samulibre.exe
           Copy-Item -Recurse -Force data package/data
           Copy-Item README.md package/
-          Compress-Archive -Path package/* -DestinationPath samulibre-windows-x64.zip
+          Compress-Archive -Path package/* -DestinationPath samulibre-windows-x64.zip -Force
 
       - name: Upload Windows Artifact
         uses: actions/upload-artifact@v4
@@ -54,7 +54,7 @@ jobs:
       - name: Install Linux GUI Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev tor iptables zenity dpkg-dev
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev tor tor-geoipdb iptables zenity dpkg-dev
 
       - name: Install Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -97,9 +97,10 @@ jobs:
 
       - name: Build Pacman Package (makepkg as non-root)
         run: |
-          useradd -m builder
+          useradd -m builder || true
+          git config --global --add safe.directory "$GITHUB_WORKSPACE" || true
           chown -R builder:builder "$GITHUB_WORKSPACE"
-          su builder -c "cd '$GITHUB_WORKSPACE' && bash scripts/packaging/build_arch.sh"
+          su builder -c "cd '$GITHUB_WORKSPACE' && git config --global --add safe.directory '$GITHUB_WORKSPACE' && bash scripts/packaging/build_arch.sh"
 
       - name: Upload Arch Artifact
         uses: actions/upload-artifact@v4

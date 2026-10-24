@@ -24,6 +24,7 @@ mkdir -p "${PKG_DIR}/usr/lib/systemd/user"
 echo "==> [Ubuntu/Debian] Copiando binarios y activos..."
 cp target/release/samulibre-gui "${PKG_DIR}/usr/bin/samulibre-gui"
 cp target/release/samulibre-cli "${PKG_DIR}/usr/bin/samulibre-cli"
+ln -sf samulibre-cli "${PKG_DIR}/usr/bin/samulibre"
 chmod 755 "${PKG_DIR}/usr/bin/samulibre-gui" "${PKG_DIR}/usr/bin/samulibre-cli"
 
 cp data/samulibre.desktop "${PKG_DIR}/usr/share/applications/samulibre.desktop"

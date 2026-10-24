@@ -6,7 +6,7 @@ authors.workspace = true
 license.workspace = true
 
 [[bin]]
-name = "samulibre"
+name = "samulibre-cli"
 path = "src/main.rs"
 
 [dependencies]

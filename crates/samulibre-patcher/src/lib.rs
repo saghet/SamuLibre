@@ -1515,6 +1515,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "windows")]
     fn test_windows_11_intelligent_audit() {
         let mut patcher = VirtualPatcher::new(true);
         let (unmitigated, active, native) = patcher.scan_and_evaluate(None);
