@@ -15,23 +15,53 @@ pub struct SafetyGuardrailVerifier;
 impl SafetyGuardrailVerifier {
     /// Lista blanca de servicios críticos del sistema que NUNCA deben desactivarse o alterarse
     const CRITICAL_SYSTEM_SERVICES_BLACKLIST: &'static [&'static str] = &[
-        "rpcss", "dcomlaunch", "windefend", "samsrv", "samss", "lsm", "csrss",
-        "eventlog", "dnscache", "plugplay", "cryptsvc", "bfe", "mpssvc",
+        "rpcss",
+        "dcomlaunch",
+        "windefend",
+        "samsrv",
+        "samss",
+        "lsm",
+        "csrss",
+        "eventlog",
+        "dnscache",
+        "plugplay",
+        "cryptsvc",
+        "bfe",
+        "mpssvc",
     ];
 
     /// Lista blanca de servicios que sí admiten mitigación preventiva o aislamiento seguro
     const ALLOWED_MITIGATION_SERVICES: &'static [&'static str] = &[
-        "spooler", "lanmanserver", "termservice", "remoteregistry", "rpclocator",
-        "webclient", "wsearch", "diagtrack", "lserver",
+        "spooler",
+        "lanmanserver",
+        "termservice",
+        "remoteregistry",
+        "rpclocator",
+        "webclient",
+        "wsearch",
+        "diagtrack",
+        "lserver",
     ];
 
     /// Valida formalmente una regla generada antes de autorizar su ejecución en el SO
     pub fn verify(rule: &VirtualPatchRule) -> Result<()> {
         match &rule.strategy {
-            MitigationStrategy::NetworkFirewall { port: _, protocol, direction, .. } => {
+            MitigationStrategy::NetworkFirewall {
+                port: _,
+                protocol,
+                direction,
+                ..
+            } => {
                 let proto_upper = protocol.to_uppercase();
-                if proto_upper != "TCP" && proto_upper != "UDP" && proto_upper != "ICMPV6" && proto_upper != "ICMP" {
-                    return Err(anyhow!("Protocolo de red no admitido por política de seguridad: {}", protocol));
+                if proto_upper != "TCP"
+                    && proto_upper != "UDP"
+                    && proto_upper != "ICMPV6"
+                    && proto_upper != "ICMP"
+                {
+                    return Err(anyhow!(
+                        "Protocolo de red no admitido por política de seguridad: {}",
+                        protocol
+                    ));
                 }
                 // Las reglas de parchado preventivo de SamuLibre deben ser estrictamente INBOUND (filtrado de entrada),
                 // para evitar bloquear la navegación o conexiones salientes del usuario.
@@ -43,34 +73,58 @@ impl SafetyGuardrailVerifier {
                 let key_upper = key_path.to_uppercase();
                 let is_policy = key_upper.starts_with(r"HKLM\SOFTWARE\POLICIES\MICROSOFT");
                 let is_services = key_upper.starts_with(r"HKLM\SYSTEM\CURRENTCONTROLSET\SERVICES");
-                let is_windows_nt = key_upper.starts_with(r"HKLM\SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION");
+                let is_windows_nt =
+                    key_upper.starts_with(r"HKLM\SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION");
 
                 if !is_policy && !is_services && !is_windows_nt {
-                    return Err(anyhow!("Ruta de registro no permitida por políticas de contención: {}", key_path));
+                    return Err(anyhow!(
+                        "Ruta de registro no permitida por políticas de contención: {}",
+                        key_path
+                    ));
                 }
 
                 // Evitar destruir ramas de arranque o seguridad del kernel
                 if key_upper.contains("BCD00000000") || key_upper.contains("SAFEMODE") {
-                    return Err(anyhow!("Intento de manipulación de clave de arranque o seguridad esencial"));
+                    return Err(anyhow!(
+                        "Intento de manipulación de clave de arranque o seguridad esencial"
+                    ));
                 }
             }
             MitigationStrategy::ServiceMitigation { service_name, .. } => {
                 let name_lower = service_name.to_lowercase();
-                if Self::CRITICAL_SYSTEM_SERVICES_BLACKLIST.iter().any(|&s| s == name_lower) {
+                if Self::CRITICAL_SYSTEM_SERVICES_BLACKLIST
+                    .iter()
+                    .any(|&s| s == name_lower)
+                {
                     return Err(anyhow!("Violación de Guardrail: El servicio '{}' es crítico para el sistema operativo y no puede modificarse", service_name));
                 }
-                if !Self::ALLOWED_MITIGATION_SERVICES.iter().any(|&s| s == name_lower) {
-                    warn!("Servicio '{}' no está en la lista blanca preferida de mitigación", service_name);
+                if !Self::ALLOWED_MITIGATION_SERVICES
+                    .iter()
+                    .any(|&s| s == name_lower)
+                {
+                    warn!(
+                        "Servicio '{}' no está en la lista blanca preferida de mitigación",
+                        service_name
+                    );
                 }
             }
-            MitigationStrategy::BehavioralBlock { target_process, forbidden_call } => {
+            MitigationStrategy::BehavioralBlock {
+                target_process,
+                forbidden_call,
+            } => {
                 if target_process.is_empty() || forbidden_call.is_empty() {
                     return Err(anyhow!("Regla de bloqueo conductual incompleta o vacía"));
                 }
             }
             MitigationStrategy::KernelSysctlHardening { parameter, .. } => {
-                if !parameter.starts_with("kernel.") && !parameter.starts_with("fs.") && !parameter.starts_with("net.") {
-                    return Err(anyhow!("Parámetro sysctl de kernel no admitido: {}", parameter));
+                if !parameter.starts_with("kernel.")
+                    && !parameter.starts_with("fs.")
+                    && !parameter.starts_with("net.")
+                {
+                    return Err(anyhow!(
+                        "Parámetro sysctl de kernel no admitido: {}",
+                        parameter
+                    ));
                 }
             }
             MitigationStrategy::AndroidTunPacketFilter { filter_name, .. } => {
@@ -78,12 +132,21 @@ impl SafetyGuardrailVerifier {
                     return Err(anyhow!("Nombre de filtro TUN vacío"));
                 }
             }
-            MitigationStrategy::AndroidPermissionRevoke { permission, rationale, .. } => {
+            MitigationStrategy::AndroidPermissionRevoke {
+                permission,
+                rationale,
+                ..
+            } => {
                 if permission.is_empty() || rationale.is_empty() {
-                    return Err(anyhow!("Regla de revocación de permisos Android incompleta"));
+                    return Err(anyhow!(
+                        "Regla de revocación de permisos Android incompleta"
+                    ));
                 }
             }
-            MitigationStrategy::AndroidOverlayGuard { target_package, reason } => {
+            MitigationStrategy::AndroidOverlayGuard {
+                target_package,
+                reason,
+            } => {
                 if target_package.is_empty() || reason.is_empty() {
                     return Err(anyhow!("Regla Anti-Overlay Android incompleta"));
                 }
@@ -113,14 +176,22 @@ impl LocalAiAnalyst {
         let p = path.as_ref();
         if p.exists() {
             self.model_path = Some(p.to_string_lossy().to_string());
-            self.model_name = format!("GGUF-{}", p.file_name().unwrap_or_default().to_string_lossy());
+            self.model_name = format!(
+                "GGUF-{}",
+                p.file_name().unwrap_or_default().to_string_lossy()
+            );
         }
         self
     }
 
     /// Analiza un boletín KB estructurado de Microsoft y genera la estrategia de mitigación virtual
     pub fn analyze_kb(&self, advisory: &KbAdvisory) -> Result<AiPatchAnalysisResult> {
-        let full_text = format!("{} {} {}", advisory.title, advisory.summary, advisory.cves.join(" "));
+        let full_text = format!(
+            "{} {} {}",
+            advisory.title,
+            advisory.summary,
+            advisory.cves.join(" ")
+        );
         self.analyze_raw_text(&advisory.kb_id, &advisory.title, &full_text, &advisory.cves)
     }
 
@@ -152,13 +223,8 @@ impl LocalAiAnalyst {
         let severity = self.infer_severity(text);
 
         // 2. Extracción de Componente y Vector de Ataque mediante Razonamiento Heurístico/NLP
-        let (component, vector, strategy, reasoning, confidence) = self.synthesize_mitigation(
-            &normalized_kb,
-            &primary_cve,
-            title,
-            text,
-            &severity,
-        );
+        let (component, vector, strategy, reasoning, confidence) =
+            self.synthesize_mitigation(&normalized_kb, &primary_cve, title, text, &severity);
 
         let patch_id = format!("VP-AI-{}", primary_cve.replace('-', "_"));
 
@@ -166,7 +232,10 @@ impl LocalAiAnalyst {
             id: patch_id,
             cve: primary_cve.clone(),
             title: format!("[IA Patch] {}", title),
-            description: format!("Mitigación virtual preventiva sintetizada por IA local para {}: {}", normalized_kb, reasoning),
+            description: format!(
+                "Mitigación virtual preventiva sintetizada por IA local para {}: {}",
+                normalized_kb, reasoning
+            ),
             severity,
             target_component: component.clone(),
             required_kb: vec![normalized_kb.clone()],
@@ -175,7 +244,11 @@ impl LocalAiAnalyst {
             detected_at: Some(Utc::now()),
             patched_at: None,
             unpatched_at: None,
-            status_reason: Some(format!("Generado por IA local ({}) con confianza {:.1}%", self.model_name, confidence * 100.0)),
+            status_reason: Some(format!(
+                "Generado por IA local ({}) con confianza {:.1}%",
+                self.model_name,
+                confidence * 100.0
+            )),
         };
 
         // 3. Validación estricta con Guardrails en Rust
@@ -184,7 +257,10 @@ impl LocalAiAnalyst {
         if !safety_verified {
             warn!("La regla generada por la IA no superó los Guardrails de Seguridad. Requiere revisión.");
         } else {
-            info!("Regla de parchado virtual generada y verificada exitosamente para {}", normalized_kb);
+            info!(
+                "Regla de parchado virtual generada y verificada exitosamente para {}",
+                normalized_kb
+            );
         }
 
         Ok(AiPatchAnalysisResult {
@@ -264,7 +340,8 @@ impl LocalAiAnalyst {
         // Caso 2: Spooler de impresión / PrintNightmare / PointAndPrint
         if lower.contains("spoolsv") || lower.contains("spooler") || lower.contains("print") {
             let strategy = MitigationStrategy::RegistryHardening {
-                key_path: r"HKLM\SOFTWARE\Policies\Microsoft\Windows NT\Printers\PointAndPrint".to_string(),
+                key_path: r"HKLM\SOFTWARE\Policies\Microsoft\Windows NT\Printers\PointAndPrint"
+                    .to_string(),
                 value_name: "RestrictDriverInstallationToAdministrators".to_string(),
                 safe_value: "1".to_string(),
                 revert_value: "0".to_string(),
@@ -279,7 +356,11 @@ impl LocalAiAnalyst {
         }
 
         // Caso 3: Servicios de Escritorio Remoto (RDP, RDP Licensing, TermService)
-        if lower.contains("lserver.exe") || lower.contains("licensing") || lower.contains("rdp") || lower.contains("remote desktop") {
+        if lower.contains("lserver.exe")
+            || lower.contains("licensing")
+            || lower.contains("rdp")
+            || lower.contains("remote desktop")
+        {
             let strategy = MitigationStrategy::NetworkFirewall {
                 rule_name: format!("SamuLibre_AIPatch_{}_{}_RDPShield", kb, cve),
                 port: 135,
@@ -296,9 +377,11 @@ impl LocalAiAnalyst {
         }
 
         // Caso 4: MSDT / Follina / Protocol Handlers
-        if lower.contains("msdt") || lower.contains("diagnostic tool") || lower.contains("follina") {
+        if lower.contains("msdt") || lower.contains("diagnostic tool") || lower.contains("follina")
+        {
             let strategy = MitigationStrategy::RegistryHardening {
-                key_path: r"HKLM\SOFTWARE\Policies\Microsoft\Windows\ScriptedDiagnostics".to_string(),
+                key_path: r"HKLM\SOFTWARE\Policies\Microsoft\Windows\ScriptedDiagnostics"
+                    .to_string(),
                 value_name: "EnableQueryRemoteServer".to_string(),
                 safe_value: "0".to_string(),
                 revert_value: "1".to_string(),
@@ -330,9 +413,14 @@ impl LocalAiAnalyst {
         }
 
         // Caso 6: SMBv1 / SMBv3 / LanmanServer
-        if lower.contains("smb") || lower.contains("lanmanserver") || lower.contains("srv.sys") || lower.contains("srv2.sys") {
+        if lower.contains("smb")
+            || lower.contains("lanmanserver")
+            || lower.contains("srv.sys")
+            || lower.contains("srv2.sys")
+        {
             let strategy = MitigationStrategy::RegistryHardening {
-                key_path: r"HKLM\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters".to_string(),
+                key_path: r"HKLM\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters"
+                    .to_string(),
                 value_name: "SMB1".to_string(),
                 safe_value: "0".to_string(),
                 revert_value: "1".to_string(),
@@ -382,7 +470,8 @@ impl LocalAiAnalyst {
         let lower = text.to_lowercase();
         if lower.contains("remote code execution") || lower.contains("rce") {
             "Riesgo Crítico: Permite a un atacante ejecutar código malicioso a nivel de sistema sin requerir credenciales ni interacción de la víctima.".to_string()
-        } else if lower.contains("privilege escalation") || lower.contains("elevation of privilege") {
+        } else if lower.contains("privilege escalation") || lower.contains("elevation of privilege")
+        {
             "Riesgo Alto: Permite a una aplicación estándar o proceso de bajo privilegio escalar a privilegios de Administrador o NT AUTHORITY\\SYSTEM.".to_string()
         } else if lower.contains("denial of service") {
             "Riesgo Medio: Permite provocar inestabilidad, bloqueos de pantalla azul (BSOD) o congelamiento de los servicios afectados.".to_string()
@@ -424,19 +513,40 @@ impl CyberCopilotEngine {
         let timestamp = Utc::now().to_rfc3339();
 
         // 1. Diagnóstico general / Estado del sistema
-        if q.contains("estado") || q.contains("status") || q.contains("seguro") || q.contains("diagnostico") || q.contains("diagnóstico") || q.contains("como está") || q.contains("cómo está") {
+        if q.contains("estado")
+            || q.contains("status")
+            || q.contains("seguro")
+            || q.contains("diagnostico")
+            || q.contains("diagnóstico")
+            || q.contains("como está")
+            || q.contains("cómo está")
+        {
             let mut issues = Vec::new();
             if !telemetry.risk_ports_open.is_empty() {
-                issues.push(format!("Se detectaron {} puertos de riesgo abiertos ({:?})", telemetry.risk_ports_open.len(), telemetry.risk_ports_open));
+                issues.push(format!(
+                    "Se detectaron {} puertos de riesgo abiertos ({:?})",
+                    telemetry.risk_ports_open.len(),
+                    telemetry.risk_ports_open
+                ));
             }
-            if telemetry.canaries_total > 0 && telemetry.canaries_intact < telemetry.canaries_total {
-                issues.push(format!("¡Alerta! {} canarios tripwire han sido modificados o comprometidos", telemetry.canaries_total - telemetry.canaries_intact));
+            if telemetry.canaries_total > 0 && telemetry.canaries_intact < telemetry.canaries_total
+            {
+                issues.push(format!(
+                    "¡Alerta! {} canarios tripwire han sido modificados o comprometidos",
+                    telemetry.canaries_total - telemetry.canaries_intact
+                ));
             }
             if telemetry.suspicious_persistence_count > 0 {
-                issues.push(format!("Se encontraron {} entradas de persistencia de inicio sospechosas", telemetry.suspicious_persistence_count));
+                issues.push(format!(
+                    "Se encontraron {} entradas de persistencia de inicio sospechosas",
+                    telemetry.suspicious_persistence_count
+                ));
             }
             if telemetry.pending_vulnerabilities > 0 {
-                issues.push(format!("Existen {} vulnerabilidades críticas pendientes de parche virtual", telemetry.pending_vulnerabilities));
+                issues.push(format!(
+                    "Existen {} vulnerabilidades críticas pendientes de parche virtual",
+                    telemetry.pending_vulnerabilities
+                ));
             }
 
             let (answer, risk_level) = if issues.is_empty() {
@@ -494,7 +604,16 @@ impl CyberCopilotEngine {
         }
 
         // 2. Consultas sobre Red, Puertos y Aislamiento de Procesos
-        if q.contains("puerto") || q.contains("red") || q.contains("socket") || q.contains("conexion") || q.contains("conexión") || q.contains("rdp") || q.contains("smb") || q.contains("aislar") || q.contains("cerrar") {
+        if q.contains("puerto")
+            || q.contains("red")
+            || q.contains("socket")
+            || q.contains("conexion")
+            || q.contains("conexión")
+            || q.contains("rdp")
+            || q.contains("smb")
+            || q.contains("aislar")
+            || q.contains("cerrar")
+        {
             let has_risk = !telemetry.risk_ports_open.is_empty();
             let risk_text = if has_risk {
                 format!(
@@ -541,7 +660,14 @@ impl CyberCopilotEngine {
         }
 
         // 3. Consultas sobre Persistencia, Autoruns y Arranque
-        if q.contains("persistencia") || q.contains("autorun") || q.contains("arranque") || q.contains("inicio") || q.contains("troyano") || q.contains("schtasks") || q.contains("runonce") {
+        if q.contains("persistencia")
+            || q.contains("autorun")
+            || q.contains("arranque")
+            || q.contains("inicio")
+            || q.contains("troyano")
+            || q.contains("schtasks")
+            || q.contains("runonce")
+        {
             let sus_text = if telemetry.suspicious_persistence_count > 0 {
                 format!("⚠️ Se han detectado {} entradas sospechosas en ramas Run/RunOnce o carpetas temporales.", telemetry.suspicious_persistence_count)
             } else {
@@ -569,7 +695,12 @@ impl CyberCopilotEngine {
         }
 
         // 4. Consultas sobre Ransomware y Canarios
-        if q.contains("ransomware") || q.contains("canario") || q.contains("cifrado") || q.contains("trampa") || q.contains("tripwire") {
+        if q.contains("ransomware")
+            || q.contains("canario")
+            || q.contains("cifrado")
+            || q.contains("trampa")
+            || q.contains("tripwire")
+        {
             return CopilotResponse {
                 answer: format!(
                     "🐤 **Escudo Anti-Ransomware & Canarios Tripwire:**\n\n\
@@ -592,7 +723,12 @@ impl CyberCopilotEngine {
         }
 
         // 5. Consultas específicas sobre Auto-Pilot y Parchado Autónomo de KBs Futuros
-        if q.contains("autopilot") || q.contains("auto-pilot") || q.contains("autonomo") || q.contains("autónomo") || q.contains("futuro") {
+        if q.contains("autopilot")
+            || q.contains("auto-pilot")
+            || q.contains("autonomo")
+            || q.contains("autónomo")
+            || q.contains("futuro")
+        {
             return CopilotResponse {
                 answer: format!(
                     "⚡ **Parchado Autónomo de Nuevos KBs (IA Auto-Pilot):**\n\n\
@@ -622,7 +758,12 @@ impl CyberCopilotEngine {
         }
 
         // 6. Consultas sobre Parcheo Virtual, CVEs y KBs
-        if q.contains("cve") || q.contains("kb") || q.contains("parche") || q.contains("virtual") || q.contains("vulnerabilidad") {
+        if q.contains("cve")
+            || q.contains("kb")
+            || q.contains("parche")
+            || q.contains("virtual")
+            || q.contains("vulnerabilidad")
+        {
             return CopilotResponse {
                 answer: format!(
                     "🧩 **Parchado Virtual Autónomo con IA Local:**\n\n\
@@ -650,7 +791,12 @@ impl CyberCopilotEngine {
         }
 
         // 6. Consultas sobre LSASS y Robo de Sesiones / Cookies
-        if q.contains("lsass") || q.contains("cookie") || q.contains("credencial") || q.contains("contraseña") || q.contains("password") {
+        if q.contains("lsass")
+            || q.contains("cookie")
+            || q.contains("credencial")
+            || q.contains("contraseña")
+            || q.contains("password")
+        {
             return CopilotResponse {
                 answer: format!(
                     "🔒 **Blindaje de Credenciales y Memoria:**\n\n\
@@ -749,7 +895,9 @@ mod tests {
             title: "Windows 11 Security Cumulative Update".to_string(),
             release_date: "2024-08-13".to_string(),
             cves: vec!["CVE-2024-38063".to_string()],
-            summary: "Critical Remote Code Execution in Windows TCP/IP IPv6 network stack (tcpip.sys)".to_string(),
+            summary:
+                "Critical Remote Code Execution in Windows TCP/IP IPv6 network stack (tcpip.sys)"
+                    .to_string(),
             affected_products: vec!["Windows 11 23H2".to_string()],
             restart_required: true,
             support_url: None,
@@ -760,7 +908,11 @@ mod tests {
         assert!(result.safety_verified);
         assert!(result.confidence_score >= 0.90);
         match result.recommended_mitigation {
-            MitigationStrategy::NetworkFirewall { protocol, direction, .. } => {
+            MitigationStrategy::NetworkFirewall {
+                protocol,
+                direction,
+                ..
+            } => {
                 assert_eq!(protocol, "ICMPv6");
                 assert_eq!(direction, "in");
             }
@@ -786,7 +938,12 @@ mod tests {
         assert_eq!(result.cve, "CVE-2021-34527");
         assert!(result.safety_verified);
         match result.recommended_mitigation {
-            MitigationStrategy::RegistryHardening { key_path, value_name, safe_value, .. } => {
+            MitigationStrategy::RegistryHardening {
+                key_path,
+                value_name,
+                safe_value,
+                ..
+            } => {
                 assert!(key_path.contains("PointAndPrint"));
                 assert_eq!(value_name, "RestrictDriverInstallationToAdministrators");
                 assert_eq!(safe_value, "1");
@@ -829,7 +986,9 @@ mod tests {
 
         let resp_threat = copilot.ask("diagnostico de seguridad", &telemetry_threat);
         assert_eq!(resp_threat.risk_level, Severity::High);
-        assert!(resp_threat.answer.contains("Se detectaron alertas que requieren tu atención"));
+        assert!(resp_threat
+            .answer
+            .contains("Se detectaron alertas que requieren tu atención"));
     }
 
     #[test]
@@ -855,6 +1014,9 @@ mod tests {
         assert_eq!(resp.risk_level, Severity::Low);
         assert!(resp.answer.contains("Parchado Autónomo de Nuevos KBs"));
         assert!(resp.answer.contains("Guardrails en Rust"));
-        assert!(resp.suggested_actions.iter().any(|a| a.payload == "view-patcher"));
+        assert!(resp
+            .suggested_actions
+            .iter()
+            .any(|a| a.payload == "view-patcher"));
     }
 }

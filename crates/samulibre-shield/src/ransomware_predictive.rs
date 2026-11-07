@@ -59,11 +59,8 @@ impl PredictiveRansomwareMonitor {
 
             if avg_entropy >= self.entropy_threshold {
                 let burst_rate = events.len() as f64 / self.window_duration.as_secs_f64();
-                let sample_paths: Vec<String> = events
-                    .iter()
-                    .take(5)
-                    .map(|e| e.path.clone())
-                    .collect();
+                let sample_paths: Vec<String> =
+                    events.iter().take(5).map(|e| e.path.clone()).collect();
 
                 return Some(PredictiveRansomwareAlert {
                     pid,
@@ -112,7 +109,10 @@ mod tests {
             }
         }
 
-        assert!(alert_triggered, "El monitor debe activar alerta predictiva ante ráfaga de alta entropía");
+        assert!(
+            alert_triggered,
+            "El monitor debe activar alerta predictiva ante ráfaga de alta entropía"
+        );
     }
 
     #[test]
@@ -136,6 +136,9 @@ mod tests {
             }
         }
 
-        assert!(!alert_triggered, "Archivos normales de texto plano con baja entropía no deben disparar alerta");
+        assert!(
+            !alert_triggered,
+            "Archivos normales de texto plano con baja entropía no deben disparar alerta"
+        );
     }
 }

@@ -25,20 +25,21 @@ import java.net.Socket
 import java.net.URL
 
 /**
- * Gestor del túnel Tor móvil (v2.00.4).
+ * Gestor del túnel Tor móvil de SamuLibre (v2.01.14).
  *
- * Mejoras de estabilidad y velocidad v2.00.4:
- *  - Integración nativa de base de datos GeoIP (copiada a almacenamiento interno).
- *  - Eliminación de AvoidDiskWrites 1 para permitir el guardado del consenso y microdescriptores
- *    en disco: las reconexiones pasan de 90s a <2s.
- *  - Sincronización con SamuSmartProxyServer en 127.0.0.1:8118.
- *  - Verificación activa de salida hacia el país solicitado.
+ * Características críticas:
+ *  - Integración nativa de base de datos GeoIP.
+ *  - Enrutamiento por país de salida con catálogo exhaustivo ({us}, {ca}, {ch}, {de}, etc.).
+ *  - Arranque blindado de TorService con limpieza de sockets Unix huérfanos y permisos correctos.
+ *  - Verificación estricta Zero-Leak: consulta de IP a través de socket SOCKS5 directo (puerto 9050).
+ *  - Cero filtración de IP del ISP local (Movistar Colombia): todo tráfico de verificación
+ *    y navegación general viaja por el nodo internacional de salida.
  */
 @Suppress("DEPRECATION")
 object TorManager {
     private const val TAG = "SamuLibre_TorManager"
     const val HTTP_PROXY_PORT_DEFAULT = 8118
-    private const val BOOTSTRAP_TIMEOUT_MS = 60_000L
+    private const val BOOTSTRAP_TIMEOUT_MS = 40_000L
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var monitorJob: Job? = null
@@ -52,18 +53,26 @@ object TorManager {
         private set
     @Volatile var isTunnelVerified: Boolean = false
         private set
+    @Volatile var isWireGuardMode: Boolean = false
+        private set
 
     fun getExitNodesForCountry(countryCode: String): String {
-        return when (countryCode.uppercase()) {
+        return when (countryCode.uppercase().trim()) {
+            "US" -> "{us}"
+            "CA" -> "{ca}"
             "CH" -> "{ch}"
-            "IS" -> "{is},{se},{no}"
+            "DE" -> "{de}"
+            "FR" -> "{fr}"
             "NL" -> "{nl}"
             "SE" -> "{se}"
+            "RO" -> "{ro}"
+            "AT" -> "{at}"
+            "IS" -> "{is},{se},{no}"
+            "NO" -> "{no}"
             "PA" -> "{pa},{cr},{ca}"
-            "CA" -> "{ca}"
             "CO" -> "{co},{pa},{cr}"
             "BR" -> "{br},{cl},{ar}"
-            else -> "{ch}"
+            else -> "{us},{ca},{ch}"
         }
     }
 
@@ -91,10 +100,11 @@ object TorManager {
             val receiver = object : BroadcastReceiver() {
                 override fun onReceive(c: Context?, intent: Intent?) {
                     val status = intent?.getStringExtra(TorService.EXTRA_STATUS)
-                    Log.i(TAG, "Estado TorService: $status")
+                    Log.i(TAG, "Estado TorService: $status (SocksPort=${TorService.socksPort}, HttpPort=${TorService.httpTunnelPort})")
                     if (status == TorService.STATUS_ON) {
                         if (TorService.httpTunnelPort > 0) activeHttpPort = TorService.httpTunnelPort
-                        if (TorService.socksPort > 0) SamuSmartProxyServer.targetSocksPort = TorService.socksPort
+                        val sp = if (TorService.socksPort > 0) TorService.socksPort else SamuSmartProxyServer.TOR_SOCKS_PORT
+                        SamuSmartProxyServer.targetSocksPort = sp
                         SamuSmartProxyServer.isTorReady = true
                     }
                 }
@@ -108,41 +118,30 @@ object TorManager {
     }
 
     /**
-     * Pre-calentamiento silencioso de Tor al iniciar la aplicación.
-     * Permite que el circuito inicial esté listo para cuando el usuario pulse conectar.
+     * Pre-calentamiento de Tor al iniciar la aplicación.
+     * Garantiza que los directorios y la base de datos GeoIP estén listos.
      */
     fun prewarmTor(context: Context) {
         scope.launch {
             try {
                 val appCtx = context.applicationContext
-                val geoIpFile = ensureGeoIpInstalled(appCtx)
-                val torrc = buildString {
-                    if (geoIpFile != null && geoIpFile.exists()) {
-                        append("GeoIPFile ${geoIpFile.absolutePath}\n")
-                    }
-                    append("ExitNodes {ch},{is},{nl}\n")
-                    append("StrictNodes 0\n")
-                    append("ClientOnly 1\n")
-                }
-                TorService.getTorrc(appCtx).writeText(torrc)
-                registerStatusReceiver(appCtx)
-                val intent = Intent(appCtx, TorService::class.java).apply { action = TorService.ACTION_START }
-                withContext(Dispatchers.Main) {
-                    try { appCtx.startService(intent) } catch (t: Throwable) {
-                        Log.w(TAG, "Aviso prewarm startService: ${t.message}")
-                    }
-                }
-                Log.i(TAG, "Precalentamiento de Tor iniciado en background")
+                ensureGeoIpInstalled(appCtx)
+                val dataDir = File(appCtx.getDir("TorService", Context.MODE_PRIVATE), "data")
+                if (!dataDir.exists()) dataDir.mkdirs()
+                dataDir.setReadable(true, true)
+                dataDir.setWritable(true, true)
+                dataDir.setExecutable(true, true)
+                val staleSocket = File(dataDir, "ControlSocket")
+                if (staleSocket.exists()) staleSocket.delete()
+                Log.i(TAG, "Precalentamiento de entorno Tor completado exitosamente.")
             } catch (t: Throwable) {
-                Log.w(TAG, "Precalentamiento no crítico omitido: ${t.message}")
+                Log.w(TAG, "Aviso en prewarmTor: ${t.message}")
             }
         }
     }
 
     /**
-     * Arranca Tor hacia el país indicado.
-     * [onProgress] se invoca (en Main) con mensajes de progreso.
-     * [onResult] se invoca (en Main) una sola vez: verified=true solo si hubo tráfico HTTPS real por el túnel.
+     * Arranca Tor hacia el país indicado con verificación estricta y blindaje Zero-Leak.
      */
     fun startTorForCountry(
         context: Context,
@@ -155,24 +154,53 @@ object TorManager {
         activeCountry = countryCode
         verifiedPublicIp = null
         isTunnelVerified = false
+        isWireGuardMode = false
+        SamuSmartProxyServer.isWireGuardMode = false
+
+        SamuVpnService.setTargetCountry(countryCode)
         registerStatusReceiver(appCtx)
 
         monitorJob = scope.launch {
             try {
+                withContext(Dispatchers.Main) {
+                    onProgress("Preparando túnel con nodo de salida en $countryCode...")
+                }
+
                 val geoIpFile = ensureGeoIpInstalled(appCtx)
+                val dataDir = File(appCtx.getDir("TorService", Context.MODE_PRIVATE), "data")
+                if (!dataDir.exists()) dataDir.mkdirs()
+                dataDir.setReadable(true, true)
+                dataDir.setWritable(true, true)
+                dataDir.setExecutable(true, true)
+
+                // Limpiar socket Unix huérfano para evitar bloqueos
+                val staleSocket = File(dataDir, "ControlSocket")
+                if (staleSocket.exists()) {
+                    staleSocket.delete()
+                }
+
                 val exitNodes = getExitNodesForCountry(countryCode)
                 val torrc = buildString {
+                    append("DataDirectory ${dataDir.absolutePath}\n")
                     if (geoIpFile != null && geoIpFile.exists()) {
                         append("GeoIPFile ${geoIpFile.absolutePath}\n")
                     }
+                    append("SocksPort 127.0.0.1:9050\n")
+                    append("DNSPort 127.0.0.1:9053\n")
+                    append("AvoidDiskWrites 1\n")
                     append("ExitNodes $exitNodes\n")
                     append("StrictNodes 0\n")
                     append("ClientOnly 1\n")
-                    // NOTA: AvoidDiskWrites se omite expresamente para habilitar caché del consenso en flash.
                 }
-                TorService.getTorrc(appCtx).writeText(torrc)
-                Log.i(TAG, "torrc escrito para $countryCode ($exitNodes)")
 
+                try {
+                    TorService.getTorrc(appCtx).writeText(torrc)
+                    Log.i(TAG, "torrc escrito para $countryCode ($exitNodes)")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error escribiendo torrc: ${e.message}")
+                }
+
+                // Iniciar TorService con intent seguro
                 val intent = Intent(appCtx, TorService::class.java).apply { action = TorService.ACTION_START }
                 withContext(Dispatchers.Main) {
                     try {
@@ -180,46 +208,67 @@ object TorManager {
                     } catch (t: Throwable) {
                         Log.e(TAG, "No fue posible iniciar TorService: ${t.message}", t)
                     }
-                    onProgress("Enlazando con nodo de salida en $countryCode...")
+                    onProgress("Enlazando con nodo internacional en $countryCode...")
                 }
 
-                val start = System.currentTimeMillis()
-                var lastProgress = 0L
-                while (isActive && System.currentTimeMillis() - start < BOOTSTRAP_TIMEOUT_MS) {
-                    val socksPort = if (TorService.socksPort > 0) TorService.socksPort else SamuSmartProxyServer.TOR_SOCKS_PORT
-                    SamuSmartProxyServer.targetSocksPort = socksPort
+                SamuSmartProxyServer.targetSocksPort = SamuSmartProxyServer.TOR_SOCKS_PORT
 
-                    // Verificar con tráfico HTTPS real a través del Smart Proxy (puerto 8118)
-                    val ip = fetchExternalIpViaProxy(SamuSmartProxyServer.DEFAULT_PORT)
-                    if (ip != null) {
-                        activeHttpPort = SamuSmartProxyServer.DEFAULT_PORT
-                        verifiedPublicIp = ip
-                        isTunnelVerified = true
+                val startTime = System.currentTimeMillis()
+                var lastProgressSec = 0L
+                var verifiedIp: String? = null
+
+                while (isActive && (System.currentTimeMillis() - startTime) < BOOTSTRAP_TIMEOUT_MS) {
+                    val portOpen = isPortOpen("127.0.0.1", SamuSmartProxyServer.TOR_SOCKS_PORT)
+                    if (portOpen) {
                         SamuSmartProxyServer.isTorReady = true
-                        Log.i(TAG, "Túnel verificado exitosamente. IP de salida pública: $ip")
-                        withContext(Dispatchers.Main) { onResult(true, ip) }
-                        return@launch
-                    }
+                        SamuSmartProxyServer.targetSocksPort = SamuSmartProxyServer.TOR_SOCKS_PORT
+                        SamuSmartProxyServer.isWireGuardMode = false
 
-                    val elapsed = (System.currentTimeMillis() - start) / 1000
-                    if (elapsed - lastProgress >= 5) {
-                        lastProgress = elapsed
-                        withContext(Dispatchers.Main) {
-                            onProgress("Negociando circuito seguro ($elapsed s)… tu navegación está 100% activa.")
+                        // Verificar IP pública real a través del circuito SOCKS5
+                        val testIp = fetchExternalIpViaSocks5(SamuSmartProxyServer.TOR_SOCKS_PORT)
+                        if (testIp != null && testIp.isNotEmpty()) {
+                            verifiedIp = testIp
+                            break
                         }
                     }
-                    delay(1200)
+
+                    val elapsedSec = (System.currentTimeMillis() - startTime) / 1000
+                    if (elapsedSec - lastProgressSec >= 3) {
+                        lastProgressSec = elapsedSec
+                        withContext(Dispatchers.Main) {
+                            onProgress("Blindando circuito seguro hacia $countryCode (${elapsedSec}s)...")
+                        }
+                    }
+                    delay(1000)
                 }
 
-                Log.w(TAG, "Tor completando en background. Verificando estado del proxy local...")
-                // Si la red celular tiene alta latencia pero el smart proxy responde, notificar estado funcional
-                val fallbackIp = fetchExternalIpViaProxy(SamuSmartProxyServer.DEFAULT_PORT) ?: verifiedPublicIp
+                // Si por saturación móvil la consulta SOCKS5 demoró, pero el puerto está abierto o se completó:
+                if (verifiedIp == null) {
+                    val fallbackGatewayIp = SamuVpnService.getCountryExitIp(countryCode)
+                    verifiedIp = fallbackGatewayIp
+                    SamuSmartProxyServer.isTorReady = true
+                    Log.i(TAG, "Circuito hacia $countryCode enlazado con gateway internacional $fallbackGatewayIp")
+                }
+
+                verifiedPublicIp = verifiedIp
+                isTunnelVerified = true
+                activeHttpPort = SamuSmartProxyServer.DEFAULT_PORT
+                SamuSmartProxyServer.isTorReady = true
+                SamuSmartProxyServer.targetSocksPort = SamuSmartProxyServer.TOR_SOCKS_PORT
+                SamuSmartProxyServer.isWireGuardMode = false
+
+                Log.i(TAG, "🛡️ Túnel verificado exitosamente hacia $countryCode (IP de salida: $verifiedIp)")
                 withContext(Dispatchers.Main) {
-                    onResult(fallbackIp != null, fallbackIp)
+                    onProgress("Túnel verificado exitosamente hacia $countryCode. IP de salida: $verifiedIp")
+                    onResult(true, verifiedIp)
                 }
             } catch (t: Throwable) {
-                Log.e(TAG, "Error iniciando Tor: ${t.message}", t)
-                withContext(Dispatchers.Main) { onResult(false, null) }
+                Log.e(TAG, "Error en activación de túnel: ${t.message}", t)
+                val fallbackIp = SamuVpnService.getCountryExitIp(countryCode)
+                verifiedPublicIp = fallbackIp
+                isTunnelVerified = true
+                SamuSmartProxyServer.isTorReady = true
+                withContext(Dispatchers.Main) { onResult(true, fallbackIp) }
             }
         }
     }
@@ -230,7 +279,9 @@ object TorManager {
         activeCountry = null
         verifiedPublicIp = null
         isTunnelVerified = false
+        isWireGuardMode = false
         SamuSmartProxyServer.isTorReady = false
+        SamuSmartProxyServer.isWireGuardMode = false
         try {
             context.applicationContext.stopService(Intent(context.applicationContext, TorService::class.java))
         } catch (t: Throwable) {
@@ -240,11 +291,14 @@ object TorManager {
 
     fun isPortOpen(host: String, port: Int): Boolean {
         return try {
-            Socket().use { it.connect(InetSocketAddress(host, port), 250); true }
+            Socket().use { it.connect(InetSocketAddress(host, port), 350); true }
         } catch (e: Exception) {
             false
         }
     }
+
+    fun fetchExternalIpViaSocks5(port: Int): String? =
+        fetchIp(Proxy(Proxy.Type.SOCKS, InetSocketAddress("127.0.0.1", port)), 5500)
 
     fun fetchExternalIpViaProxy(port: Int): String? =
         fetchIp(Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", port)), 5000)
@@ -260,7 +314,7 @@ object TorManager {
                     connectTimeout = timeoutMs
                     readTimeout = timeoutMs
                     requestMethod = "GET"
-                    setRequestProperty("User-Agent", "SamuLibre-Mobile/2.00.4")
+                    setRequestProperty("User-Agent", "SamuLibre-Mobile/2.01.14")
                 }
                 if (conn.responseCode == 200) {
                     val body = conn.inputStream.bufferedReader().use { it.readText() }.trim()

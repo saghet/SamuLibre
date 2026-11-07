@@ -11,8 +11,8 @@ android {
         applicationId = "org.samulibre.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 12
-        versionName = "2.00.4"
+        versionCode = 14
+        versionName = "2.01.13"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -60,4 +60,7 @@ dependencies {
     implementation("androidx.localbroadcastmanager:localbroadcastmanager:1.1.0")
     implementation("info.guardianproject:jtorctl:0.4.5.7")
     implementation(files("tor-android.aar"))
+
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
 }

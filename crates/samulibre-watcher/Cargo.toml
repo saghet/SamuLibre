@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 samulibre-types = { path = "../samulibre-types" }
 samulibre-scanner = { path = "../samulibre-scanner" }
+samulibre-shield = { path = "../samulibre-shield" }
 notify = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
@@ -18,3 +19,7 @@ chrono = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
 uuid = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-service = "0.8.1"
+

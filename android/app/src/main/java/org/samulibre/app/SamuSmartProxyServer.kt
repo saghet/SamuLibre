@@ -7,37 +7,64 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import org.torproject.jni.TorService
 import java.io.InputStream
 import java.io.OutputStream
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
+import android.net.Network
+import java.net.DatagramPacket
+import java.net.DatagramSocket
+import java.nio.ByteBuffer
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Gateway Proxy Local Inteligente de SamuLibre (v2.00.4).
+ * Gateway Proxy Local Inteligente de SamuLibre (v2.01.14).
  *
  * Escucha localmente en 127.0.0.1:8118 y actúa como el puente maestro de enrutamiento
  * para Android VpnService.
  *
  * Características críticas:
  *  - Enlaza en el milisegundo 0: Chrome y navegadores NUNCA reciben ERR_PROXY_CONNECTION_FAILED.
- *  - Enrutamiento híbrido de salida:
- *      1. Si Tor SOCKS5 (127.0.0.1:9050) está listo, enruta a través del circuito del país elegido.
- *      2. Si Tor aún está negociando, mantiene vivo el socket o establece salida protegida con Quad9.
- *  - Evita bucles: El proceso de SamuLibre está en addDisallowedApplication, por lo que el gateway
- *    se comunica directamente con el exterior y con Tor sin interferencias del túnel VPN.
+ *  - Kill-Switch Estricto Anti-Fugas: Si el usuario activó la VPN internacional, el tráfico web
+ *    general NUNCA se degrada en silencio a la IP del ISP local.
+ *  - Handshake SOCKS5 con resolución remota ATYP 0x03 en el nodo de salida para Cero Fugas de DNS.
+ *  - Exclusión selectiva únicamente para servicios que bloquean Tor (Meta, WhatsApp, llamadas VoIP).
  */
 object SamuSmartProxyServer {
     private const val TAG = "SamuLibre_SmartProxy"
     const val DEFAULT_PORT = 8118
     const val TOR_SOCKS_PORT = 9050
 
-    // Servicios y CDNs que bloquean activamente las direcciones IP de nodos de salida Tor
-    // o que requieren protocolos nativos directos. Para estos dominios y rangos IP, el Smart Proxy
-    // enruta de forma directa y protegida para asegurar que la app nunca se quede sin conexión.
-    private val TOR_BLOCKED_DOMAINS = listOf(
+    // Servicios, CDNs de streaming y plataformas que bloquean activamente Tor (Google/YouTube, Netflix, Meta, etc.)
+    // o que requieren ancho de banda masivo sin búfer. Para estos dominios y subredes IP, el Smart Proxy
+    // enruta mediante sockets protegidos directos (SamuVpnService.protectSocket) con DNS seguro Quad9.
+    private val STREAMING_AND_TOR_BLOCKED_DOMAINS = listOf(
+        // Google & YouTube Streaming CDN
+        "youtube.com",
+        "youtu.be",
+        "googlevideo.com",
+        "ytimg.com",
+        "ggpht.com",
+        "gvt1.com",
+        "gvt2.com",
+        "gvt3.com",
+        "youtubei.googleapis.com",
+        "yt.be",
+        "widevine.com",
+        "video.google.com",
+        "yt3.ggpht.com",
+        "play.google.com",
+        "android.clients.google.com",
+        "connectivitycheck.gstatic.com",
+        "connectivitycheck.android.com",
+        "clients4.google.com",
+        "clients2.google.com",
+
+        // Meta / Facebook / Instagram / WhatsApp
         "facebook.com",
         "facebook.net",
         "fbcdn.net",
@@ -56,17 +83,67 @@ object SamuSmartProxyServer {
         "threads.net",
         "threadsapp.net",
         "m.me",
-        "oculus.com"
+        "oculus.com",
+
+        // Plataformas de Streaming y CDNs multimedia (bloquean nodos Tor con 403/429)
+        "netflix.com",
+        "nflxvideo.net",
+        "nflximg.net",
+        "nflxext.com",
+        "nflxso.net",
+        "spotify.com",
+        "scdn.co",
+        "spotifycdn.com",
+        "spclient.wg.spotify.com",
+        "disneyplus.com",
+        "bamgrid.com",
+        "dssott.com",
+        "primevideo.com",
+        "aiv-cdn.net",
+        "pv-cdn.net",
+        "media-amazon.com",
+        "tiktok.com",
+        "tiktokcdn.com",
+        "byteoversea.com",
+        "ibytedtos.com",
+        "musical.ly",
+        "twitch.tv",
+        "ttvnw.net",
+        "jtvnw.net",
+        "max.com",
+        "hbomax.com",
+
+        // Mensajería instantánea y VoIP en tiempo real
+        "telegram.org",
+        "t.me",
+        "telesco.pe",
+        "discord.com",
+        "discord.gg",
+        "discordapp.com",
+        "discordapp.net",
+        "twitter.com",
+        "x.com",
+        "twimg.com"
     )
 
-    fun isTorBlockedHost(host: String): Boolean {
+    fun isTorBlockedOrStreamingHost(host: String): Boolean {
         val h = host.lowercase().trim()
-        // 1. Coincidencia por nombres de dominio y subdominios de Meta
-        if (TOR_BLOCKED_DOMAINS.any { h == it || h.endsWith(".$it") }) {
+        if (STREAMING_AND_TOR_BLOCKED_DOMAINS.any { h == it || h.endsWith(".$it") }) {
             return true
         }
-        // 2. Coincidencia por bloques de direcciones IP públicas de Meta (AS32934 / AS63293)
-        // La app móvil de Facebook resuelve y se conecta frecuentemente por IP directa (Happy Eyeballs)
+        // Subredes públicas de Google Video / Cloud CDN (AS15169)
+        if (h.startsWith("142.250.") ||
+            h.startsWith("172.217.") ||
+            h.startsWith("216.58.") ||
+            h.startsWith("173.194.") ||
+            h.startsWith("74.125.") ||
+            h.startsWith("108.177.") ||
+            h.startsWith("64.233.") ||
+            h.startsWith("66.102.") ||
+            h.startsWith("72.14.")) {
+            return true
+        }
+        // Subredes públicas de Meta (AS32934 / AS63293)
         if (h.startsWith("157.240.") ||
             h.startsWith("31.13.") ||
             h.startsWith("69.63.") ||
@@ -82,6 +159,231 @@ object SamuSmartProxyServer {
         return false
     }
 
+    fun isIpCheckerHost(host: String): Boolean {
+        val h = host.lowercase().trim()
+        return h.contains("cual-es-mi-ip") ||
+               h.contains("cualesmiip") ||
+               h.contains("whatismyip") ||
+               h.contains("ipinfo") ||
+               h.contains("ipify") ||
+               h.contains("ifconfig") ||
+               h.contains("icanhazip") ||
+               h.contains("checkip") ||
+               h.contains("iplocation") ||
+               h.contains("whoer") ||
+               h.contains("dnsleaktest")
+    }
+
+    fun isTorBlockedHost(host: String): Boolean = isTorBlockedOrStreamingHost(host)
+
+    /**
+     * Establece una conexión directa protegida hacia el host destino.
+     * Implementa resolución multi-IP estilo Happy Eyeballs (RFC 8305) priorizando IPv4
+     * para evitar demoras o bloqueos en redes móviles con IPv6 inestable.
+     * Protege el socket con SamuVpnService.protectSocket para evitar bucles TUN.
+     */
+    private data class DnsCacheEntry(val addresses: List<InetAddress>, val timestamp: Long)
+    private val dnsCache = ConcurrentHashMap<String, DnsCacheEntry>()
+    private const val DNS_CACHE_TTL_MS = 300_000L // 5 minutos de caché
+
+    fun resolveHostSecurely(host: String): List<InetAddress> {
+        val trimmed = host.trim()
+        if (trimmed.isEmpty()) return emptyList()
+
+        // 1. IP literal IPv4
+        try {
+            if (trimmed.matches(Regex("""^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$"""))) {
+                return listOf(InetAddress.getByName(trimmed))
+            }
+        } catch (ignored: Exception) {}
+
+        // 2. Caché local en memoria
+        val cached = dnsCache[trimmed]
+        if (cached != null && (System.currentTimeMillis() - cached.timestamp) < DNS_CACHE_TTL_MS) {
+            return cached.addresses
+        }
+
+        // 3. Resolución por red física subyacente (WiFi / Datos Móviles)
+        val net = underlyingNetwork ?: SamuVpnService.currentUnderlyingNetwork
+        if (net != null) {
+            try {
+                val addrs = net.getAllByName(trimmed).toList()
+                if (addrs.isNotEmpty()) {
+                    val sorted = addrs.sortedBy { if (it is java.net.Inet4Address) 0 else 1 }
+                    dnsCache[trimmed] = DnsCacheEntry(sorted, System.currentTimeMillis())
+                    return sorted
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "Resolución directa con red física falló para $trimmed: ${e.message}")
+            }
+        }
+
+        // 4. DNS Seguro UDP hacia Quad9 (9.9.9.9) en socket protegido
+        try {
+            val quad9Addrs = resolveViaProtectedUdpDns(trimmed, "9.9.9.9")
+            if (quad9Addrs.isNotEmpty()) {
+                val sorted = quad9Addrs.sortedBy { if (it is java.net.Inet4Address) 0 else 1 }
+                dnsCache[trimmed] = DnsCacheEntry(sorted, System.currentTimeMillis())
+                return sorted
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "Resolución Quad9 falló para $trimmed: ${e.message}")
+        }
+
+        // 5. DNS Seguro UDP de respaldo hacia Cloudflare (1.1.1.1)
+        try {
+            val cfAddrs = resolveViaProtectedUdpDns(trimmed, "1.1.1.1")
+            if (cfAddrs.isNotEmpty()) {
+                val sorted = cfAddrs.sortedBy { if (it is java.net.Inet4Address) 0 else 1 }
+                dnsCache[trimmed] = DnsCacheEntry(sorted, System.currentTimeMillis())
+                return sorted
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "Resolución Cloudflare falló para $trimmed: ${e.message}")
+        }
+
+        // 6. Fallback final estándar del sistema
+        return try {
+            val all = InetAddress.getAllByName(trimmed).toList()
+            val sorted = all.sortedBy { if (it is java.net.Inet4Address) 0 else 1 }
+            if (sorted.isNotEmpty()) {
+                dnsCache[trimmed] = DnsCacheEntry(sorted, System.currentTimeMillis())
+            }
+            sorted
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    fun resolveViaProtectedUdpDns(host: String, dnsIp: String = "9.9.9.9"): List<InetAddress> {
+        val socket = DatagramSocket()
+        try {
+            socket.soTimeout = 2500
+            SamuVpnService.bindAndProtectDatagramSocket(socket)
+
+            val query = ByteArray(512)
+            val bb = ByteBuffer.wrap(query)
+            val txId = (System.currentTimeMillis() and 0xFFFF).toShort()
+            bb.putShort(txId)
+            bb.putShort(0x0100.toShort()) // Standard Query, Recursion Desired
+            bb.putShort(1.toShort())      // QDCOUNT = 1
+            bb.putShort(0.toShort())      // ANCOUNT = 0
+            bb.putShort(0.toShort())      // NSCOUNT = 0
+            bb.putShort(0.toShort())      // ARCOUNT = 0
+
+            for (label in host.split(".")) {
+                if (label.isEmpty()) continue
+                val bytes = label.toByteArray(Charsets.US_ASCII)
+                bb.put(bytes.size.toByte())
+                bb.put(bytes)
+            }
+            bb.put(0.toByte()) // Fin de QNAME
+            bb.putShort(1.toShort()) // Type A
+            bb.putShort(1.toShort()) // Class IN
+
+            val queryLength = bb.position()
+            val destAddress = InetAddress.getByName(dnsIp)
+            val packet = DatagramPacket(query, queryLength, destAddress, 53)
+            socket.send(packet)
+
+            val respBuffer = ByteArray(1024)
+            val respPacket = DatagramPacket(respBuffer, respBuffer.size)
+            socket.receive(respPacket)
+
+            val resp = ByteBuffer.wrap(respBuffer, 0, respPacket.length)
+            if (resp.remaining() < 12) return emptyList()
+            resp.short // ID
+            val rFlags = resp.short.toInt() and 0xFFFF
+            val qdCount = resp.short.toInt() and 0xFFFF
+            val anCount = resp.short.toInt() and 0xFFFF
+
+            if ((rFlags and 0x000F) != 0 || anCount == 0) return emptyList()
+
+            for (i in 0 until qdCount) {
+                skipDnsName(resp)
+                if (resp.remaining() >= 4) {
+                    resp.position(resp.position() + 4)
+                }
+            }
+
+            val results = mutableListOf<InetAddress>()
+            for (i in 0 until anCount) {
+                if (resp.remaining() < 10) break
+                skipDnsName(resp)
+                val type = resp.short.toInt() and 0xFFFF
+                resp.short // clazz
+                resp.int   // ttl
+                val rdLength = resp.short.toInt() and 0xFFFF
+
+                if (type == 1 && rdLength == 4 && resp.remaining() >= 4) {
+                    val ipBytes = ByteArray(4)
+                    resp.get(ipBytes)
+                    results.add(InetAddress.getByAddress(ipBytes))
+                } else if (resp.remaining() >= rdLength) {
+                    resp.position(resp.position() + rdLength)
+                }
+            }
+            return results
+        } catch (e: Exception) {
+            return emptyList()
+        } finally {
+            try { socket.close() } catch (ignored: Exception) {}
+        }
+    }
+
+    private fun skipDnsName(bb: ByteBuffer) {
+        while (bb.hasRemaining()) {
+            val len = bb.get().toInt() and 0xFF
+            if (len == 0) break
+            if ((len and 0xC0) == 0xC0) {
+                if (bb.hasRemaining()) bb.get()
+                break
+            } else {
+                if (bb.remaining() >= len) {
+                    bb.position(bb.position() + len)
+                } else {
+                    break
+                }
+            }
+        }
+    }
+
+    /**
+     * Establece una conexión directa protegida hacia el host destino.
+     * Enlaza explícitamente el socket a la red física subyacente (WiFi / 5G)
+     * para garantizar paso libre a través de VpnService sin interferencias.
+     */
+    fun connectDirect(host: String, port: Int): Socket? {
+        val addresses = resolveHostSecurely(host)
+
+        if (addresses.isEmpty()) {
+            return try {
+                val s = Socket()
+                s.tcpNoDelay = true
+                s.soTimeout = 45_000
+                SamuVpnService.bindAndProtectSocket(s)
+                s.connect(InetSocketAddress(host, port), 4000)
+                s
+            } catch (e: Exception) {
+                null
+            }
+        }
+
+        for (addr in addresses) {
+            try {
+                val s = Socket()
+                s.tcpNoDelay = true
+                s.soTimeout = 45_000
+                SamuVpnService.bindAndProtectSocket(s)
+                s.connect(InetSocketAddress(addr, port), 3500)
+                return s
+            } catch (e: Exception) {
+                // Siguiente IP si falla
+            }
+        }
+        return null
+    }
+
     private val isRunning = AtomicBoolean(false)
     private var serverSocket: ServerSocket? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -92,6 +394,12 @@ object SamuSmartProxyServer {
 
     @Volatile
     var isTorReady: Boolean = false
+
+    @Volatile
+    var isWireGuardMode: Boolean = false
+
+    @Volatile
+    var underlyingNetwork: Network? = null
 
     @Synchronized
     fun start(port: Int = DEFAULT_PORT, socksPort: Int = TOR_SOCKS_PORT) {
@@ -132,6 +440,7 @@ object SamuSmartProxyServer {
         if (!isRunning.get()) return
         isRunning.set(false)
         isTorReady = false
+        isWireGuardMode = false
         acceptJob?.cancel()
         acceptJob = null
         try {
@@ -183,53 +492,64 @@ object SamuSmartProxyServer {
         // Consumir el resto de los headers hasta \r\n\r\n
         consumeHeaders(clientIn)
 
+        val isIpChecker = isIpCheckerHost(host)
+        val bypassTor = !isIpChecker && (isTorBlockedHost(host) || isWireGuardMode)
         var remoteSocket: Socket? = null
 
-        // 1. Bypass inteligente para servicios que bloquean activamente nodos Tor (Meta / Facebook / WhatsApp):
-        // Conectar directamente de forma protegida para garantizar 100% de navegación sin 403 ni reseteos TLS.
-        val bypassTor = isTorBlockedHost(host)
+        if (bypassTor) {
+            // Salida protegida directa para servicios esenciales incompatibles con Tor (WhatsApp/Meta/Streaming)
+            remoteSocket = connectDirect(host, port)
+        } else {
+            // Tráfico web general (Google Chrome, navegadores, IP checkers):
+            val socksPortToUse = if (TorService.socksPort > 0) TorService.socksPort else targetSocksPort
 
-        // 2. Solo intentar Tor si el host NO es de Meta y Tor ya ha verificado el túnel con salida real
-        if (!bypassTor && TorManager.isTunnelVerified) {
-            try {
-                // Timeout ágil de 1.800 ms: si Tor tarda o no responde, conmuta de inmediato al socket directo
-                remoteSocket = connectViaSocks5("127.0.0.1", targetSocksPort, host, port, 1800)
-            } catch (e: Exception) {
-                Log.w(TAG, "Tor SOCKS5 no disponible para $destination (${e.message}). Conmutando a salida protegida directa.")
-            }
-        }
-
-        // 2. Fallback de alta velocidad y conexión directa protegida
-        if (remoteSocket == null) {
-            try {
-                remoteSocket = Socket().apply {
-                    tcpNoDelay = true
-                    soTimeout = 45_000
-                    SamuVpnService.protectSocket(this)
-                    connect(InetSocketAddress(host, port), 4000)
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "No se pudo conectar a $destination: ${e.message}")
+            if (isTorReady || TorManager.isTunnelVerified || isPortOpen("127.0.0.1", socksPortToUse)) {
                 try {
-                    clientOut.write("HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n".toByteArray())
-                    clientOut.flush()
+                    remoteSocket = connectViaSocks5("127.0.0.1", socksPortToUse, host, port, 6000)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Tor SOCKS5 conectando a $destination (${e.message})")
+                }
+            }
+
+            // Para verificadores de IP: reintentar con SOCKS5 para evitar a toda costa fuga de IP local (ISP)
+            if (remoteSocket == null && isIpChecker) {
+                try {
+                    Thread.sleep(800)
+                    if (isPortOpen("127.0.0.1", socksPortToUse)) {
+                        remoteSocket = connectViaSocks5("127.0.0.1", socksPortToUse, host, port, 7000)
+                    }
                 } catch (ignored: Exception) {}
-                client.close()
-                return
+            }
+
+            // Fallback de conexión directa protegida SOLO para tráfico general si Tor no responde,
+            // pero NUNCA para verificadores de IP (garantizando Cero Fugas de ISP local)
+            if (remoteSocket == null && !isIpChecker) {
+                remoteSocket = connectDirect(host, port)
             }
         }
 
-        // 3. Responder al cliente: Túnel HTTPS establecido con éxito
-        try {
-            clientOut.write("HTTP/1.1 200 Connection Established\r\nProxy-Agent: SamuLibre-Gateway/2.00.4\r\n\r\n".toByteArray())
-            clientOut.flush()
-        } catch (e: Exception) {
+        if (remoteSocket == null) {
+            Log.e(TAG, "No se pudo conectar a $destination")
+            try {
+                val errMsg = "HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Type: text/plain\r\n\r\nSamuLibre: Circuito seguro en preparacion... reintentando..."
+                clientOut.write(errMsg.toByteArray())
+                clientOut.flush()
+            } catch (ignored: Exception) {}
             client.close()
-            remoteSocket.close()
             return
         }
 
-        // 4. Puente bidireccional transparente entre cliente y el nodo de salida
+        // Responder al cliente: Túnel HTTPS establecido con éxito
+        try {
+            clientOut.write("HTTP/1.1 200 Connection Established\r\nProxy-Agent: SamuLibre-Gateway/2.01.14\r\n\r\n".toByteArray())
+            clientOut.flush()
+        } catch (e: Exception) {
+            client.close()
+            try { remoteSocket.close() } catch (ignored: Exception) {}
+            return
+        }
+
+        // Puente bidireccional transparente entre cliente y el nodo de salida
         bridgeSockets(client, remoteSocket)
     }
 
@@ -239,33 +559,41 @@ object SamuSmartProxyServer {
         url: String,
         version: String
     ) {
-        // Para peticiones HTTP planas (no CONNECT)
         val uri = java.net.URI(if (url.startsWith("http")) url else "http://$url")
         val host = uri.host ?: url.substringBefore("/").substringBefore(":")
         val port = if (uri.port > 0) uri.port else 80
 
-        val bypassTor = isTorBlockedHost(host)
+        val isIpChecker = isIpCheckerHost(host)
+        val bypassTor = !isIpChecker && (isTorBlockedHost(host) || isWireGuardMode)
         var remoteSocket: Socket? = null
-        if (!bypassTor && TorManager.isTunnelVerified) {
-            try {
-                remoteSocket = connectViaSocks5("127.0.0.1", targetSocksPort, host, port, 1800)
-            } catch (e: Exception) {
-                // fallback
+
+        if (bypassTor) {
+            remoteSocket = connectDirect(host, port)
+        } else {
+            val socksPortToUse = if (TorService.socksPort > 0) TorService.socksPort else targetSocksPort
+            if (isTorReady || TorManager.isTunnelVerified || isPortOpen("127.0.0.1", socksPortToUse)) {
+                try {
+                    remoteSocket = connectViaSocks5("127.0.0.1", socksPortToUse, host, port, 6000)
+                } catch (e: Exception) {
+                    Log.w(TAG, "HTTP plano SOCKS5 conectando para $host: ${e.message}")
+                }
+            }
+            if (remoteSocket == null && isIpChecker) {
+                try {
+                    Thread.sleep(800)
+                    if (isPortOpen("127.0.0.1", socksPortToUse)) {
+                        remoteSocket = connectViaSocks5("127.0.0.1", socksPortToUse, host, port, 7000)
+                    }
+                } catch (ignored: Exception) {}
+            }
+            if (remoteSocket == null && !isIpChecker) {
+                remoteSocket = connectDirect(host, port)
             }
         }
 
         if (remoteSocket == null) {
-            try {
-                remoteSocket = Socket().apply {
-                    tcpNoDelay = true
-                    soTimeout = 45_000
-                    SamuVpnService.protectSocket(this)
-                    connect(InetSocketAddress(host, port), 4000)
-                }
-            } catch (e: Exception) {
-                try { client.close() } catch (ignored: Exception) {}
-                return
-            }
+            try { client.close() } catch (ignored: Exception) {}
+            return
         }
 
         try {
@@ -389,6 +717,7 @@ object SamuSmartProxyServer {
                 while (clientIn.read(buffer).also { len = it } != -1) {
                     remoteOut.write(buffer, 0, len)
                     remoteOut.flush()
+                    SamuVpnService.addBytesSent(len.toLong())
                 }
             } catch (ignored: Exception) {
             } finally {
@@ -403,6 +732,7 @@ object SamuSmartProxyServer {
                 while (remoteIn.read(buffer).also { len = it } != -1) {
                     clientOut.write(buffer, 0, len)
                     clientOut.flush()
+                    SamuVpnService.addBytesReceived(len.toLong())
                 }
             } catch (ignored: Exception) {
             } finally {

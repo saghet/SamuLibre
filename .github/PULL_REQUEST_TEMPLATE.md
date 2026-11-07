@@ -1,14 +1,17 @@
-## Description
-Briefly describe the purpose of this PR and what issues it addresses.
+## Descripción del Cambio
+Describe de forma clara y detallada qué problema soluciona este Pull Request o qué característica incorpora.
 
-## Type of Change
-- [ ] 🩹 New CVE Virtual Patch Rule
-- [ ] 🔍 YARA-X / Scanner Enhancement
-- [ ] 🐛 Bug Fix
-- [ ] 🚀 Performance Optimization (EcoQoS / Memory / CPU)
-- [ ] 📝 Documentation Update
+## Tipo de Cambio
+- [ ] Corrección de error (*bug fix* que no rompe compatibilidad).
+- [ ] Nueva funcionalidad (*feature* compatible con versiones anteriores).
+- [ ] Mejora de rendimiento (*performance enhancement*).
+- [ ] Cambio que rompe compatibilidad (*breaking change*).
+- [ ] Actualización de documentación o pruebas.
 
-## Quality Checklist
-- [ ] Ran `cargo fmt` to adhere to coding style.
-- [ ] Verified all workspace tests pass with `cargo test --workspace`.
-- [ ] Verified Zero-Telemetry: No external analytics or phone-home requests added.
+## Lista de Verificación (Checklist)
+- [ ] Mi código sigue las pautas de estilo de Rust (`cargo fmt` ejecutado).
+- [ ] He ejecutado `cargo clippy` sin advertencias críticas.
+- [ ] He ejecutado `cargo test --workspace` y todas las pruebas han pasado exitosamente.
+- [ ] He añadido pruebas automatizadas para validar mi cambio.
+- [ ] He actualizado la documentación correspondiente si aplica.
+- [ ] Confirmo que **NO** he incluido muestras de malware real en el repositorio.

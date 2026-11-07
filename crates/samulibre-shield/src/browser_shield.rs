@@ -54,7 +54,11 @@ pub fn resolve_locales_name(version_dir: &Path, raw_name: &str) -> String {
         if msg_file.exists() {
             if let Ok(content) = fs::read_to_string(&msg_file) {
                 if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-                    if let Some(msg) = json.get(key).and_then(|v| v.get("message")).and_then(|m| m.as_str()) {
+                    if let Some(msg) = json
+                        .get(key)
+                        .and_then(|v| v.get("message"))
+                        .and_then(|m| m.as_str())
+                    {
                         return msg.to_string();
                     }
                 }
@@ -69,7 +73,11 @@ pub fn resolve_locales_name(version_dir: &Path, raw_name: &str) -> String {
             if msg_file.exists() {
                 if let Ok(content) = fs::read_to_string(&msg_file) {
                     if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-                        if let Some(msg) = json.get(key).and_then(|v| v.get("message")).and_then(|m| m.as_str()) {
+                        if let Some(msg) = json
+                            .get(key)
+                            .and_then(|v| v.get("message"))
+                            .and_then(|m| m.as_str())
+                        {
                             return msg.to_string();
                         }
                     }
@@ -91,7 +99,10 @@ pub fn audit_extension_manifest(
     let content = fs::read_to_string(p).ok()?;
     let json: serde_json::Value = serde_json::from_str(&content).ok()?;
 
-    let raw_name = json["name"].as_str().unwrap_or("Unknown Extension").to_string();
+    let raw_name = json["name"]
+        .as_str()
+        .unwrap_or("Unknown Extension")
+        .to_string();
     let version_dir = p.parent()?;
     let ext_dir = version_dir.parent()?;
     let id = ext_dir.file_name()?.to_string_lossy().to_string();
@@ -123,10 +134,18 @@ pub fn audit_extension_manifest(
     }
 
     // Análisis heurístico del nivel de riesgo
-    let has_all_urls = risky_permissions.iter().any(|p| p == "<all_urls>" || p == "*://*/*")
-        || host_permissions.iter().any(|h| h == "<all_urls>" || h == "*://*/*");
-    let has_cookies = risky_permissions.iter().any(|p| p.eq_ignore_ascii_case("cookies"));
-    let has_native_messaging = risky_permissions.iter().any(|p| p.eq_ignore_ascii_case("nativeMessaging"));
+    let has_all_urls = risky_permissions
+        .iter()
+        .any(|p| p == "<all_urls>" || p == "*://*/*")
+        || host_permissions
+            .iter()
+            .any(|h| h == "<all_urls>" || h == "*://*/*");
+    let has_cookies = risky_permissions
+        .iter()
+        .any(|p| p.eq_ignore_ascii_case("cookies"));
+    let has_native_messaging = risky_permissions
+        .iter()
+        .any(|p| p.eq_ignore_ascii_case("nativeMessaging"));
 
     let (is_suspicious, risk_level, risk_summary) = if has_cookies && has_native_messaging {
         (
@@ -151,7 +170,10 @@ pub fn audit_extension_manifest(
         (
             false,
             "Media".to_string(),
-            Some(format!("Extensión con permisos estándar ({})", risky_permissions.join(", "))),
+            Some(format!(
+                "Extensión con permisos estándar ({})",
+                risky_permissions.join(", ")
+            )),
         )
     } else {
         (false, "Inocua".to_string(), None)
@@ -220,7 +242,8 @@ pub fn remove_browser_extension(browser: &str, profile: &str, ext_id: &str) -> R
         }
     }
 
-    let ext_dir = ext_dir_opt.ok_or_else(|| anyhow::anyhow!("No se encontró la carpeta de la extensión '{}'", ext_id))?;
+    let ext_dir = ext_dir_opt
+        .ok_or_else(|| anyhow::anyhow!("No se encontró la carpeta de la extensión '{}'", ext_id))?;
 
     // 1. Borrado físico del directorio de la extensión
     fs::remove_dir_all(&ext_dir)?;
@@ -231,7 +254,10 @@ pub fn remove_browser_extension(browser: &str, profile: &str, ext_id: &str) -> R
         if prefs_file.exists() {
             if let Ok(content) = fs::read_to_string(&prefs_file) {
                 if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&content) {
-                    if let Some(extensions) = json.get_mut("extensions").and_then(|e| e.get_mut("settings")) {
+                    if let Some(extensions) = json
+                        .get_mut("extensions")
+                        .and_then(|e| e.get_mut("settings"))
+                    {
                         if let Some(map) = extensions.as_object_mut() {
                             map.remove(ext_id);
                             if let Ok(updated) = serde_json::to_string(&json) {
@@ -266,7 +292,10 @@ pub fn remove_browser_extension(browser: &str, profile: &str, ext_id: &str) -> R
         }
     }
 
-    Ok(format!("Extensión '{}' eliminada con éxito de {} ({})", ext_id, browser, profile))
+    Ok(format!(
+        "Extensión '{}' eliminada con éxito de {} ({})",
+        ext_id, browser, profile
+    ))
 }
 
 /// Detecta si un proceso ajeno a los navegadores web está intentando acceder a los almacenes de cookies o contraseñas

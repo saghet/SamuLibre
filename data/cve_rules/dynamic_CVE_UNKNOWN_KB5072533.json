@@ -1,0 +1,22 @@
+{
+  "id": "VP-AI-CVE_UNKNOWN_KB5072533",
+  "cve": "CVE-UNKNOWN-KB5072533",
+  "title": "[IA Patch] Actualización de Seguridad de Windows (KB5072533)",
+  "description": "Mitigación virtual preventiva sintetizada por IA local para KB5072533: Boletín de seguridad analizado para KB5072533. Se estableció un centinela conductual preventivo mientras se completa la instalación oficial.",
+  "severity": "Low",
+  "target_component": "Windows Subsystem Generic",
+  "required_kb": [
+    "KB5072533"
+  ],
+  "strategy": {
+    "BehavioralBlock": {
+      "target_process": "powershell.exe",
+      "forbidden_call": "-enc *KB5072533"
+    }
+  },
+  "status": "Unmitigated",
+  "detected_at": "2026-11-04T00:23:38.432736Z",
+  "patched_at": null,
+  "unpatched_at": null,
+  "status_reason": "Generado por IA local (SamuLibre-CyberGuard-NeuroSymbolic-SLM) con confianza 85.0%"
+}

@@ -21,6 +21,12 @@ class BootReceiver : BroadcastReceiver() {
         if (action == Intent.ACTION_BOOT_COMPLETED || action == Intent.ACTION_MY_PACKAGE_REPLACED) {
             Log.i(TAG, "Evento de sistema recibido ($action): activando Cyber-Shield permanente")
             try {
+                SamuScanScheduler.checkAndRunIfDue(context)
+                SamuScanScheduler.scheduleNextScan(context, forceReset = false)
+            } catch (t: Throwable) {
+                Log.w(TAG, "No se pudo sincronizar SamuScanScheduler tras arranque: ${t.message}")
+            }
+            try {
                 val serviceIntent = Intent(context, SamuVpnService::class.java).apply {
                     this.action = SamuVpnService.ACTION_START_SHIELD
                 }

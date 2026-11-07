@@ -88,7 +88,10 @@ impl EndpointShield {
         let dir = canary_dir.as_ref().to_path_buf();
         let _ = fs::create_dir_all(&dir);
 
-        let data_root = dir.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| dir.clone());
+        let data_root = dir
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| dir.clone());
         let closed_ports_file = data_root.join("closed_ports.json");
         let closed_ports: HashSet<u16> = fs::read_to_string(&closed_ports_file)
             .ok()
@@ -150,7 +153,9 @@ impl EndpointShield {
     /// Despliega señuelos honey-tokens en el directorio de canarios
     pub fn deploy_credential_honey_tokens(&mut self) -> Result<usize> {
         let honey_dir = self.canary_directory.join("honey_credentials");
-        self.credential_shield.deploy_honey_tokens(&honey_dir).map_err(|e| anyhow::anyhow!(e))
+        self.credential_shield
+            .deploy_honey_tokens(&honey_dir)
+            .map_err(|e| anyhow::anyhow!(e))
     }
 
     /// Verifica si algún señuelo honey-token fue accedido o modificado
@@ -181,10 +186,22 @@ impl EndpointShield {
     /// Despliega archivos señuelo con nombres atractivos para atraer al ransomware
     pub fn deploy_canaries(&mut self) -> Result<usize> {
         let decoy_names = [
-            ("claves_bancarias_2026.xlsx", "CANARY_TOKEN_EXCEL_FINANCE_CONFIDENTIAL_SAMULIBRE"),
-            ("declaracion_renta_privada.docx", "CANARY_TOKEN_TAX_RETURN_DOCUMENT_ENCRYPTION_BAIT"),
-            ("passwords_backup_vault.txt", "CANARY_TOKEN_CREDENTIALS_TRIPWIRE_ALERT_IMMEDIATE"),
-            ("recuperacion_billetera_crypto.key", "CANARY_TOKEN_PRIVATE_KEY_SECURE_VAULT_DONOTTOUCH"),
+            (
+                "claves_bancarias_2026.xlsx",
+                "CANARY_TOKEN_EXCEL_FINANCE_CONFIDENTIAL_SAMULIBRE",
+            ),
+            (
+                "declaracion_renta_privada.docx",
+                "CANARY_TOKEN_TAX_RETURN_DOCUMENT_ENCRYPTION_BAIT",
+            ),
+            (
+                "passwords_backup_vault.txt",
+                "CANARY_TOKEN_CREDENTIALS_TRIPWIRE_ALERT_IMMEDIATE",
+            ),
+            (
+                "recuperacion_billetera_crypto.key",
+                "CANARY_TOKEN_PRIVATE_KEY_SECURE_VAULT_DONOTTOUCH",
+            ),
         ];
 
         let mut count = 0;
@@ -209,7 +226,10 @@ impl EndpointShield {
             count += 1;
         }
 
-        info!("Se desplegaron {} archivos canario señuelo en {:?}", count, self.canary_directory);
+        info!(
+            "Se desplegaron {} archivos canario señuelo en {:?}",
+            count, self.canary_directory
+        );
         Ok(count)
     }
 
@@ -280,12 +300,32 @@ impl EndpointShield {
         let mut alerts = Vec::new();
 
         let suspicious_tools = [
-            "mimikatz", "procdump", "nanodump", "dumpert", "pwdump", "pypykatz", "lazagne", "safetykatz",
-            "mimipenguin", "linpeas", "chrootkit", "rkhunter", "gcore"
+            "mimikatz",
+            "procdump",
+            "nanodump",
+            "dumpert",
+            "pwdump",
+            "pypykatz",
+            "lazagne",
+            "safetykatz",
+            "mimipenguin",
+            "linpeas",
+            "chrootkit",
+            "rkhunter",
+            "gcore",
         ];
         let stealer_keywords = [
-            "login data", "cookies.sqlite", "discord\\tokens", "wallet.dat", "web data", "exodus", "atomic",
-            "id_rsa", "id_ed25519", "/etc/shadow", ".config/discord"
+            "login data",
+            "cookies.sqlite",
+            "discord\\tokens",
+            "wallet.dat",
+            "web data",
+            "exodus",
+            "atomic",
+            "id_rsa",
+            "id_ed25519",
+            "/etc/shadow",
+            ".config/discord",
         ];
 
         for (pid, process) in self.system.processes() {
@@ -303,8 +343,10 @@ impl EndpointShield {
             // 1. Detección LSASS / Volcado de memoria en Linux (si está habilitada la protección)
             if self.lsass_protection_enabled {
                 let matches_tool = suspicious_tools.iter().any(|tool| proc_name.contains(tool));
-                let is_comsvcs_minidump = cmd_line.contains("comsvcs.dll") && (cmd_line.contains("minidump") || cmd_line.contains("#24"));
-                let is_lsass_dump_cmd = cmd_line.contains("lsass") && (cmd_line.contains("dump") || cmd_line.contains("-ma"));
+                let is_comsvcs_minidump = cmd_line.contains("comsvcs.dll")
+                    && (cmd_line.contains("minidump") || cmd_line.contains("#24"));
+                let is_lsass_dump_cmd = cmd_line.contains("lsass")
+                    && (cmd_line.contains("dump") || cmd_line.contains("-ma"));
                 let is_linux_mem_dump = (cmd_line.contains("/proc/") && cmd_line.contains("/mem"))
                     || cmd_line.contains("/dev/mem")
                     || cmd_line.contains("gcore ");
@@ -334,13 +376,20 @@ impl EndpointShield {
 
             // 2. Detección InfoStealer (si está habilitado el escudo de cookies y credenciales)
             if self.cookie_shield_enabled {
-                let is_legit_browser = proc_name == "chrome.exe" || proc_name == "chrome" || proc_name == "google-chrome"
-                    || proc_name == "msedge.exe" || proc_name == "firefox.exe" || proc_name == "firefox"
-                    || proc_name == "brave.exe" || proc_name == "brave" || proc_name == "chromium"
+                let is_legit_browser = proc_name == "chrome.exe"
+                    || proc_name == "chrome"
+                    || proc_name == "google-chrome"
+                    || proc_name == "msedge.exe"
+                    || proc_name == "firefox.exe"
+                    || proc_name == "firefox"
+                    || proc_name == "brave.exe"
+                    || proc_name == "brave"
+                    || proc_name == "chromium"
                     || proc_name == "chromium-browser";
 
                 if !is_legit_browser {
-                    let matches_stealer_action = stealer_keywords.iter().any(|k| cmd_line.contains(k));
+                    let matches_stealer_action =
+                        stealer_keywords.iter().any(|k| cmd_line.contains(k));
                     if matches_stealer_action {
                         warn!("Detectado intento de robo de tokens/cookies: PID {} ({}). Ejecutando terminación EDR.", pid_u32, proc_name);
                         let _ = process.kill();
@@ -361,10 +410,17 @@ impl EndpointShield {
             }
 
             // 3. Detección EDR Anti-Ransomware y Comandos Destructivos de Sistema (MITRE T1490)
-            let is_ransomware_destruction = (cmd_line.contains("vssadmin") && (cmd_line.contains("delete") || cmd_line.contains("shadow")))
-                || (cmd_line.contains("wmic") && cmd_line.contains("shadowcopy") && cmd_line.contains("delete"))
-                || (cmd_line.contains("bcdedit") && cmd_line.contains("recoveryenabled") && cmd_line.contains("no"))
-                || (cmd_line.contains("wbadmin") && cmd_line.contains("delete") && (cmd_line.contains("catalog") || cmd_line.contains("systemstatebackup")));
+            let is_ransomware_destruction = (cmd_line.contains("vssadmin")
+                && (cmd_line.contains("delete") || cmd_line.contains("shadow")))
+                || (cmd_line.contains("wmic")
+                    && cmd_line.contains("shadowcopy")
+                    && cmd_line.contains("delete"))
+                || (cmd_line.contains("bcdedit")
+                    && cmd_line.contains("recoveryenabled")
+                    && cmd_line.contains("no"))
+                || (cmd_line.contains("wbadmin")
+                    && cmd_line.contains("delete")
+                    && (cmd_line.contains("catalog") || cmd_line.contains("systemstatebackup")));
 
             if is_ransomware_destruction {
                 warn!("Detectado comando destructivo de Ransomware: PID {} ({}). Ejecutando terminación inmediata EDR.", pid_u32, proc_name);
@@ -384,21 +440,37 @@ impl EndpointShield {
             }
 
             // 4. Detección de Procesos Huérfanos / LOLBins con Ofuscación (MITRE T1059)
-            let is_lolbin = ["powershell.exe", "cmd.exe", "wscript.exe", "cscript.exe", "mshta.exe", "certutil.exe"]
-                .iter()
-                .any(|bin| proc_name == *bin);
+            let is_lolbin = [
+                "powershell.exe",
+                "cmd.exe",
+                "wscript.exe",
+                "cscript.exe",
+                "mshta.exe",
+                "certutil.exe",
+            ]
+            .iter()
+            .any(|bin| proc_name == *bin);
 
             if is_lolbin {
                 if let Some(parent_pid) = process.parent() {
                     if let Some(parent_proc) = self.system.process(parent_pid) {
                         let parent_name = parent_proc.name().to_string_lossy().to_lowercase();
-                        let is_office_or_browser = ["winword.exe", "excel.exe", "powerpnt.exe", "outlook.exe", "msedge.exe", "chrome.exe", "firefox.exe", "brave.exe"]
-                            .iter()
-                            .any(|p| parent_name == *p);
+                        let is_office_or_browser = [
+                            "winword.exe",
+                            "excel.exe",
+                            "powerpnt.exe",
+                            "outlook.exe",
+                            "msedge.exe",
+                            "chrome.exe",
+                            "firefox.exe",
+                            "brave.exe",
+                        ]
+                        .iter()
+                        .any(|p| parent_name == *p);
 
-                        let has_evasion_args = cmd_line.contains("-enc") 
+                        let has_evasion_args = cmd_line.contains("-enc")
                             || cmd_line.contains("-encodedcommand")
-                            || cmd_line.contains("-w hidden") 
+                            || cmd_line.contains("-w hidden")
                             || cmd_line.contains("downloadstring")
                             || cmd_line.contains("iex")
                             || cmd_line.contains("urlcache");
@@ -507,7 +579,11 @@ impl EndpointShield {
 
         for path in canary_keys {
             if let Some(canary) = self.canaries.get(&path) {
-                let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                let name = path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
                 let icon = icon_for_name(&name).to_string();
                 let display_path = path.to_string_lossy().to_string();
 
@@ -525,10 +601,12 @@ impl EndpointShield {
                     }
                     Ok(meta) => {
                         let current_len = meta.len();
-                        let current_mtime = meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+                        let current_mtime =
+                            meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
 
                         // Fast-path: si mtime y longitud coinciden, está íntegro sin leer de disco
-                        if current_len == canary.size_bytes && current_mtime == canary.modified_time {
+                        if current_len == canary.size_bytes && current_mtime == canary.modified_time
+                        {
                             intact_count += 1;
                             items.push(CanaryStatusItem {
                                 name,
@@ -548,7 +626,11 @@ impl EndpointShield {
                                 name,
                                 path: display_path,
                                 is_intact,
-                                status_text: if is_intact { "Íntegro".to_string() } else { "¡Trampa Activada!".to_string() },
+                                status_text: if is_intact {
+                                    "Íntegro".to_string()
+                                } else {
+                                    "¡Trampa Activada!".to_string()
+                                },
                                 icon,
                                 original_hash: canary.original_sha256.clone(),
                                 current_hash: Some(current_hash),
@@ -625,11 +707,26 @@ impl EndpointShield {
         {
             // 1. Claves Run, RunOnce y Winlogon de Registro
             let reg_targets = [
-                ("HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", PersistenceType::RegistryRun),
-                ("HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", PersistenceType::RegistryRun),
-                ("HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce", PersistenceType::RegistryRun),
-                ("HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce", PersistenceType::RegistryRun),
-                ("HKLM\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon", PersistenceType::RegistryWinlogon),
+                (
+                    "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+                    PersistenceType::RegistryRun,
+                ),
+                (
+                    "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+                    PersistenceType::RegistryRun,
+                ),
+                (
+                    "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce",
+                    PersistenceType::RegistryRun,
+                ),
+                (
+                    "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce",
+                    PersistenceType::RegistryRun,
+                ),
+                (
+                    "HKLM\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon",
+                    PersistenceType::RegistryWinlogon,
+                ),
             ];
 
             for (reg_key, p_type) in reg_targets {
@@ -644,18 +741,26 @@ impl EndpointShield {
                             if parts.len() >= 3 && !line.trim().starts_with("HKEY_") {
                                 let name = parts[0];
                                 let val_type = parts[1];
-                                if val_type.contains("REG_SZ") || val_type.contains("REG_EXPAND_SZ") {
+                                if val_type.contains("REG_SZ") || val_type.contains("REG_EXPAND_SZ")
+                                {
                                     let lower_name = name.to_lowercase();
 
                                     // Si es Winlogon, filtrar exclusivamente los puntos de ejecución de binarios
                                     if p_type == PersistenceType::RegistryWinlogon {
-                                        if !["shell", "userinit", "taskman", "appsetup", "vmapplet"].contains(&lower_name.as_str()) {
+                                        if !["shell", "userinit", "taskman", "appsetup", "vmapplet"]
+                                            .contains(&lower_name.as_str())
+                                        {
                                             continue;
                                         }
                                     }
 
                                     let raw_path = parts[2..].join(" ");
-                                    let clean_target = raw_path.trim_matches('"').split_whitespace().next().unwrap_or("").to_string();
+                                    let clean_target = raw_path
+                                        .trim_matches('"')
+                                        .split_whitespace()
+                                        .next()
+                                        .unwrap_or("")
+                                        .to_string();
                                     let args = if raw_path.len() > clean_target.len() {
                                         Some(raw_path[clean_target.len()..].trim().to_string())
                                     } else {
@@ -663,8 +768,13 @@ impl EndpointShield {
                                     };
 
                                     let hash = Self::calculate_file_hash(&clean_target);
-                                    let lower_clean = clean_target.to_lowercase().replace('/', "\\");
-                                    let file_name = Path::new(&clean_target).file_name().unwrap_or_default().to_string_lossy().to_lowercase();
+                                    let lower_clean =
+                                        clean_target.to_lowercase().replace('/', "\\");
+                                    let file_name = Path::new(&clean_target)
+                                        .file_name()
+                                        .unwrap_or_default()
+                                        .to_string_lossy()
+                                        .to_lowercase();
 
                                     // Detección precisa de carpetas temporales volátiles (evitando colisiones ortográficas)
                                     let is_in_temp = lower_clean.contains("\\temp\\")
@@ -672,10 +782,15 @@ impl EndpointShield {
                                         || lower_clean.contains("\\appdata\\local\\temp\\")
                                         || lower_clean.contains("c:\\windows\\temp\\");
 
-                                    let is_in_appdata_roaming = lower_clean.contains("\\appdata\\roaming\\") && !lower_clean.contains("\\microsoft\\");
-                                    let has_suspicious_args = raw_path.to_lowercase().contains("-enc")
-                                        || raw_path.to_lowercase().contains("-encodedcommand")
-                                        || raw_path.to_lowercase().contains("bypass -nop -w hidden");
+                                    let is_in_appdata_roaming = lower_clean
+                                        .contains("\\appdata\\roaming\\")
+                                        && !lower_clean.contains("\\microsoft\\");
+                                    let has_suspicious_args =
+                                        raw_path.to_lowercase().contains("-enc")
+                                            || raw_path.to_lowercase().contains("-encodedcommand")
+                                            || raw_path
+                                                .to_lowercase()
+                                                .contains("bypass -nop -w hidden");
 
                                     // Allowlist de ejecutables del sistema legítimos de Windows
                                     let is_legit_win_app = [
@@ -685,7 +800,8 @@ impl EndpointShield {
                                         "systempropertiesremote.exe",
                                         "userinit.exe",
                                         "explorer.exe",
-                                    ].contains(&file_name.as_str());
+                                    ]
+                                    .contains(&file_name.as_str());
 
                                     let mut status = FileScanStatus::Clean;
                                     let mut detection_details: Option<String> = None;
@@ -702,10 +818,17 @@ impl EndpointShield {
                                         } else if lower_name == "userinit" {
                                             if !lower_clean.contains("userinit.exe") {
                                                 status = FileScanStatus::Infected;
-                                                detection_details = Some("Secuestro de Userinit de Winlogon detectado".to_string());
+                                                detection_details = Some(
+                                                    "Secuestro de Userinit de Winlogon detectado"
+                                                        .to_string(),
+                                                );
                                             }
                                         }
-                                    } else if !is_legit_win_app && (is_in_temp || is_in_appdata_roaming || has_suspicious_args) {
+                                    } else if !is_legit_win_app
+                                        && (is_in_temp
+                                            || is_in_appdata_roaming
+                                            || has_suspicious_args)
+                                    {
                                         status = FileScanStatus::Suspicious;
                                         detection_details = Some("Ejecutable alojado en carpeta volátil o con sintaxis de comando evasiva".to_string());
                                     }
@@ -739,7 +862,8 @@ impl EndpointShield {
             }
             if let Ok(programdata) = std::env::var("ProgramData") {
                 startup_dirs.push((
-                    PathBuf::from(programdata).join(r"Microsoft\Windows\Start Menu\Programs\Startup"),
+                    PathBuf::from(programdata)
+                        .join(r"Microsoft\Windows\Start Menu\Programs\Startup"),
                     "Carpeta de Inicio Global (Todos los Usuarios)".to_string(),
                 ));
             } else {
@@ -754,7 +878,11 @@ impl EndpointShield {
                     for entry in read_dir.flatten() {
                         let path = entry.path();
                         if path.is_file() {
-                            let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                            let name = path
+                                .file_name()
+                                .unwrap_or_default()
+                                .to_string_lossy()
+                                .to_string();
                             let lower_name = name.to_lowercase();
                             if lower_name == "desktop.ini" {
                                 continue;
@@ -789,11 +917,14 @@ impl EndpointShield {
                         let parts: Vec<&str> = line.split(',').collect();
                         if parts.len() >= 2 {
                             let task_name = parts[0].trim_matches('"');
-                            if !task_name.starts_with("\\Microsoft\\Windows") && !task_name.is_empty() {
+                            if !task_name.starts_with("\\Microsoft\\Windows")
+                                && !task_name.is_empty()
+                            {
                                 entries.push(PersistenceEntry {
                                     id: format!("TASK_{}", task_name.replace('\\', "_")),
                                     name: task_name.to_string(),
-                                    target_path: "Programador de Tareas de Windows (schtasks)".to_string(),
+                                    target_path: "Programador de Tareas de Windows (schtasks)"
+                                        .to_string(),
                                     arguments: None,
                                     entry_type: PersistenceType::ScheduledTask,
                                     location: task_name.to_string(),
@@ -809,9 +940,19 @@ impl EndpointShield {
             }
 
             // 4. Secuestro de Depurador IFEO (Image File Execution Options - MITRE T1546.012)
-            let ifeo_targets = ["sethc.exe", "utilman.exe", "osk.exe", "magnify.exe", "narrator.exe", "taskmgr.exe"];
+            let ifeo_targets = [
+                "sethc.exe",
+                "utilman.exe",
+                "osk.exe",
+                "magnify.exe",
+                "narrator.exe",
+                "taskmgr.exe",
+            ];
             for ifeo_exe in ifeo_targets {
-                let ifeo_key = format!(r"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\{}", ifeo_exe);
+                let ifeo_key = format!(
+                    r"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\{}",
+                    ifeo_exe
+                );
                 let mut cmd = Command::new("reg");
                 cmd.args(["query", &ifeo_key, "/v", "Debugger"]);
                 cmd.creation_flags(CREATE_NO_WINDOW);
@@ -854,7 +995,9 @@ impl EndpointShield {
                 is_enabled: true,
                 sha256: None,
                 status: FileScanStatus::Clean,
-                detection_details: Some("Línea base del sistema protegida y verificada".to_string()),
+                detection_details: Some(
+                    "Línea base del sistema protegida y verificada".to_string(),
+                ),
             });
         }
 
@@ -888,12 +1031,22 @@ impl EndpointShield {
                             let pid_str = parts[4];
 
                             if let Ok(pid_u32) = pid_str.parse::<u32>() {
-                                let local_port = local.rsplit(':').next().and_then(|p| p.parse::<u16>().ok()).unwrap_or(0);
-                                let remote_port = remote.rsplit(':').next().and_then(|p| p.parse::<u16>().ok()).unwrap_or(0);
+                                let local_port = local
+                                    .rsplit(':')
+                                    .next()
+                                    .and_then(|p| p.parse::<u16>().ok())
+                                    .unwrap_or(0);
+                                let remote_port = remote
+                                    .rsplit(':')
+                                    .next()
+                                    .and_then(|p| p.parse::<u16>().ok())
+                                    .unwrap_or(0);
 
                                 let (proc_name, proc_path) = if pid_u32 == 4 {
                                     ("System".to_string(), None)
-                                } else if let Some(proc) = self.system.process(Pid::from_u32(pid_u32)) {
+                                } else if let Some(proc) =
+                                    self.system.process(Pid::from_u32(pid_u32))
+                                {
                                     (
                                         proc.name().to_string_lossy().to_string(),
                                         proc.exe().map(|p| p.to_string_lossy().to_string()),
@@ -902,9 +1055,22 @@ impl EndpointShield {
                                     ("Sistema / Inactivo".to_string(), None)
                                 };
 
-                                let is_risk = matches!(local_port, 135 | 139 | 445 | 3389 | 5985 | 5986 | 4444 | 1337 | 8888 | 21 | 23);
+                                let is_risk = matches!(
+                                    local_port,
+                                    135 | 139
+                                        | 445
+                                        | 3389
+                                        | 5985
+                                        | 5986
+                                        | 4444
+                                        | 1337
+                                        | 8888
+                                        | 21
+                                        | 23
+                                );
                                 let is_isolated = self.closed_ports.contains(&local_port)
-                                    || (remote_port > 0 && self.closed_ports.contains(&remote_port))
+                                    || (remote_port > 0
+                                        && self.closed_ports.contains(&remote_port))
                                     || self.isolated_pids.contains(&pid_u32);
 
                                 sockets.push(NetworkSocketInfo {
@@ -986,7 +1152,13 @@ impl EndpointShield {
             // Limpiar reglas previas para evitar duplicados
             for r in [&rule_tcp_in, &rule_tcp_out, &rule_udp_in, &rule_udp_out] {
                 let mut del_cmd = Command::new("netsh");
-                del_cmd.args(["advfirewall", "firewall", "delete", "rule", &format!("name={}", r)]);
+                del_cmd.args([
+                    "advfirewall",
+                    "firewall",
+                    "delete",
+                    "rule",
+                    &format!("name={}", r),
+                ]);
                 del_cmd.creation_flags(CREATE_NO_WINDOW);
                 let _ = del_cmd.output();
             }
@@ -1001,7 +1173,10 @@ impl EndpointShield {
                 ] {
                     let mut add_cmd = Command::new("netsh");
                     add_cmd.args([
-                        "advfirewall", "firewall", "add", "rule",
+                        "advfirewall",
+                        "firewall",
+                        "add",
+                        "rule",
                         &format!("name={}", r_name),
                         dir,
                         "action=block",
@@ -1026,7 +1201,10 @@ impl EndpointShield {
         #[cfg(not(target_os = "windows"))]
         {
             if close {
-                Ok(format!("🛡️ Puerto {} cerrado y blindado en el registro de seguridad.", port))
+                Ok(format!(
+                    "🛡️ Puerto {} cerrado y blindado en el registro de seguridad.",
+                    port
+                ))
             } else {
                 Ok(format!("🔓 Puerto {} reabierto.", port))
             }
@@ -1095,7 +1273,10 @@ impl EndpointShield {
                     if !path.to_lowercase().ends_with("svchost.exe") {
                         let mut cmd = Command::new("netsh");
                         cmd.args([
-                            "advfirewall", "firewall", "add", "rule",
+                            "advfirewall",
+                            "firewall",
+                            "add",
+                            "rule",
                             &format!("name={}", rule_name),
                             "dir=out",
                             "action=block",
@@ -1112,7 +1293,10 @@ impl EndpointShield {
             } else {
                 let mut cmd = Command::new("netsh");
                 cmd.args([
-                    "advfirewall", "firewall", "delete", "rule",
+                    "advfirewall",
+                    "firewall",
+                    "delete",
+                    "rule",
                     &format!("name={}", rule_name),
                 ]);
                 cmd.creation_flags(CREATE_NO_WINDOW);
@@ -1122,7 +1306,10 @@ impl EndpointShield {
         }
 
         #[cfg(not(target_os = "windows"))]
-        Ok(format!("Acción de aislamiento ejecutada para PID {} (isolate={})", pid, isolate))
+        Ok(format!(
+            "Acción de aislamiento ejecutada para PID {} (isolate={})",
+            pid, isolate
+        ))
     }
 
     fn calculate_file_hash(path_str: &str) -> Option<String> {
@@ -1133,7 +1320,9 @@ impl EndpointShield {
                 let mut hasher = Sha256::new();
                 let mut buffer = [0u8; 16384];
                 while let Ok(n) = f.read(&mut buffer) {
-                    if n == 0 { break; }
+                    if n == 0 {
+                        break;
+                    }
                     hasher.update(&buffer[..n]);
                 }
                 return Some(hex::encode(hasher.finalize()));
@@ -1151,19 +1340,36 @@ impl EndpointShield {
         }
 
         let version = packet_bytes[0] >> 4;
-        if version != 4 {
-            // Permitir tráfico IPv6 no malformado por defecto si no es IPv4
+        let (ihl, protocol, src_ip, dst_ip) = if version == 4 {
+            let ihl = (packet_bytes[0] & 0x0F) as usize * 4;
+            if packet_bytes.len() < ihl || packet_bytes.len() < 20 {
+                return TunPacketAction::Accept;
+            }
+            let protocol = packet_bytes[9];
+            let src_ip = format!(
+                "{}.{}.{}.{}",
+                packet_bytes[12], packet_bytes[13], packet_bytes[14], packet_bytes[15]
+            );
+            let dst_ip = format!(
+                "{}.{}.{}.{}",
+                packet_bytes[16], packet_bytes[17], packet_bytes[18], packet_bytes[19]
+            );
+            (ihl, protocol, src_ip, dst_ip)
+        } else if version == 6 {
+            if packet_bytes.len() < 40 {
+                return TunPacketAction::Accept;
+            }
+            let ihl = 40;
+            let protocol = packet_bytes[6];
+            (
+                ihl,
+                protocol,
+                "IPv6-Source".to_string(),
+                "IPv6-Destination".to_string(),
+            )
+        } else {
             return TunPacketAction::Accept;
-        }
-
-        let ihl = (packet_bytes[0] & 0x0F) as usize * 4;
-        if packet_bytes.len() < ihl {
-            return TunPacketAction::Accept;
-        }
-
-        let protocol = packet_bytes[9];
-        let src_ip = format!("{}.{}.{}.{}", packet_bytes[12], packet_bytes[13], packet_bytes[14], packet_bytes[15]);
-        let dst_ip = format!("{}.{}.{}.{}", packet_bytes[16], packet_bytes[17], packet_bytes[18], packet_bytes[19]);
+        };
 
         // Protocolo TCP (6) o UDP (17)
         if protocol == 6 || protocol == 17 {
@@ -1173,10 +1379,22 @@ impl EndpointShield {
 
                 // 1. Bloqueo de puertos vulnerables o cerrados por el usuario / regla ASB
                 let risk_ports = [5555, 8080, 9000]; // 5555 = ADB inalámbrico expuesto
-                if self.closed_ports.contains(&dst_port) || self.closed_ports.contains(&src_port) || risk_ports.contains(&dst_port) {
-                    let blocked_port = if risk_ports.contains(&dst_port) || self.closed_ports.contains(&dst_port) { dst_port } else { src_port };
+                if self.closed_ports.contains(&dst_port)
+                    || self.closed_ports.contains(&src_port)
+                    || risk_ports.contains(&dst_port)
+                {
+                    let blocked_port = if risk_ports.contains(&dst_port)
+                        || self.closed_ports.contains(&dst_port)
+                    {
+                        dst_port
+                    } else {
+                        src_port
+                    };
                     return TunPacketAction::Drop {
-                        reason: format!("Conexión hacia o desde puerto vulnerable bloqueada por SamuLibre: {}", blocked_port),
+                        reason: format!(
+                            "Conexión hacia o desde puerto vulnerable bloqueada por SamuLibre: {}",
+                            blocked_port
+                        ),
                         rule_id: "VP-TUN-PORT-DEFENSE".to_string(),
                         src_ip,
                         dst_ip,
@@ -1194,6 +1412,14 @@ impl EndpointShield {
                             "c2-banker",
                             "teabot",
                             "sharkbot",
+                            "anatsa",
+                            "flubot",
+                            "hydrabot",
+                            "ermac",
+                            "godfather",
+                            "hookbot",
+                            "blackrock",
+                            "octobot",
                             "duckdns.org",
                             "ngrok-free.app",
                             "ngrok.io",
@@ -1212,6 +1438,19 @@ impl EndpointShield {
                             }
                         }
                     }
+                }
+
+                // 3. Mitigación de Fuga QUIC (UDP 443) para forzar degradación transparente a TCP HTTPS (RFC 9000)
+                if protocol == 17 && (dst_port == 443 || src_port == 443) {
+                    return TunPacketAction::Drop {
+                        reason:
+                            "Mitigación de fuga QUIC (UDP 443). Degradación segura hacia TCP HTTPS"
+                                .to_string(),
+                        rule_id: "VP-TUN-ANTI-LEAK-QUIC".to_string(),
+                        src_ip,
+                        dst_ip,
+                        port: 443,
+                    };
                 }
             }
         }
@@ -1276,7 +1515,8 @@ impl EndpointShield {
             // Detección de Sideloading (instaladas fuera de tiendas oficiales)
             let is_sideloaded = pkg.installer_package_name.is_none()
                 || pkg.installer_package_name.as_deref() == Some("com.android.packageinstaller")
-                || pkg.installer_package_name.as_deref() == Some("com.google.android.packageinstaller");
+                || pkg.installer_package_name.as_deref()
+                    == Some("com.google.android.packageinstaller");
 
             if is_sideloaded && !pkg.is_system_app {
                 alerts.push(ThreatAlert {
@@ -1315,7 +1555,8 @@ mod tests {
 
     #[test]
     fn test_canaries_lifecycle_and_live_status() {
-        let temp_dir = std::env::temp_dir().join(format!("samulibre_shield_test_{}", std::process::id()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("samulibre_shield_test_{}", std::process::id()));
         let _ = fs::create_dir_all(&temp_dir);
 
         let mut shield = EndpointShield::new(&temp_dir);
@@ -1344,11 +1585,18 @@ mod tests {
         let _ = fs::write(&first_canary_path, b"ENCRYPTED_BY_RANSOMWARE_PAYLOAD_TEST");
 
         let alerts = shield.check_canary_integrity();
-        assert_eq!(alerts.len(), 1, "Must generate exactly 1 alert for tampered canary");
+        assert_eq!(
+            alerts.len(),
+            1,
+            "Must generate exactly 1 alert for tampered canary"
+        );
         assert!(alerts[0].title.contains("RANSOMWARE"));
 
         let status_tampered = shield.get_live_status();
-        assert_eq!(status_tampered.intact_count, 3, "Intact count should drop to 3");
+        assert_eq!(
+            status_tampered.intact_count, 3,
+            "Intact count should drop to 3"
+        );
         assert!(!status_tampered.canaries[0].is_intact);
 
         // Clean up
@@ -1357,7 +1605,8 @@ mod tests {
 
     #[test]
     fn test_canary_fast_path_latency() {
-        let temp_dir = std::env::temp_dir().join(format!("samulibre_shield_perf_{}", std::process::id()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("samulibre_shield_perf_{}", std::process::id()));
         let _ = fs::create_dir_all(&temp_dir);
 
         let mut shield = EndpointShield::new(&temp_dir);
@@ -1371,7 +1620,11 @@ mod tests {
         }
         let elapsed = start.elapsed();
         // 100 revisiones deben tomar mucho menos de 50 ms (típicamente < 3 ms con fast-path por metadatos)
-        assert!(elapsed.as_millis() < 50, "Fast-path metadata check took too long: {:?}", elapsed);
+        assert!(
+            elapsed.as_millis() < 50,
+            "Fast-path metadata check took too long: {:?}",
+            elapsed
+        );
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
@@ -1386,7 +1639,9 @@ mod tests {
         let mut shield = EndpointShield::new(&temp_dir);
         assert!(!shield.closed_ports.contains(&445));
 
-        let msg_close = shield.toggle_port_shield(445, true).expect("Should close port 445");
+        let msg_close = shield
+            .toggle_port_shield(445, true)
+            .expect("Should close port 445");
         assert!(msg_close.contains("445"));
         assert!(shield.closed_ports.contains(&445));
 
@@ -1394,7 +1649,9 @@ mod tests {
         let mut shield_reloaded = EndpointShield::new(&temp_dir);
         assert!(shield_reloaded.closed_ports.contains(&445));
 
-        let msg_open = shield_reloaded.toggle_port_shield(445, false).expect("Should reopen port 445");
+        let msg_open = shield_reloaded
+            .toggle_port_shield(445, false)
+            .expect("Should reopen port 445");
         assert!(msg_open.contains("445"));
         assert!(!shield_reloaded.closed_ports.contains(&445));
 
@@ -1405,17 +1662,18 @@ mod tests {
 
     #[test]
     fn test_process_tun_packet_adb_and_dns_c2() {
-        let temp_dir = std::env::temp_dir().join(format!("samulibre_tun_test_{}", std::process::id()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("samulibre_tun_test_{}", std::process::id()));
         let shield = EndpointShield::new(&temp_dir);
 
         // 1. Paquete IPv4 TCP a puerto 5555 (ADB inalámbrico)
         let mut adb_packet = vec![0u8; 40];
         adb_packet[0] = 0x45; // IPv4, IHL = 5 (20 bytes)
-        adb_packet[9] = 6;    // TCP
+        adb_packet[9] = 6; // TCP
         adb_packet[12..16].copy_from_slice(&[192, 168, 1, 100]);
         adb_packet[16..20].copy_from_slice(&[192, 168, 1, 50]);
         adb_packet[20..22].copy_from_slice(&45000u16.to_be_bytes()); // src port
-        adb_packet[22..24].copy_from_slice(&5555u16.to_be_bytes());  // dst port = 5555
+        adb_packet[22..24].copy_from_slice(&5555u16.to_be_bytes()); // dst port = 5555
 
         let action = shield.process_tun_packet(&adb_packet);
         match action {
@@ -1423,7 +1681,9 @@ mod tests {
                 assert_eq!(port, 5555);
                 assert!(reason.contains("5555"));
             }
-            TunPacketAction::Accept => panic!("El paquete hacia el puerto 5555 debió ser descartado (Drop)"),
+            TunPacketAction::Accept => {
+                panic!("El paquete hacia el puerto 5555 debió ser descartado (Drop)")
+            }
         }
 
         // 2. Paquete DNS malicioso hacia C2 de troyano
@@ -1434,7 +1694,7 @@ mod tests {
         dns_packet[16..20].copy_from_slice(&[8, 8, 8, 8]);
         dns_packet[20..22].copy_from_slice(&54321u16.to_be_bytes());
         dns_packet[22..24].copy_from_slice(&53u16.to_be_bytes()); // dst port = 53
-        // Simular payload DNS que contiene nombre de dominio sospechoso
+                                                                  // Simular payload DNS que contiene nombre de dominio sospechoso
         let c2_domain = b"\x07teabot\x06c2-banker\x03com\x00";
         dns_packet[28..28 + c2_domain.len()].copy_from_slice(c2_domain);
 
@@ -1458,12 +1718,32 @@ mod tests {
         let https_action = shield.process_tun_packet(&https_packet);
         assert_eq!(https_action, TunPacketAction::Accept);
 
+        // 4. Paquete QUIC UDP puerto 443 (debe ser descartado para forzar TCP HTTPS)
+        let mut quic_packet = vec![0u8; 40];
+        quic_packet[0] = 0x45;
+        quic_packet[9] = 17; // UDP
+        quic_packet[12..16].copy_from_slice(&[10, 0, 0, 2]);
+        quic_packet[16..20].copy_from_slice(&[142, 250, 180, 206]);
+        quic_packet[20..22].copy_from_slice(&54321u16.to_be_bytes());
+        quic_packet[22..24].copy_from_slice(&443u16.to_be_bytes()); // dst port = 443
+        let quic_action = shield.process_tun_packet(&quic_packet);
+        match quic_action {
+            TunPacketAction::Drop { port, reason, .. } => {
+                assert_eq!(port, 443);
+                assert!(reason.contains("QUIC"));
+            }
+            TunPacketAction::Accept => {
+                panic!("El paquete QUIC UDP 443 debió ser descartado para evitar fugas")
+            }
+        }
+
         let _ = fs::remove_dir_all(&temp_dir);
     }
 
     #[test]
     fn test_audit_android_packages() {
-        let temp_dir = std::env::temp_dir().join(format!("samulibre_pkg_test_{}", std::process::id()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("samulibre_pkg_test_{}", std::process::id()));
         let shield = EndpointShield::new(&temp_dir);
 
         let sample_packages = vec![
@@ -1499,23 +1779,39 @@ mod tests {
         let alerts = shield.audit_android_packages(&sample_packages);
         // Debe alertar sobre: 1) Accesibilidad crítica, 2) Superposición (Overlay), 3) Sideloading
         assert_eq!(alerts.len(), 3);
-        assert!(alerts.iter().any(|a| a.category == ThreatCategory::AndroidAccessibilityAbuse));
-        assert!(alerts.iter().any(|a| a.category == ThreatCategory::AndroidBankerOverlayAttempt));
-        assert!(alerts.iter().any(|a| a.category == ThreatCategory::AndroidMaliciousApkSideload));
+        assert!(alerts
+            .iter()
+            .any(|a| a.category == ThreatCategory::AndroidAccessibilityAbuse));
+        assert!(alerts
+            .iter()
+            .any(|a| a.category == ThreatCategory::AndroidBankerOverlayAttempt));
+        assert!(alerts
+            .iter()
+            .any(|a| a.category == ThreatCategory::AndroidMaliciousApkSideload));
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
 
     #[test]
     fn test_persistence_vmapplet_and_clean_baseline() {
-        let temp_dir = std::env::temp_dir().join(format!("samulibre_persist_test_{}", std::process::id()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("samulibre_persist_test_{}", std::process::id()));
         let shield = EndpointShield::new(&temp_dir);
         let entries = shield.scan_persistence();
 
         // Verificar que VMApplet o SystemProperties jamás sean catalogados como sospechosos
         for entry in &entries {
-            if entry.name.to_lowercase() == "vmapplet" || entry.target_path.to_lowercase().contains("systemproperties") {
-                assert_ne!(entry.status, FileScanStatus::Suspicious, "VMApplet/SystemProperties no debe ser sospechoso");
+            if entry.name.to_lowercase() == "vmapplet"
+                || entry
+                    .target_path
+                    .to_lowercase()
+                    .contains("systemproperties")
+            {
+                assert_ne!(
+                    entry.status,
+                    FileScanStatus::Suspicious,
+                    "VMApplet/SystemProperties no debe ser sospechoso"
+                );
             }
             if entry.name.to_lowercase() == "desktop.ini" {
                 panic!("desktop.ini no debe aparecer en la lista de persistencia");

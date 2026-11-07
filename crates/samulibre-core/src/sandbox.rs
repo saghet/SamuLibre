@@ -37,10 +37,18 @@ impl MicroSandbox {
 
     /// Ejecuta de forma segura un archivo en un entorno aislado temporal (Micro-Sandbox)
     /// con tiempo límite estricto (timeout) e inspección de artefactos generados.
-    pub fn execute_and_analyze(&self, target_file: impl AsRef<Path>, timeout: Duration) -> SandboxReport {
+    pub fn execute_and_analyze(
+        &self,
+        target_file: impl AsRef<Path>,
+        timeout: Duration,
+    ) -> SandboxReport {
         let start = Instant::now();
         let target_path = target_file.as_ref();
-        let file_name = target_path.file_name().unwrap_or_default().to_string_lossy().to_string();
+        let file_name = target_path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
 
         let run_id = uuid::Uuid::new_v4().to_string();
         let jail_dir = self.sandbox_root.join(format!("jail_{}", &run_id[..8]));
@@ -49,33 +57,72 @@ impl MicroSandbox {
         let jailed_file = jail_dir.join(&file_name);
         let _ = fs::copy(target_path, &jailed_file);
 
-        let mut dropped_files = Vec::new();
-        let spawned_processes = Vec::new();
-        let network_attempts = Vec::new();
-        let mut mitre_tactics = Vec::new();
+        let mut dropped_files: Vec<String> = Vec::new();
+        let mut spawned_processes: Vec<String> = Vec::new();
+        let network_attempts: Vec<String> = Vec::new();
+        let mut mitre_tactics: Vec<String> = Vec::new();
+        let mut exit_code = None;
 
-        // Ejecutar en modo restringido y monitorear salida
-        let mut cmd = Command::new(&jailed_file);
-        cmd.current_dir(&jail_dir);
-        cmd.stdin(Stdio::null());
-        cmd.stdout(Stdio::piped());
-        cmd.stderr(Stdio::piped());
+        // Inspección estática previa y extracción de indicadores hostiles
+        let target_bytes = fs::read(target_path).unwrap_or_default();
+        let is_pe = target_bytes.starts_with(b"MZ");
+        let content_str = String::from_utf8_lossy(&target_bytes).to_lowercase();
 
-        #[cfg(target_os = "windows")]
+        // Detección de patrones de inyección o evasión en memoria / MITRE ATT&CK
+        if content_str.contains("virtualallocex")
+            || content_str.contains("writeprocessmemory")
+            || content_str.contains("createremotethread")
         {
-            use std::os::windows::process::CommandExt;
-            const CREATE_NO_WINDOW: u32 = 0x08000000;
-            cmd.creation_flags(CREATE_NO_WINDOW);
+            mitre_tactics.push(
+                "T1055 - Process Injection (VirtualAllocEx / WriteProcessMemory)".to_string(),
+            );
+        }
+        if content_str.contains("urldownloadtofile")
+            || content_str.contains("internetopen")
+            || content_str.contains("winhttprequest")
+        {
+            mitre_tactics
+                .push("T1105 - Ingress Tool Transfer (Remote Payload Download)".to_string());
+        }
+        if content_str.contains("powershell -enc")
+            || content_str.contains("wscript.shell")
+            || content_str.contains("cmd.exe /c")
+        {
+            mitre_tactics
+                .push("T1059 - Command and Scripting Interpreter (Hidden Execution)".to_string());
+        }
+        if content_str.contains(".locked")
+            || content_str.contains(".crypto")
+            || content_str.contains("vssadmin delete shadows")
+        {
+            mitre_tactics
+                .push("T1486 - Data Encrypted for Impact / Shadow Copy Destruction".to_string());
         }
 
-        let mut exit_code = None;
-        let spawn_res = cmd.spawn();
+        // Blindaje de Seguridad del Endpoint:
+        // NUNCA ejecutar binarios PE o código no verificado directamente en el host sin hipervisor aislado.
+        // Si es un binario PE o contiene tácticas MITRE hostiles, el micro-sandbox realiza análisis estático y heurístico seguro.
+        let is_safe_script = (file_name.ends_with(".bat") || file_name.ends_with(".cmd"))
+            && mitre_tactics.is_empty();
 
-        match spawn_res {
-            Ok(mut child) => {
-                let check_interval = Duration::from_millis(100);
+        if is_safe_script {
+            // Ejecutar scripts inocuos de prueba en celda aislada con timeout estricto
+            let mut cmd = Command::new(&jailed_file);
+            cmd.current_dir(&jail_dir);
+            cmd.stdin(Stdio::null());
+            cmd.stdout(Stdio::piped());
+            cmd.stderr(Stdio::piped());
+
+            #[cfg(target_os = "windows")]
+            {
+                use std::os::windows::process::CommandExt;
+                const CREATE_NO_WINDOW: u32 = 0x08000000;
+                cmd.creation_flags(CREATE_NO_WINDOW);
+            }
+
+            if let Ok(mut child) = cmd.spawn() {
+                let check_interval = Duration::from_millis(50);
                 let mut waited = Duration::ZERO;
-
                 while waited < timeout {
                     match child.try_wait() {
                         Ok(Some(status)) => {
@@ -89,25 +136,11 @@ impl MicroSandbox {
                         Err(_) => break,
                     }
                 }
-
-                // Si aún está corriendo al vencer el timeout, abortar forzosamente
                 let _ = child.kill();
                 let _ = child.wait();
             }
-            Err(e) => {
-                let _ = fs::remove_dir_all(&jail_dir);
-                return SandboxReport {
-                    file_path: target_path.to_string_lossy().to_string(),
-                    execution_time_ms: start.elapsed().as_millis() as u64,
-                    exit_code: None,
-                    dropped_files: Vec::new(),
-                    spawned_processes: Vec::new(),
-                    network_attempts: Vec::new(),
-                    mitre_tactics: Vec::new(),
-                    verdict: SandboxVerdict::Clean,
-                    reasoning: format!("No se pudo inicializar en sandbox: {}", e),
-                };
-            }
+        } else if is_pe {
+            spawned_processes.push(format!("[BLOQUEADO POR SEGURIDAD] Ejecución nativa de '{}' denegada en host para prevenir infección; analizado estáticamente.", file_name));
         }
 
         // Inspeccionar cambios en el directorio de la celda de aislamiento (Jail)
@@ -115,15 +148,30 @@ impl MicroSandbox {
             for entry in entries.flatten() {
                 let p = entry.path();
                 if p != jailed_file {
-                    let name = p.file_name().unwrap_or_default().to_string_lossy().to_string();
+                    let name = p
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .to_string();
                     dropped_files.push(name.clone());
 
                     let lower = name.to_lowercase();
-                    if lower.ends_with(".exe") || lower.ends_with(".dll") || lower.ends_with(".bat") || lower.ends_with(".ps1") {
-                        mitre_tactics.push("T1105 - Ingress Tool Transfer / Dropper de Binarios".to_string());
+                    if lower.ends_with(".exe")
+                        || lower.ends_with(".dll")
+                        || lower.ends_with(".bat")
+                        || lower.ends_with(".ps1")
+                    {
+                        mitre_tactics.push(
+                            "T1105 - Ingress Tool Transfer / Dropper de Binarios".to_string(),
+                        );
                     }
-                    if lower.ends_with(".locked") || lower.ends_with(".crypto") || lower.ends_with(".enc") {
-                        mitre_tactics.push("T1486 - Data Encrypted for Impact / Ransomware Behavior".to_string());
+                    if lower.ends_with(".locked")
+                        || lower.ends_with(".crypto")
+                        || lower.ends_with(".enc")
+                    {
+                        mitre_tactics.push(
+                            "T1486 - Data Encrypted for Impact / Ransomware Behavior".to_string(),
+                        );
                     }
                 }
             }
@@ -132,9 +180,9 @@ impl MicroSandbox {
         // Limpiar celda de aislamiento
         let _ = fs::remove_dir_all(&jail_dir);
 
-        let verdict = if mitre_tactics.iter().any(|t| t.contains("T1486") || t.contains("T1105")) {
+        let verdict = if !mitre_tactics.is_empty() {
             SandboxVerdict::Malicious
-        } else if !dropped_files.is_empty() {
+        } else if !dropped_files.is_empty() || !spawned_processes.is_empty() {
             SandboxVerdict::Suspicious
         } else {
             SandboxVerdict::Clean
@@ -175,5 +223,22 @@ mod tests {
         assert!(matches!(report.verdict, SandboxVerdict::Clean));
 
         let _ = fs::remove_file(test_bin);
+    }
+
+    #[test]
+    fn test_micro_sandbox_malicious_pe_blocked_safely() {
+        let sandbox = MicroSandbox::new(std::env::temp_dir().join("samulibre_sbx_test_mal"));
+        let test_mal = std::env::temp_dir().join("malware_test.exe");
+        let mut mal_bytes =
+            b"MZ\x90\0\x03\0\0\0PE\0\0VirtualAllocEx\0WriteProcessMemory\0CreateRemoteThread\0"
+                .to_vec();
+        mal_bytes.resize(1024, 0x90);
+        let _ = fs::write(&test_mal, &mal_bytes);
+
+        let report = sandbox.execute_and_analyze(&test_mal, Duration::from_millis(500));
+        assert!(matches!(report.verdict, SandboxVerdict::Malicious));
+        assert!(report.mitre_tactics.iter().any(|t| t.contains("T1055")));
+
+        let _ = fs::remove_file(test_mal);
     }
 }

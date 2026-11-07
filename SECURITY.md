@@ -1,52 +1,54 @@
-# Security Policy & Self-Defense Architecture 🔒
+# Política de Seguridad (Security Policy)
 
-At **SamuLibre**, we recognize a critical paradox in the cybersecurity industry: **antivirus and security tools running with elevated privileges (SYSTEM / Administrator) frequently become the primary zero-day attack vector for adversaries.**
-
-Memory corruption bugs in file format parsers, DLL hijacking in unverified directories, and NTFS junction/symlink traversals in quarantine engines have historically plagued proprietary antivirus suites.
-
-SamuLibre was engineered from the ground up to eliminate this attack surface.
+SamuLibre se compromete a garantizar la máxima transparencia técnica, integridad criptográfica y seguridad defensiva en todos sus componentes.
 
 ---
 
-## 🛡️ Anti-Attack Vector Architecture (Garantía de Auto-Defensa)
+## 1. Versiones Compatibles (Supported Versions)
 
-### 1. 100% Memory-Safe Rust Core
-- SamuLibre is implemented entirely in **pure Rust**, eliminating entire classes of critical vulnerabilities including Buffer Overflows, Use-After-Free, Double Free, Null Pointer Dereferencing, and Type Confusion.
-- Background threads operate with strong thread safety primitives (`Arc<Mutex<...>>`), avoiding race conditions.
+Actualmente, solo la versión más reciente del árbol de desarrollo recibe parches de seguridad activos:
 
-### 2. Anti-Symlink & Anti-Junction Traversal (Anti-LPE)
-- **Problem:** Malicious unprivileged users often create NTFS directory junctions or symbolic links pointing to sensitive OS directories (`C:\Windows\System32\`), tricking elevated antivirus software into deleting or overwriting critical system files during quarantine.
-- **SamuLibre Defense:** Both `samulibre-watcher` and `QuarantineVault` strictly inspect `fs::symlink_metadata()` before opening, moving, or deleting any file. Any attempt to pass a symbolic link or junction point is rejected and flagged immediately.
-
-### 3. Bounded Stream Scanning (Anti-Zip Bomb & DoS Mitigation)
-- Parsing of archives and executables enforces a strict `MAX_SCAN_BUFFER` cap (512 KB headers) and an overall bounded streaming limit of 50 MB with per-file timeouts.
-- Files exhibiting malicious recursive expansion or anomalous compression ratios are dropped safely without consuming host memory or stalling scan pipelines.
-
-### 4. Webview DOM Sanitization & Anti-XSS
-- All file names, detection identifiers, process names, and hashes rendered in the desktop GUI are sanitized through strict HTML character escaping (`escapeHtml()`) before interpolation.
-- The Webview environment operates in a sandboxed local origin, preventing remote code execution or DOM-based script injection attacks.
-
-### 5. Verified Zero-Telemetry
-- SamuLibre contains no analytics trackers, no advertising SDKs, and no telemetry pings.
-- All intelligence evaluation (YARA-X rules, heuristic entropy analysis, canaries, and CVE mitigation) runs **100% locally on your machine**.
+| Versión | Estado de Soporte |
+| :--- | :--- |
+| **2.1.x** | :white_check_mark: Soportada activamente |
+| < 2.0.0 | :x: No soportada |
 
 ---
 
-## 📋 Supported Versions
+## 2. Divulgación Responsable de Vulnerabilidades (Reporting a Vulnerability)
 
-| Version | Status | Security Updates |
-| :--- | :---: | :---: |
-| **0.1.x / 0.2.x** | :white_check_mark: Supported | Active |
-| `< 0.1.0` | :x: End of Life | None |
+Si has descubierto una vulnerabilidad de seguridad en SamuLibre (por ejemplo, bypass del motor de análisis, condición de carrera en el vigilante, problemas de elevación de privilegios en el servicio SCM o debilidades en el cifrado de la bóveda de cuarentena), **por favor NO abras un Issue público en GitHub**.
+
+Para reportar vulnerabilidades de forma responsable y confidencial:
+
+1. **GitHub Security Advisories (Recomendado):**  
+   Envía un reporte privado a través de la pestaña [Security > Advisories](https://github.com/saghet/SamuLibre/security/advisories) del repositorio oficial.
+2. **Correo Electrónico de Seguridad:**  
+   Envía los detalles técnicos a: `security@samulibre.org` (o al mantenedor principal del repositorio).
+
+### Información que debes incluir:
+- Descripción detallada de la vulnerabilidad y vector de ataque.
+- Componente afectado (`samulibre-watcher`, `samulibre-shield`, `samulibre-gui`, `samulibre-cli`, etc.).
+- Pasos exactos para reproducir la vulnerabilidad (PoC).
+- Impacto potencial en el sistema operativo anfitrión.
+- Versión de SamuLibre y sistema operativo de prueba (Windows 10, Windows 11 o Linux).
+
+### Compromiso de Respuesta:
+- **Confirmación inicial:** En un plazo máximo de 48 horas laborables.
+- **Evaluación y triaje:** En menos de 5 días hábiles.
+- **Parche correctivo:** Se publicará un parche y un aviso de seguridad (*Security Advisory*) antes de cualquier divulgación pública.
 
 ---
 
-## 🚨 Reporting a Vulnerability & Responsible Disclosure
+## 3. Política de Muestras y Archivos de Prueba (Malware Testing Policy)
 
-If you discover a security vulnerability within SamuLibre:
+- **Prohibición de Malware Real:** Por diseño y política de seguridad de la comunidad, **está terminantemente prohibido subir muestras de malware activo o código malicioso ejecutable al repositorio**.
+- **Pruebas Estándar EICAR:** Todas las pruebas automatizadas y funcionales del motor de firmas y tiempo real se realizan utilizando la cadena estándar oficial **EICAR Standard Anti-Virus Test File** (`X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*`) o muestras simuladas benignas generadas en memoria durante la ejecución de los tests.
+- **Aislamiento de Cuarentena:** Todos los artefactos detectados en entornos de prueba locales se neutralizan mediante cifrado XOR reversible y aislamiento en `data/quarantine/`, impidiendo cualquier ejecución involuntaria en el sistema anfitrión.
 
-1. **Do not open a public issue.**
-2. Report the vulnerability privately via [GitHub Private Vulnerability Reporting](https://github.com/saghet/SamuLibre/security/advisories/new) or by contacting the core security team at `dev@samulibre.org`.
-3. Provide a clear description, reproduction steps, and proof-of-concept (PoC) if applicable.
+---
 
-We acknowledge receipt of all vulnerability reports within **24 hours** and adhere to a 90-day responsible disclosure window. Researchers who submit verified vulnerabilities will be credited in our **Hall of Fame**.
+## 4. Auditoría de Integridad y Verificación de Cadena de Suministro
+
+- **Criptografía SHA-256:** Todos los ejecutables oficiales, binarios de servicio y paquetes de firmas incluyen hashes criptográficos SHA-256 publicados en las notas de lanzamiento (*Releases*).
+- **Protección Anti-Tampering:** SamuLibre incluye protecciones residentes en memoria y canarios de integridad para detectar intentos de inyección DLL, parches no autorizados en caliente y suspensión forzada del proceso.

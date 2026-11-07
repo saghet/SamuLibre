@@ -12,9 +12,29 @@ pub struct PhishingVerdict {
 
 /// Marcas financieras y corporativas frecuentemente suplantadas
 const HIGH_VALUE_BRANDS: &[&str] = &[
-    "google", "microsoft", "apple", "amazon", "paypal", "netflix", "facebook", "instagram",
-    "whatsapp", "binance", "coinbase", "santander", "bbva", "chase", "wellsfargo", "banco",
-    "bancolombia", "mercadolibre", "office365", "outlook", "dhl", "fedex", "appleid",
+    "google",
+    "microsoft",
+    "apple",
+    "amazon",
+    "paypal",
+    "netflix",
+    "facebook",
+    "instagram",
+    "whatsapp",
+    "binance",
+    "coinbase",
+    "santander",
+    "bbva",
+    "chase",
+    "wellsfargo",
+    "banco",
+    "bancolombia",
+    "mercadolibre",
+    "office365",
+    "outlook",
+    "dhl",
+    "fedex",
+    "appleid",
 ];
 
 /// TLDs de bajo costo frecuentemente abusados en campañas masivas de phishing
@@ -46,7 +66,10 @@ pub fn analyze_url(url_str: &str) -> PhishingVerdict {
 
     // 1. Detección de homóglifos cirílicos o griegos
     if has_homoglyphs(&lower) {
-        indicators.push("Ataque homógrafo detectado: caracteres cirílicos/griegos suplantando alfabeto latino".to_string());
+        indicators.push(
+            "Ataque homógrafo detectado: caracteres cirílicos/griegos suplantando alfabeto latino"
+                .to_string(),
+        );
         score += 0.85;
     }
 
@@ -62,12 +85,18 @@ pub fn analyze_url(url_str: &str) -> PhishingVerdict {
     } else {
         &lower
     };
-    let domain = domain_part.split(&['/', '?', '#', ':'][..]).next().unwrap_or("").to_string();
+    let domain = domain_part
+        .split(&['/', '?', '#', ':'][..])
+        .next()
+        .unwrap_or("")
+        .to_string();
 
     // 3. Dirección IP cruda en lugar de nombre de dominio
     let is_ip_host = domain.chars().all(|c| c.is_ascii_digit() || c == '.');
     if is_ip_host && domain.split('.').count() == 4 {
-        indicators.push("Uso de dirección IP directa en lugar de nombre de dominio calificado".to_string());
+        indicators.push(
+            "Uso de dirección IP directa en lugar de nombre de dominio calificado".to_string(),
+        );
         score += 0.40;
     }
 
@@ -83,7 +112,10 @@ pub fn analyze_url(url_str: &str) -> PhishingVerdict {
                 || domain.ends_with(&format!(".{}.com.co", brand));
 
             if !is_official {
-                indicators.push(format!("Suplantación de marca corporativa detectada: '{}' en dominio no oficial '{}'", brand, domain));
+                indicators.push(format!(
+                    "Suplantación de marca corporativa detectada: '{}' en dominio no oficial '{}'",
+                    brand, domain
+                ));
                 score += 0.70;
             }
         }
@@ -101,14 +133,23 @@ pub fn analyze_url(url_str: &str) -> PhishingVerdict {
     // 6. Profundidad excesiva de subdominios (ej: login.verify.secure.bank.com.fake.top)
     let dot_count = domain.chars().filter(|&c| c == '.').count();
     if dot_count >= 4 {
-        indicators.push(format!("Estructura de subdominios sospechosamente profunda ({} niveles)", dot_count));
+        indicators.push(format!(
+            "Estructura de subdominios sospechosamente profunda ({} niveles)",
+            dot_count
+        ));
         score += 0.25;
     }
 
     // 7. Parámetros sospechosos de recolección de credenciales
-    if lower.contains("login") || lower.contains("signin") || lower.contains("verify") || lower.contains("recover") || lower.contains("password") {
+    if lower.contains("login")
+        || lower.contains("signin")
+        || lower.contains("verify")
+        || lower.contains("recover")
+        || lower.contains("password")
+    {
         if score > 0.3 {
-            indicators.push("Patrón de captura de sesión / credenciales en URL fraudulenta".to_string());
+            indicators
+                .push("Patrón de captura de sesión / credenciales en URL fraudulenta".to_string());
             score += 0.20;
         }
     }
@@ -117,7 +158,10 @@ pub fn analyze_url(url_str: &str) -> PhishingVerdict {
     let is_phishing = confidence >= 0.65;
 
     let threat_category = if is_phishing {
-        if indicators.iter().any(|i| i.contains("homógrafo") || i.contains("Punycode")) {
+        if indicators
+            .iter()
+            .any(|i| i.contains("homógrafo") || i.contains("Punycode"))
+        {
             "Phishing.IDN.HomoglyphSpoofing".to_string()
         } else if indicators.iter().any(|i| i.contains("Suplantación")) {
             "Phishing.BrandImpersonation.Deceptive".to_string()

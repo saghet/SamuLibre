@@ -15,7 +15,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.2.1"
+version = "2.1.13"
 edition = "2021"
 authors = ["SamuLibre Security Community <dev@samulibre.org>"]
 license = "GPL-3.0-or-later"
@@ -39,3 +39,4 @@ thiserror = "1.0"
 sysinfo = "0.31"
 notify = "6.1"
 uuid = { version = "1.10", features = ["v4", "serde"] }
+ureq = { version = "2.10", features = ["json"] }

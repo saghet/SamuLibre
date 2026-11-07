@@ -1,14 +1,13 @@
 #![windows_subsystem = "windows"]
 
 use anyhow::Result;
+use rayon::prelude::*;
 use samulibre_core::SamuLibreCore;
 use serde::{Deserialize, Serialize};
-use tray_icon::menu::{Menu, MenuItem, PredefinedMenuItem, MenuEvent};
 use std::fs;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
-use rayon::prelude::*;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use tao::{
@@ -17,6 +16,7 @@ use tao::{
     window::WindowBuilder,
 };
 use tracing::info;
+use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use walkdir::WalkDir;
 use wry::WebViewBuilder;
@@ -79,7 +79,7 @@ mod win_eco {
 
     pub fn set_current_thread_eco_qos() {
         unsafe {
-            // Asigna la prioridad más baja (nice 19) en el planificador de Linux
+            // Asigna la prioridad mÃ¡s baja (nice 19) en el planificador de Linux
             let _ = setpriority(PRIO_PROCESS, 0, 19);
         }
     }
@@ -118,6 +118,7 @@ enum CustomUserEvent {
     },
     ShowWindow,
     TriggerScan,
+    TriggerFullScan,
     TriggerUpdateSignatures,
     SignaturesUpdated {
         total: usize,
@@ -201,6 +202,34 @@ enum CustomUserEvent {
     AutostartStatusLoaded {
         enabled: bool,
     },
+    ScheduledScanConfigLoaded {
+        config: samulibre_types::ScheduledScanConfig,
+    },
+    ScheduledScanCompleted {
+        report: samulibre_core::ScheduledScanReport,
+    },
+    WatcherSettingsLoaded {
+        settings: samulibre_types::WatcherSettings,
+    },
+    SecurityExceptionsLoaded {
+        exceptions: Vec<samulibre_types::SecurityException>,
+    },
+    PathSelectedForException {
+        path: String,
+        name: String,
+        is_dir: bool,
+        sha256: Option<String>,
+        size: Option<u64>,
+    },
+    RealtimeTelemetryLoaded {
+        telemetry: samulibre_types::RealtimeTelemetry,
+    },
+    RealtimeDiagnosticReportLoaded {
+        report: samulibre_types::RealtimeDiagnosticReport,
+    },
+    ProtectionHealthLoaded {
+        snapshot: samulibre_types::ProtectionHealthSnapshot,
+    },
     Quit,
 }
 
@@ -217,6 +246,14 @@ struct IpcResponse {
     action: String,
     message: String,
     data: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ModifyExceptionPayload {
+    id: String,
+    scope: samulibre_types::ExceptionScope,
+    expires_at: Option<String>,
+    justification: String,
 }
 
 fn get_project_root() -> PathBuf {
@@ -251,8 +288,11 @@ fn get_project_root() -> PathBuf {
                 return user_data.clone();
             }
         }
-        // Instalación del sistema (solo lectura): sembrar una copia escribible en ~/.local/share/samulibre
-        for sys_root in [PathBuf::from("/opt/samulibre"), PathBuf::from("/usr/share/samulibre")] {
+        // InstalaciÃ³n del sistema (solo lectura): sembrar una copia escribible en ~/.local/share/samulibre
+        for sys_root in [
+            PathBuf::from("/opt/samulibre"),
+            PathBuf::from("/usr/share/samulibre"),
+        ] {
             if sys_root.join("data").exists() {
                 if let Some(user_data) = &user_root {
                     if copy_dir_recursive(&sys_root.join("data"), &user_data.join("data")).is_ok() {
@@ -302,7 +342,7 @@ pub fn request_uac_admin_confirmation(_action_description: &str) -> bool {
         return true;
     }
 
-    // Solicitar elevación UAC nativa de Windows
+    // Solicitar elevaciÃ³n UAC nativa de Windows
     let status = std::process::Command::new("powershell")
         .args([
             "-NoProfile",
@@ -327,7 +367,12 @@ fn is_windows_autostart_enabled() -> bool {
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("reg")
-            .args(&["query", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/v", "SamuLibre"])
+            .args(&[
+                "query",
+                "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+                "/v",
+                "SamuLibre",
+            ])
             .creation_flags(0x08000000)
             .output();
         if let Ok(out) = output {
@@ -341,9 +386,10 @@ fn set_windows_autostart(enable: bool) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         if !is_running_as_admin() {
-            let confirmed = request_uac_admin_confirmation("modificar las opciones de inicio con Windows");
+            let confirmed =
+                request_uac_admin_confirmation("modificar las opciones de inicio con Windows");
             if !confirmed {
-                return Err("Operación cancelada: Se requieren permisos de Administrador para modificar el arranque automático.".to_string());
+                return Err("OperaciÃ³n cancelada: Se requieren permisos de Administrador para modificar el arranque automÃ¡tico.".to_string());
             }
         }
 
@@ -369,7 +415,7 @@ fn set_windows_autostart(enable: bool) -> Result<(), String> {
             if status.success() {
                 Ok(())
             } else {
-                Err("Fallo al registrar inicio automático en el registro de Windows".to_string())
+                Err("Fallo al registrar inicio automÃ¡tico en el registro de Windows".to_string())
             }
         } else {
             let _ = std::process::Command::new("reg")
@@ -400,7 +446,9 @@ fn load_threat_history() -> Vec<samulibre_types::ThreatRecord> {
     let p = get_threat_history_path();
     if p.exists() {
         if let Ok(content) = fs::read_to_string(&p) {
-            if let Ok(records) = serde_json::from_str::<Vec<samulibre_types::ThreatRecord>>(&content) {
+            if let Ok(records) =
+                serde_json::from_str::<Vec<samulibre_types::ThreatRecord>>(&content)
+            {
                 return records;
             }
         }
@@ -422,7 +470,11 @@ fn log_step(msg: &str) {
     use std::io::Write;
     let root = get_project_root();
     let log_path = root.join("data").join("app_error.log");
-    if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(log_path) {
+    if let Ok(mut f) = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_path)
+    {
         let _ = writeln!(f, "[{}] {}", chrono::Local::now().format("%H:%M:%S"), msg);
     }
 }
@@ -461,12 +513,18 @@ fn open_native_file_dialog() -> Vec<PathBuf> {
     {
         // 1. Intentar con zenity (GNOME / Ubuntu / RHEL)
         if let Ok(output) = std::process::Command::new("zenity")
-            .args(["--file-selection", "--multiple", "--separator=\n", "--title=Seleccionar Archivos para Escanear - SamuLibre"])
+            .args([
+                "--file-selection",
+                "--multiple",
+                "--separator=\n",
+                "--title=Seleccionar Archivos para Escanear - SamuLibre",
+            ])
             .output()
         {
             if output.status.success() {
                 let text = String::from_utf8_lossy(&output.stdout);
-                let files: Vec<PathBuf> = text.lines()
+                let files: Vec<PathBuf> = text
+                    .lines()
                     .map(|l| l.trim())
                     .filter(|l| !l.is_empty())
                     .map(PathBuf::from)
@@ -480,12 +538,19 @@ fn open_native_file_dialog() -> Vec<PathBuf> {
 
         // 2. Intentar con kdialog (KDE Plasma 6 / Garuda Linux)
         if let Ok(output) = std::process::Command::new("kdialog")
-            .args(["--getopenfilename", "--multiple", "--separate-output", ".", "Todos los archivos (*)"])
+            .args([
+                "--getopenfilename",
+                "--multiple",
+                "--separate-output",
+                ".",
+                "Todos los archivos (*)",
+            ])
             .output()
         {
             if output.status.success() {
                 let text = String::from_utf8_lossy(&output.stdout);
-                let files: Vec<PathBuf> = text.lines()
+                let files: Vec<PathBuf> = text
+                    .lines()
                     .map(|l| l.trim())
                     .filter(|l| !l.is_empty())
                     .map(PathBuf::from)
@@ -532,7 +597,11 @@ fn open_native_folder_dialog() -> Option<PathBuf> {
     {
         // 1. Intentar con zenity (GNOME / Ubuntu / RHEL)
         if let Ok(output) = std::process::Command::new("zenity")
-            .args(["--file-selection", "--directory", "--title=Seleccionar Carpeta para Escaneo Exhaustivo - SamuLibre"])
+            .args([
+                "--file-selection",
+                "--directory",
+                "--title=Seleccionar Carpeta para Escaneo Exhaustivo - SamuLibre",
+            ])
             .output()
         {
             if output.status.success() {
@@ -575,14 +644,14 @@ fn main() {
         log_step(&format!("PANIC: {}", info));
     }));
 
-    // Startup Self-Healing: Si el proxy de Windows/Linux quedó activo por un corte o cierre anterior,
+    // Startup Self-Healing: Si el proxy de Windows/Linux quedÃ³ activo por un corte o cierre anterior,
     // restaurar la conectividad normal de forma inmediata e incondicional.
     if samulibre_vpn::is_system_proxy_enabled() {
-        log_step("Startup Self-Healing: Proxy del sistema huérfano detectado. Restaurando conexión normal...");
+        log_step("Startup Self-Healing: Proxy del sistema huÃ©rfano detectado. Restaurando conexiÃ³n normal...");
         let _ = samulibre_vpn::reset_system_network_proxy();
     }
 
-    log_step(&format!("Iniciando SamuLibre GUI en raíz: {:?}", app_root));
+    log_step(&format!("Iniciando SamuLibre GUI en raÃ­z: {:?}", app_root));
     if let Err(e) = run_app(app_root) {
         log_step(&format!("Error fatal: {:?}", e));
     }
@@ -598,9 +667,12 @@ fn run_app(app_root: PathBuf) -> Result<()> {
             l
         }
         Err(e) => {
-            log_step(&format!("run_app: Listener no pudo enlazar: {:?}. Probando conex a instancia existente...", e));
+            log_step(&format!(
+                "run_app: Listener no pudo enlazar: {:?}. Probando conex a instancia existente...",
+                e
+            ));
             if let Ok(mut stream) = TcpStream::connect(("127.0.0.1", SINGLE_INSTANCE_PORT)) {
-                log_step("run_app: Señal SHOW enviada a instancia existente. Saliendo.");
+                log_step("run_app: SeÃ±al SHOW enviada a instancia existente. Saliendo.");
                 let _ = stream.write_all(b"SHOW\n");
             } else {
                 log_step("run_app: No se pudo conectar a instancia existente tampoco.");
@@ -624,8 +696,10 @@ fn run_app(app_root: PathBuf) -> Result<()> {
     {
         if let Ok(c) = core.lock() {
             log_step("run_app: Llamando a c.initialize()...");
-            let _ = c.initialize();
-            log_step("run_app: c.initialize() completado.");
+            match c.initialize() {
+                Ok(_) => log_step("run_app: c.initialize() completado OK."),
+                Err(e) => log_step(&format!("run_app: c.initialize() retornó error: {:?}", e)),
+            }
         }
     }
 
@@ -637,7 +711,7 @@ fn run_app(app_root: PathBuf) -> Result<()> {
     let proxy = event_loop.create_proxy();
     log_step("run_app: EventLoop creado OK");
 
-    // Hilo receptor de señales de Instancia Única
+    // Hilo receptor de seÃ±ales de Instancia Ãšnica
     let proxy_single_instance = proxy.clone();
     std::thread::spawn(move || {
         for stream in single_instance_listener.incoming() {
@@ -659,7 +733,10 @@ fn run_app(app_root: PathBuf) -> Result<()> {
         }
     };
     let (icon_w, icon_h) = img.dimensions();
-    log_step(&format!("run_app: Icon decodificado: {}x{}", icon_w, icon_h));
+    log_step(&format!(
+        "run_app: Icon decodificado: {}x{}",
+        icon_w, icon_h
+    ));
 
     let tray_bytes = include_bytes!("../../../assets/tray_icon.png");
     let tray_img = match image::load_from_memory(tray_bytes) {
@@ -696,18 +773,20 @@ fn run_app(app_root: PathBuf) -> Result<()> {
     let window = window_builder.build(&event_loop)?;
     log_step("run_app: Ventana creada OK");
 
-    // 2. Construcción del Menú Nativo de la Bandeja (System Tray) con Muda
+    // 2. ConstrucciÃ³n del MenÃº Nativo de la Bandeja (System Tray) con Muda
     log_step("run_app: Configurando TrayIcon y Menu...");
     let tray_menu = Menu::new();
-    let item_show = MenuItem::new("🛡️ Mostrar SamuLibre", true, None);
-    let item_scan = MenuItem::new("⚡ Escaneo Rápido", true, None);
-    let item_update = MenuItem::new("🔄 Actualizar Firmas", true, None);
+    let item_show = MenuItem::new("ðŸ›¡ï¸ Mostrar SamuLibre", true, None);
+    let item_scan = MenuItem::new("âš¡ Escaneo RÃ¡pido", true, None);
+    let item_scan_full = MenuItem::new("ðŸ›¡ï¸ Escaneo Completo", true, None);
+    let item_update = MenuItem::new("ðŸ”„ Actualizar Firmas", true, None);
     let sep = PredefinedMenuItem::separator();
-    let item_quit = MenuItem::new("🔒 Salir de SamuLibre (Requiere Admin)", true, None);
+    let item_quit = MenuItem::new("ðŸ”’ Salir de SamuLibre (Requiere Admin)", true, None);
 
     let _ = tray_menu.append_items(&[
         &item_show,
         &item_scan,
+        &item_scan_full,
         &item_update,
         &sep,
         &item_quit,
@@ -715,6 +794,7 @@ fn run_app(app_root: PathBuf) -> Result<()> {
 
     let show_id = item_show.id().clone();
     let scan_id = item_scan.id().clone();
+    let scan_full_id = item_scan_full.id().clone();
     let update_id = item_update.id().clone();
     let quit_id = item_quit.id().clone();
 
@@ -727,19 +807,21 @@ fn run_app(app_root: PathBuf) -> Result<()> {
     log_step("run_app: TrayIcon registrado OK");
 
     log_step("run_app: Spawneando hilo de tray...");
-    // Hilo de escucha de eventos de la Bandeja y Menú contextual
+    // Hilo de escucha de eventos de la Bandeja y MenÃº contextual
     let proxy_tray = proxy.clone();
     std::thread::spawn(move || {
         let menu_channel = MenuEvent::receiver();
         let tray_channel = TrayIconEvent::receiver();
 
         loop {
-            // Eventos del Menú Contextual (Clic derecho)
+            // Eventos del MenÃº Contextual (Clic derecho)
             if let Ok(event) = menu_channel.try_recv() {
                 if event.id == show_id {
                     let _ = proxy_tray.send_event(CustomUserEvent::ShowWindow);
                 } else if event.id == scan_id {
                     let _ = proxy_tray.send_event(CustomUserEvent::TriggerScan);
+                } else if event.id == scan_full_id {
+                    let _ = proxy_tray.send_event(CustomUserEvent::TriggerFullScan);
                 } else if event.id == update_id {
                     let _ = proxy_tray.send_event(CustomUserEvent::TriggerUpdateSignatures);
                 } else if event.id == quit_id {
@@ -747,7 +829,7 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                 }
             }
 
-            // Eventos de interacción directa con el icono (Solo Clic Izquierdo abre ventana; Clic Derecho mantiene el menú abierto)
+            // Eventos de interacciÃ³n directa con el icono (Solo Clic Izquierdo abre ventana; Clic Derecho mantiene el menÃº abierto)
             if let Ok(event) = tray_channel.try_recv() {
                 match event {
                     TrayIconEvent::Click {
@@ -800,6 +882,10 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                         let _ = proxy_for_ipc.send_event(CustomUserEvent::TriggerScan);
                     }
 
+                    "start_full_scan" => {
+                        let _ = proxy_for_ipc.send_event(CustomUserEvent::TriggerFullScan);
+                    }
+
                     "update_signatures" => {
                         let _ = proxy_for_ipc.send_event(CustomUserEvent::TriggerUpdateSignatures);
                     }
@@ -845,7 +931,7 @@ fn run_app(app_root: PathBuf) -> Result<()> {
 
                                 let _ = proxy_browse_folder.send_event(CustomUserEvent::ScanProgress {
                                     files_scanned: 0,
-                                    current_file: format!("Preparando análisis de carpeta ({} núcleos CPU)...", rayon::current_num_threads()),
+                                    current_file: format!("Preparando anÃ¡lisis de carpeta ({} nÃºcleos CPU)...", rayon::current_num_threads()),
                                     threats_found: 0,
                                     is_done: false,
                                 });
@@ -857,8 +943,8 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                                     .filter_entry(|e| {
                                         let name = e.file_name().to_string_lossy();
                                         let path_str = e.path().to_string_lossy();
-                                        !name.starts_with('.') 
-                                            && name != "node_modules" 
+                                        !name.starts_with('.')
+                                            && name != "node_modules"
                                             && name != "target"
                                             && name != "$Recycle.Bin"
                                             && !path_str.contains("Antivitus-SamuLibre")
@@ -949,8 +1035,8 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                                             .filter_entry(|e| {
                                                 let name = e.file_name().to_string_lossy();
                                                 let path_str = e.path().to_string_lossy();
-                                                !name.starts_with('.') 
-                                                    && name != "node_modules" 
+                                                !name.starts_with('.')
+                                                    && name != "node_modules"
                                                     && name != "target"
                                                     && name != "$Recycle.Bin"
                                                     && !path_str.contains("Antivitus-SamuLibre")
@@ -1013,8 +1099,8 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                         IS_SCAN_CANCELLED.store(true, Ordering::SeqCst);
                         IS_SCAN_IN_PROGRESS.store(false, Ordering::SeqCst);
                         let _ = proxy_for_ipc.send_event(CustomUserEvent::RealTimeAlert {
-                            title: "⏹️ Deteniendo Análisis".to_string(),
-                            details: "Cancelación solicitada por el usuario. Deteniendo análisis...".to_string(),
+                            title: "â¹ï¸ Deteniendo AnÃ¡lisis".to_string(),
+                            details: "CancelaciÃ³n solicitada por el usuario. Deteniendo anÃ¡lisis...".to_string(),
                         });
                     }
 
@@ -1031,8 +1117,8 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                                 let enabled = is_windows_autostart_enabled();
                                 let _ = proxy_for_ipc.send_event(CustomUserEvent::AutostartStatusLoaded { enabled });
                                 let _ = proxy_for_ipc.send_event(CustomUserEvent::RealTimeAlert {
-                                    title: if enabled { "✔ Inicio con Windows Activado".to_string() } else { "Inicio con Windows Desactivado".to_string() },
-                                    details: if enabled { "SamuLibre se iniciará automáticamente minimizado en la bandeja al arrancar Windows.".to_string() } else { "Se eliminó SamuLibre del inicio automático de Windows.".to_string() },
+                                    title: if enabled { "âœ” Inicio con Windows Activado".to_string() } else { "Inicio con Windows Desactivado".to_string() },
+                                    details: if enabled { "SamuLibre se iniciarÃ¡ automÃ¡ticamente minimizado en la bandeja al arrancar Windows.".to_string() } else { "Se eliminÃ³ SamuLibre del inicio automÃ¡tico de Windows.".to_string() },
                                 });
                             }
                             Err(err_msg) => {
@@ -1093,8 +1179,8 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                                 match res {
                                     Ok(rec) => {
                                         let _ = proxy_for_ipc.send_event(CustomUserEvent::RealTimeAlert {
-                                            title: "✔ Amenaza en Cuarentena".to_string(),
-                                            details: format!("'{}' cifrado con clave XOR y custodiado en la bóveda.", rec.original_path),
+                                            title: "âœ” Amenaza en Cuarentena".to_string(),
+                                            details: format!("'{}' cifrado con clave XOR y custodiado en la bÃ³veda.", rec.original_path),
                                         });
                                     }
                                     Err(e) => {
@@ -1137,7 +1223,7 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                             match del_res {
                                 Ok(_) => {
                                     let _ = proxy_for_ipc.send_event(CustomUserEvent::RealTimeAlert {
-                                        title: "✔ Amenaza Eliminada Permanentemente".to_string(),
+                                        title: "âœ” Amenaza Eliminada Permanentemente".to_string(),
                                         details: format!("'{}' destruido de forma segura del sistema.", path_str),
                                     });
                                 }
@@ -1170,8 +1256,8 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                             let records = c.get_quarantined_records();
                             let _ = proxy_for_ipc.send_event(CustomUserEvent::QuarantineListLoaded { records });
                             let _ = proxy_for_ipc.send_event(CustomUserEvent::RealTimeAlert {
-                                title: "✔ Amenazas Aisladas en Lote".to_string(),
-                                details: format!("Se han movido {} archivo(s) infectados a la bóveda de cuarentena cifrada.", count),
+                                title: "âœ” Amenazas Aisladas en Lote".to_string(),
+                                details: format!("Se han movido {} archivo(s) infectados a la bÃ³veda de cuarentena cifrada.", count),
                             });
                         }
                     }
@@ -1192,7 +1278,7 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                         save_threat_history(&history);
                         let _ = proxy_for_ipc.send_event(CustomUserEvent::ThreatHistoryLoaded { history });
                         let _ = proxy_for_ipc.send_event(CustomUserEvent::RealTimeAlert {
-                            title: "✔ Amenazas Eliminadas en Lote".to_string(),
+                            title: "âœ” Amenazas Eliminadas en Lote".to_string(),
                             details: format!("Se han eliminado permanentemente {} archivo(s) maliciosos del sistema.", count),
                         });
                     }
@@ -1209,16 +1295,15 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                             } else {
                                 (payload_str.clone(), payload_str)
                             };
-                            let excl_path = get_project_root().join("data").join("exclusions.json");
-                            let mut exclusions: Vec<String> = if let Ok(data) = fs::read_to_string(&excl_path) {
-                                serde_json::from_str(&data).unwrap_or_default()
-                            } else {
-                                Vec::new()
-                            };
-                            if !exclusions.contains(&path_str) {
-                                exclusions.push(path_str.clone());
-                                let _ = fs::write(&excl_path, serde_json::to_string_pretty(&exclusions).unwrap_or_default());
+
+                            // Añadir a lista de exclusiones ancladas por hash criptográfico SHA-256
+                            let p = PathBuf::from(&path_str);
+                            if let Ok(c) = core_for_ipc.lock() {
+                                if let Ok(mut s) = c.scanner.lock() {
+                                    s.add_pinned_exclusion(&p, "Excluido por usuario desde interfaz gráfica");
+                                }
                             }
+
                             let mut history = load_threat_history();
                             for item in history.iter_mut() {
                                 if item.id == threat_id || item.file_path == path_str {
@@ -1228,8 +1313,8 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                             save_threat_history(&history);
                             let _ = proxy_for_ipc.send_event(CustomUserEvent::ThreatHistoryLoaded { history });
                             let _ = proxy_for_ipc.send_event(CustomUserEvent::RealTimeAlert {
-                                title: "✔ Archivo Excluido".to_string(),
-                                details: format!("'{}' añadido a la lista de confianza/exclusiones.", path_str),
+                                title: "✔ Archivo Excluido con Anclaje SHA-256".to_string(),
+                                details: format!("'{}' protegido y excluido por huella criptográfica SHA-256.", path_str),
                             });
                         }
                     }
@@ -1274,8 +1359,8 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                                             let records = c.get_quarantined_records();
                                             let _ = proxy_for_ipc.send_event(CustomUserEvent::QuarantineListLoaded { records });
                                             let _ = proxy_for_ipc.send_event(CustomUserEvent::RealTimeAlert {
-                                                title: "✔ Archivo Restaurado".to_string(),
-                                                details: format!("'{}' restaurado con éxito desde la cuarentena.", original_path),
+                                                title: "âœ” Archivo Restaurado".to_string(),
+                                                details: format!("'{}' restaurado con Ã©xito desde la cuarentena.", original_path),
                                             });
                                         }
                                         Err(e) => {
@@ -1324,8 +1409,8 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                                 match c.isolate_file_manually(&p) {
                                     Ok(rec) => {
                                         let _ = proxy_for_ipc.send_event(CustomUserEvent::RealTimeAlert {
-                                            title: "✔ Amenaza Aislada en Cuarentena".to_string(),
-                                            details: format!("'{}' cifrado con clave XOR y custodiado en la bóveda.", rec.original_path),
+                                            title: "âœ” Amenaza Aislada en Cuarentena".to_string(),
+                                            details: format!("'{}' cifrado con clave XOR y custodiado en la bÃ³veda.", rec.original_path),
                                         });
                                         let records = c.get_quarantined_records();
                                         let _ = proxy_for_ipc.send_event(CustomUserEvent::QuarantineListLoaded { records });
@@ -1365,7 +1450,7 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                     "get_status" => {
                         if let Ok(c) = core_for_ipc.lock() {
                             let status = c.get_status();
-                            info!("GUI solicitó estado: {:?}", status);
+                            info!("GUI solicitÃ³ estado: {:?}", status);
                         }
                     }
 
@@ -1459,7 +1544,7 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                                 let mut kbs = patcher.get_installed_kbs();
                                 kbs.insert(kb.clone());
                                 let _ = patcher.check_and_deactivate_obsolete_patches(Some(kbs));
-                                info!("GUI simuló instalación oficial de {}", kb);
+                                info!("GUI simulÃ³ instalaciÃ³n oficial de {}", kb);
                             }
                             let rules = c.get_patch_rules();
                             let os_info = c.get_os_info();
@@ -1530,8 +1615,8 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                             }
                             if let Ok(req) = serde_json::from_str::<RawKbReq>(&payload_str) {
                                 if let Ok(c) = core_cloned.lock() {
-                                    let title = req.title.unwrap_or_else(|| format!("Actualización {}", req.kb_id));
-                                    let desc = req.description.unwrap_or_else(|| "Análisis técnico de seguridad solicitado".to_string());
+                                    let title = req.title.unwrap_or_else(|| format!("ActualizaciÃ³n {}", req.kb_id));
+                                    let desc = req.description.unwrap_or_else(|| "AnÃ¡lisis tÃ©cnico de seguridad solicitado".to_string());
                                     if let Ok(res) = c.analyze_raw_kb(&req.kb_id, &title, &desc) {
                                         let _ = proxy_cloned.send_event(CustomUserEvent::KbAnalysisResultLoaded { result: res });
                                         let rules = c.get_patch_rules();
@@ -1565,7 +1650,7 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                         if let Ok(c) = core_for_ipc.lock() {
                             if let Ok(mut shield) = c.shield.lock() {
                                 let _ = shield.deploy_canaries();
-                                info!("GUI desplegó canarios señuelo anti-ransomware");
+                                info!("GUI desplegÃ³ canarios seÃ±uelo anti-ransomware");
                             }
                             let status = c.get_shield_status();
                             let _ = proxy_for_ipc.send_event(CustomUserEvent::ShieldStatusUpdated { status });
@@ -1613,7 +1698,7 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                         } else {
                             (raw_payload, false)
                         };
-                        log_step(&format!("IPC: connect_vpn recibido para país: {} (Doble Cifrado: {})", country_code, double_encryption));
+                        log_step(&format!("IPC: connect_vpn recibido para paÃ­s: {} (Doble Cifrado: {})", country_code, double_encryption));
                         let core_cloned = Arc::clone(&core_for_ipc);
                         let proxy_cloned = proxy_for_ipc.clone();
                         std::thread::spawn(move || {
@@ -1623,7 +1708,7 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                                         log_step(&format!("connect_vpn completado OK. IP: {:?}", res_state.assigned_ip));
                                     }
                                     Err(e) => {
-                                        log_step(&format!("connect_vpn FALLÓ: {:?}", e));
+                                        log_step(&format!("connect_vpn FALLÃ“: {:?}", e));
                                     }
                                 }
                                 let state = c.get_vpn_state();
@@ -1643,7 +1728,7 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                             if let Ok(c) = core_cloned.lock() {
                                 match c.disconnect_vpn() {
                                     Ok(_) => log_step("disconnect_vpn completado OK"),
-                                    Err(e) => log_step(&format!("disconnect_vpn FALLÓ: {:?}", e)),
+                                    Err(e) => log_step(&format!("disconnect_vpn FALLÃ“: {:?}", e)),
                                 }
                                 let state = c.get_vpn_state();
                                 let countries = c.get_vpn_countries();
@@ -1662,7 +1747,7 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                             if let Ok(c) = core_cloned.lock() {
                                 match c.reset_vpn_network() {
                                     Ok(_) => log_step("reset_vpn_network completado OK"),
-                                    Err(e) => log_step(&format!("reset_vpn_network FALLÓ: {:?}", e)),
+                                    Err(e) => log_step(&format!("reset_vpn_network FALLÃ“: {:?}", e)),
                                 }
                                 let state = c.get_vpn_state();
                                 let countries = c.get_vpn_countries();
@@ -1938,13 +2023,13 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                                     match c.uninstall_browser_extension(&req.browser, &req.profile, &req.ext_id) {
                                         Ok(msg) => {
                                             let _ = proxy_cloned.send_event(CustomUserEvent::RealTimeAlert {
-                                                title: "Extensión Eliminada".to_string(),
+                                                title: "ExtensiÃ³n Eliminada".to_string(),
                                                 details: msg,
                                             });
                                         }
                                         Err(e) => {
                                             let _ = proxy_cloned.send_event(CustomUserEvent::RealTimeAlert {
-                                                title: "Error al Eliminar Extensión".to_string(),
+                                                title: "Error al Eliminar ExtensiÃ³n".to_string(),
                                                 details: format!("{}", e),
                                             });
                                         }
@@ -1957,8 +2042,338 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                         });
                     }
 
+                    "get_scheduled_scan_config" => {
+                        if let Ok(c) = core_for_ipc.lock() {
+                            let config = c.get_scheduled_scan_config();
+                            let _ = proxy_for_ipc.send_event(CustomUserEvent::ScheduledScanConfigLoaded { config });
+                        }
+                    }
+
+                    "update_scheduled_scan_config" => {
+                        let payload_str = msg.payload.unwrap_or_default();
+                        if let Ok(cfg) = serde_json::from_str::<samulibre_types::ScheduledScanConfig>(&payload_str) {
+                            if let Ok(c) = core_for_ipc.lock() {
+                                let _ = c.update_scheduled_scan_config(cfg);
+                                let updated = c.get_scheduled_scan_config();
+                                let _ = proxy_for_ipc.send_event(CustomUserEvent::ScheduledScanConfigLoaded { config: updated });
+                                let _ = proxy_for_ipc.send_event(CustomUserEvent::RealTimeAlert {
+                                    title: "Planificador Actualizado".to_string(),
+                                    details: "Se guardÃ³ la configuraciÃ³n de escaneos programados.".to_string(),
+                                });
+                            }
+                        }
+                    }
+
+                    "trigger_scheduled_scan_now" => {
+                        let core_sched = Arc::clone(&core_for_ipc);
+                        let proxy_sched = proxy_for_ipc.clone();
+                        std::thread::spawn(move || {
+                            if let Ok(c) = core_sched.lock() {
+                                match c.execute_scheduled_scan_now() {
+                                    Ok(report) => {
+                                        let threats = report.threats_found;
+                                        let _ = proxy_sched.send_event(CustomUserEvent::ScheduledScanCompleted { report });
+                                        let updated = c.get_scheduled_scan_config();
+                                        let _ = proxy_sched.send_event(CustomUserEvent::ScheduledScanConfigLoaded { config: updated });
+                                        let _ = proxy_sched.send_event(CustomUserEvent::RealTimeAlert {
+                                            title: "Escaneo Programado Ejecutado".to_string(),
+                                            details: format!("Escaneo finalizado. Amenazas detectadas: {}", threats),
+                                        });
+                                    }
+                                    Err(e) => {
+                                        let _ = proxy_sched.send_event(CustomUserEvent::RealTimeAlert {
+                                            title: "Error en Escaneo".to_string(),
+                                            details: format!("No se pudo ejecutar: {}", e),
+                                        });
+                                    }
+                                }
+                            }
+                        });
+                    }
+
+                    "get_watcher_settings" => {
+                        if let Ok(c) = core_for_ipc.lock() {
+                            let settings = c.get_watcher_settings();
+                            let _ = proxy_for_ipc.send_event(CustomUserEvent::WatcherSettingsLoaded { settings });
+                        }
+                    }
+
+                    "add_watcher_dir" => {
+                        let folder_opt = open_native_folder_dialog();
+                        if let Some(folder) = folder_opt {
+                            if let Ok(c) = core_for_ipc.lock() {
+                                c.add_watcher_dir(&folder);
+                                let settings = c.get_watcher_settings();
+                                let _ = proxy_for_ipc.send_event(CustomUserEvent::WatcherSettingsLoaded { settings });
+                                let _ = proxy_for_ipc.send_event(CustomUserEvent::RealTimeAlert {
+                                    title: "Carpeta en Vigilancia".to_string(),
+                                    details: format!("Se aÃ±adiÃ³ '{}' a la protecciÃ³n activa en tiempo real.", folder.display()),
+                                });
+                            }
+                        }
+                    }
+
+                    "remove_watcher_dir" => {
+                        let payload_str = msg.payload.unwrap_or_default();
+                        let path_clean = payload_str.trim().trim_matches('"');
+                        if let Ok(c) = core_for_ipc.lock() {
+                            let _ = c.remove_watcher_dir(path_clean);
+                            let settings = c.get_watcher_settings();
+                            let _ = proxy_for_ipc.send_event(CustomUserEvent::WatcherSettingsLoaded { settings });
+                        }
+                    }
+
+                    "get_security_exceptions" => {
+                        if let Ok(c) = core_for_ipc.lock() {
+                            let exceptions = c.list_security_exceptions();
+                            let _ = proxy_for_ipc.send_event(CustomUserEvent::SecurityExceptionsLoaded { exceptions });
+                        }
+                    }
+
+                    "add_security_exception" => {
+                        if let Some(payload_str) = msg.payload {
+                            if let Ok(ex) = serde_json::from_str::<samulibre_types::SecurityException>(&payload_str) {
+                                if let Ok(c) = core_for_ipc.lock() {
+                                    match c.add_security_exception(ex) {
+                                        Ok(saved) => {
+                                            let exceptions = c.list_security_exceptions();
+                                            let _ = proxy_for_ipc.send_event(CustomUserEvent::SecurityExceptionsLoaded { exceptions });
+                                            let _ = proxy_for_ipc.send_event(CustomUserEvent::RealTimeAlert {
+                                                title: "🛡️ Excepción de Seguridad Registrada".to_string(),
+                                                details: format!("Se aplicó regla de exclusión para '{}' con nivel de riesgo {:?}.", saved.target, saved.risk_level),
+                                            });
+                                        }
+                                        Err(err_msg) => {
+                                            let _ = proxy_for_ipc.send_event(CustomUserEvent::RealTimeAlert {
+                                                title: "⚠️ Excepción Rechazada".to_string(),
+                                                details: format!("No se pudo registrar la excepción: {}", err_msg),
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    "toggle_security_exception" => {
+                        if let Some(id_str) = msg.payload {
+                            let id_clean = id_str.trim().trim_matches('"');
+                            if let Ok(c) = core_for_ipc.lock() {
+                                let _ = c.toggle_security_exception(id_clean);
+                                let exceptions = c.list_security_exceptions();
+                                let _ = proxy_for_ipc.send_event(CustomUserEvent::SecurityExceptionsLoaded { exceptions });
+                            }
+                        }
+                    }
+
+                    "remove_security_exception" => {
+                        if let Some(id_str) = msg.payload {
+                            let id_clean = id_str.trim().trim_matches('"');
+                            if let Ok(c) = core_for_ipc.lock() {
+                                let _ = c.remove_security_exception(id_clean);
+                                let exceptions = c.list_security_exceptions();
+                                let _ = proxy_for_ipc.send_event(CustomUserEvent::SecurityExceptionsLoaded { exceptions });
+                                let _ = proxy_for_ipc.send_event(CustomUserEvent::RealTimeAlert {
+                                    title: "Excepción Eliminada".to_string(),
+                                    details: "Se eliminó la regla de excepción y se restableció el análisis exhaustivo.".to_string(),
+                                });
+                            }
+                        }
+                    }
+
+                    "modify_security_exception" => {
+                        if let Some(payload_str) = msg.payload {
+                            if let Ok(m) = serde_json::from_str::<ModifyExceptionPayload>(&payload_str) {
+                                if let Ok(c) = core_for_ipc.lock() {
+                                    let ok = c.modify_security_exception(&m.id, m.scope, m.expires_at, m.justification);
+                                    if ok {
+                                        let exceptions = c.list_security_exceptions();
+                                        let _ = proxy_for_ipc.send_event(CustomUserEvent::SecurityExceptionsLoaded { exceptions });
+                                        let _ = proxy_for_ipc.send_event(CustomUserEvent::RealTimeAlert {
+                                            title: "Excepción Modificada".to_string(),
+                                            details: "Los alcances y vigencia de la excepción fueron actualizados con éxito.".to_string(),
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    "browse_exception_file" => {
+                        let proxy_browse = proxy_for_ipc.clone();
+                        std::thread::spawn(move || {
+                            let files = open_native_file_dialog();
+                            if let Some(first) = files.first() {
+                                let name = first.file_name().and_then(|n| n.to_str()).unwrap_or("archivo").to_string();
+                                let size = fs::metadata(first).ok().map(|m| m.len());
+                                let sha256 = fs::read(first).ok().map(|bytes| {
+                                    use sha2::{Digest, Sha256};
+                                    let mut h = Sha256::new();
+                                    h.update(&bytes);
+                                    hex::encode(h.finalize())
+                                });
+                                let _ = proxy_browse.send_event(CustomUserEvent::PathSelectedForException {
+                                    path: first.to_string_lossy().to_string(),
+                                    name,
+                                    is_dir: false,
+                                    sha256,
+                                    size,
+                                });
+                            }
+                        });
+                    }
+
+                    "browse_exception_folder" => {
+                        let proxy_browse = proxy_for_ipc.clone();
+                        std::thread::spawn(move || {
+                            if let Some(folder) = open_native_folder_dialog() {
+                                let name = folder.file_name().and_then(|n| n.to_str()).unwrap_or("carpeta").to_string();
+                                let _ = proxy_browse.send_event(CustomUserEvent::PathSelectedForException {
+                                    path: folder.to_string_lossy().to_string(),
+                                    name,
+                                    is_dir: true,
+                                    sha256: None,
+                                    size: None,
+                                });
+                            }
+                        });
+                    }
+
+                    "get_realtime_telemetry" => {
+                        if let Ok(c) = core_for_ipc.lock() {
+                            let telemetry = c.get_realtime_telemetry();
+                            let _ = proxy_for_ipc.send_event(CustomUserEvent::RealtimeTelemetryLoaded { telemetry });
+                            let snapshot = c.get_protection_health();
+                            let _ = proxy_for_ipc.send_event(CustomUserEvent::ProtectionHealthLoaded { snapshot });
+                        }
+                    }
+
+                    "get_protection_health" => {
+                        if let Ok(c) = core_for_ipc.lock() {
+                            let snapshot = c.get_protection_health();
+                            let _ = proxy_for_ipc.send_event(CustomUserEvent::ProtectionHealthLoaded { snapshot });
+                        }
+                    }
+
+                    "run_realtime_autodiagnostic" => {
+                        let proxy_diag = proxy_for_ipc.clone();
+                        let core_diag = Arc::clone(&core_for_ipc);
+                        std::thread::spawn(move || {
+                            if let Ok(c) = core_diag.lock() {
+                                let report = c.run_realtime_autodiagnostic();
+                                let _ = proxy_diag.send_event(CustomUserEvent::RealtimeDiagnosticReportLoaded { report });
+                                let snapshot = c.get_protection_health();
+                                let _ = proxy_diag.send_event(CustomUserEvent::ProtectionHealthLoaded { snapshot });
+                            }
+                        });
+                    }
+
+                    "start_realtime_service" => {
+                        let res = samulibre_watcher::service::start_service();
+                        if let Ok(c) = core_for_ipc.lock() {
+                            let telemetry = c.get_realtime_telemetry();
+                            let _ = proxy_for_ipc.send_event(CustomUserEvent::RealtimeTelemetryLoaded { telemetry });
+                            let snapshot = c.get_protection_health();
+                            let _ = proxy_for_ipc.send_event(CustomUserEvent::ProtectionHealthLoaded { snapshot });
+                        }
+                        match res {
+                            Ok(msg) => {
+                                let _ = proxy_for_ipc.send_event(CustomUserEvent::RealTimeAlert {
+                                    title: "Protección en Tiempo Real Activada".to_string(),
+                                    details: msg,
+                                });
+                            }
+                            Err(e) => {
+                                let _ = proxy_for_ipc.send_event(CustomUserEvent::RealTimeAlert {
+                                    title: "Error al Iniciar Servicio".to_string(),
+                                    details: format!("No se pudo arrancar el servicio en segundo plano: {}", e),
+                                });
+                            }
+                        }
+                    }
+
+                    "stop_realtime_service" => {
+                        let res = samulibre_watcher::service::stop_service();
+                        if let Ok(c) = core_for_ipc.lock() {
+                            let telemetry = c.get_realtime_telemetry();
+                            let _ = proxy_for_ipc.send_event(CustomUserEvent::RealtimeTelemetryLoaded { telemetry });
+                            let snapshot = c.get_protection_health();
+                            let _ = proxy_for_ipc.send_event(CustomUserEvent::ProtectionHealthLoaded { snapshot });
+                        }
+                        match res {
+                            Ok(msg) => {
+                                let _ = proxy_for_ipc.send_event(CustomUserEvent::RealTimeAlert {
+                                    title: "Protección en Tiempo Real Detenida".to_string(),
+                                    details: msg,
+                                });
+                            }
+                            Err(e) => {
+                                let _ = proxy_for_ipc.send_event(CustomUserEvent::RealTimeAlert {
+                                    title: "Aviso al Detener Servicio".to_string(),
+                                    details: e.to_string(),
+                                });
+                            }
+                        }
+                    }
+
+                    "install_realtime_service" => {
+                        let app_root = get_project_root();
+                        let exe = if app_root.join("samulibre.exe").exists() {
+                            app_root.join("samulibre.exe")
+                        } else if let Ok(e) = std::env::current_exe() {
+                            e
+                        } else {
+                            app_root.join("samulibre-gui.exe")
+                        };
+                        let res = samulibre_watcher::service::install_windows_service_elevated(&exe);
+                        if let Ok(c) = core_for_ipc.lock() {
+                            let snapshot = c.get_protection_health();
+                            let _ = proxy_for_ipc.send_event(CustomUserEvent::ProtectionHealthLoaded { snapshot });
+                            let telemetry = c.get_realtime_telemetry();
+                            let _ = proxy_for_ipc.send_event(CustomUserEvent::RealtimeTelemetryLoaded { telemetry });
+                        }
+                        match res {
+                            Ok(msg) => {
+                                let _ = proxy_for_ipc.send_event(CustomUserEvent::RealTimeAlert {
+                                    title: "Servicio Windows 24/7 Instalado".to_string(),
+                                    details: msg,
+                                });
+                            }
+                            Err(e) => {
+                                let _ = proxy_for_ipc.send_event(CustomUserEvent::RealTimeAlert {
+                                    title: "Instalación de Servicio Cancelada o Fallida".to_string(),
+                                    details: format!("{}", e),
+                                });
+                            }
+                        }
+                    }
+
+                    "uninstall_realtime_service" => {
+                        let res = samulibre_watcher::service::uninstall_windows_service_elevated();
+                        if let Ok(c) = core_for_ipc.lock() {
+                            let snapshot = c.get_protection_health();
+                            let _ = proxy_for_ipc.send_event(CustomUserEvent::ProtectionHealthLoaded { snapshot });
+                            let telemetry = c.get_realtime_telemetry();
+                            let _ = proxy_for_ipc.send_event(CustomUserEvent::RealtimeTelemetryLoaded { telemetry });
+                        }
+                        match res {
+                            Ok(msg) => {
+                                let _ = proxy_for_ipc.send_event(CustomUserEvent::RealTimeAlert {
+                                    title: "Servicio Windows Eliminado".to_string(),
+                                    details: msg,
+                                });
+                            }
+                            Err(e) => {
+                                let _ = proxy_for_ipc.send_event(CustomUserEvent::RealTimeAlert {
+                                    title: "Error al Desinstalar Servicio".to_string(),
+                                    details: format!("{}", e),
+                                });
+                            }
+                        }
+                    }
+
                     _ => {
-                        info!("Acción IPC no reconocida: {}", msg.action);
+                        info!("AcciÃ³n IPC no reconocida: {}", msg.action);
                     }
                 }
             }
@@ -1979,7 +2394,7 @@ fn run_app(app_root: PathBuf) -> Result<()> {
     let build_result = builder.build(&window);
     let webview = match build_result {
         Ok(w) => {
-            log_step("run_app: WebView creado con éxito");
+            log_step("run_app: WebView creado con Ã©xito");
             w
         }
         Err(e) => {
@@ -1988,7 +2403,7 @@ fn run_app(app_root: PathBuf) -> Result<()> {
         }
     };
 
-    // Hilo para sincronizar el estado inicial de parches, VPN, historial y auditoría con la UI
+    // Hilo para sincronizar el estado inicial de parches, VPN, historial y auditorÃ­a con la UI
     let proxy_init = proxy.clone();
     let core_init = Arc::clone(&core);
     std::thread::spawn(move || {
@@ -2000,7 +2415,12 @@ fn run_app(app_root: PathBuf) -> Result<()> {
             let os_info = c.get_os_info();
             let sentinel_status = Some(c.get_sentinel_status());
             let kb_monitor_status = Some(c.get_kb_monitor_status());
-            let _ = proxy_init.send_event(CustomUserEvent::UpdatePatchRules { rules, os_info, sentinel_status, kb_monitor_status });
+            let _ = proxy_init.send_event(CustomUserEvent::UpdatePatchRules {
+                rules,
+                os_info,
+                sentinel_status,
+                kb_monitor_status,
+            });
 
             let vpn_state = c.get_vpn_state();
             let vpn_countries = c.get_vpn_countries();
@@ -2010,31 +2430,61 @@ fn run_app(app_root: PathBuf) -> Result<()> {
             });
 
             let history = c.get_signature_update_history();
-            let _ = proxy_init.send_event(CustomUserEvent::UpdateHistoryLoaded { entries: history });
+            let _ =
+                proxy_init.send_event(CustomUserEvent::UpdateHistoryLoaded { entries: history });
 
             let audit = c.run_internal_security_audit();
             let _ = proxy_init.send_event(CustomUserEvent::AuditReportLoaded { report: audit });
 
             let shield_status = c.get_shield_status();
-            let _ = proxy_init.send_event(CustomUserEvent::ShieldStatusUpdated { status: shield_status });
+            let _ = proxy_init.send_event(CustomUserEvent::ShieldStatusUpdated {
+                status: shield_status,
+            });
 
             let quarantine = c.get_quarantined_records();
-            let _ = proxy_init.send_event(CustomUserEvent::QuarantineListLoaded { records: quarantine });
+            let _ = proxy_init.send_event(CustomUserEvent::QuarantineListLoaded {
+                records: quarantine,
+            });
 
             let persistence = c.get_persistence_entries();
-            let _ = proxy_init.send_event(CustomUserEvent::PersistenceListLoaded { entries: persistence });
+            let _ = proxy_init.send_event(CustomUserEvent::PersistenceListLoaded {
+                entries: persistence,
+            });
 
             let sockets = c.get_network_sockets();
             let _ = proxy_init.send_event(CustomUserEvent::NetworkSocketsLoaded { sockets });
 
             let autostart_enabled = is_windows_autostart_enabled();
-            let _ = proxy_init.send_event(CustomUserEvent::AutostartStatusLoaded { enabled: autostart_enabled });
+            let _ = proxy_init.send_event(CustomUserEvent::AutostartStatusLoaded {
+                enabled: autostart_enabled,
+            });
 
             let history = load_threat_history();
             let _ = proxy_init.send_event(CustomUserEvent::ThreatHistoryLoaded { history });
 
             let pc_features = c.get_pc_advanced_features_status();
-            let _ = proxy_init.send_event(CustomUserEvent::PcAdvancedStatusLoaded { status: pc_features });
+            let _ = proxy_init.send_event(CustomUserEvent::PcAdvancedStatusLoaded {
+                status: pc_features,
+            });
+
+            let sched_cfg = c.get_scheduled_scan_config();
+            let _ = proxy_init
+                .send_event(CustomUserEvent::ScheduledScanConfigLoaded { config: sched_cfg });
+
+            let watcher_settings = c.get_watcher_settings();
+            let _ = proxy_init.send_event(CustomUserEvent::WatcherSettingsLoaded {
+                settings: watcher_settings,
+            });
+
+            let exceptions = c.list_security_exceptions();
+            let _ = proxy_init.send_event(CustomUserEvent::SecurityExceptionsLoaded { exceptions });
+
+            let telemetry = c.get_realtime_telemetry();
+            let _ = proxy_init.send_event(CustomUserEvent::RealtimeTelemetryLoaded { telemetry });
+
+            let health = c.get_protection_health();
+            let _ =
+                proxy_init.send_event(CustomUserEvent::ProtectionHealthLoaded { snapshot: health });
         }
     });
 
@@ -2045,7 +2495,7 @@ fn run_app(app_root: PathBuf) -> Result<()> {
         win_eco::set_current_thread_eco_qos();
         let mut sentinel_cycles: u64 = 0;
         loop {
-            // Dormir 15 minutos entre ciclos periódicos de auditoría
+            // Dormir 15 minutos entre ciclos periÃ³dicos de auditorÃ­a
             std::thread::sleep(std::time::Duration::from_secs(900));
             sentinel_cycles += 1;
             if let Ok(c) = core_sentinel.lock() {
@@ -2056,15 +2506,22 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                 let (_unmitigated, _active, _native, auto_patched) = c.run_sentinel_audit_cycle();
                 let _ai_results = c.run_ai_kb_audit_cycle();
                 if !auto_patched.is_empty() {
-                    let title = "🛡️ Centinela SamuLibre: Parche Virtual Aplicado".to_string();
-                    let details = format!("Se mitigaron automáticamente: {}", auto_patched.join(", "));
-                    let _ = proxy_sentinel.send_event(CustomUserEvent::RealTimeAlert { title, details });
+                    let title = "ðŸ›¡ï¸ Centinela SamuLibre: Parche Virtual Aplicado".to_string();
+                    let details =
+                        format!("Se mitigaron automÃ¡ticamente: {}", auto_patched.join(", "));
+                    let _ = proxy_sentinel
+                        .send_event(CustomUserEvent::RealTimeAlert { title, details });
                 }
                 let rules = c.get_patch_rules();
                 let os_info = c.get_os_info();
                 let sentinel_status = Some(c.get_sentinel_status());
                 let kb_monitor_status = Some(c.get_kb_monitor_status());
-                let _ = proxy_sentinel.send_event(CustomUserEvent::UpdatePatchRules { rules, os_info, sentinel_status, kb_monitor_status });
+                let _ = proxy_sentinel.send_event(CustomUserEvent::UpdatePatchRules {
+                    rules,
+                    os_info,
+                    sentinel_status,
+                    kb_monitor_status,
+                });
             }
         }
     });
@@ -2081,6 +2538,21 @@ fn run_app(app_root: PathBuf) -> Result<()> {
             cycle_counter += 1;
 
             if let Ok(c) = core_shield_loop.lock() {
+                if let Some(report) = c.check_and_run_scheduled_scan_if_due() {
+                    let cfg = c.get_scheduled_scan_config();
+                    let _ = proxy_shield_loop
+                        .send_event(CustomUserEvent::ScheduledScanConfigLoaded { config: cfg });
+                    let _ = proxy_shield_loop.send_event(CustomUserEvent::ScheduledScanCompleted {
+                        report: report.clone(),
+                    });
+                    let _ = proxy_shield_loop.send_event(CustomUserEvent::RealTimeAlert {
+                        title: "Escaneo Programado Completado".to_string(),
+                        details: format!(
+                            "Se analizaron {} archivos. Amenazas: {}.",
+                            report.files_scanned, report.threats_found
+                        ),
+                    });
+                }
                 let alerts = c.run_continuous_shield_check();
                 for alert in alerts {
                     let _ = proxy_shield_loop.send_event(CustomUserEvent::RealTimeAlert {
@@ -2089,7 +2561,16 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                     });
                 }
                 let status = c.get_shield_status();
-                let _ = proxy_shield_loop.send_event(CustomUserEvent::ShieldStatusUpdated { status });
+                let _ =
+                    proxy_shield_loop.send_event(CustomUserEvent::ShieldStatusUpdated { status });
+
+                let telemetry = c.get_realtime_telemetry();
+                let _ = proxy_shield_loop
+                    .send_event(CustomUserEvent::RealtimeTelemetryLoaded { telemetry });
+
+                let health = c.get_protection_health();
+                let _ = proxy_shield_loop
+                    .send_event(CustomUserEvent::ProtectionHealthLoaded { snapshot: health });
             }
 
             // Cada 12 ciclos (~60 segundos), recortar working set para garantizar RAM < 40 MB
@@ -2099,7 +2580,7 @@ fn run_app(app_root: PathBuf) -> Result<()> {
         }
     });
 
-    // Hilo de actualización horaria periódica (cada 1 hora = 3600 segundos) con EcoQoS
+    // Hilo de actualizaciÃ³n horaria periÃ³dica (cada 1 hora = 3600 segundos) con EcoQoS
     let proxy_hourly = proxy.clone();
     let core_hourly = Arc::clone(&core);
     std::thread::spawn(move || {
@@ -2123,7 +2604,7 @@ fn run_app(app_root: PathBuf) -> Result<()> {
         }
     });
 
-    // Hilo de sondeo periódico de latencias VPN en tiempo real (cada 25 segundos)
+    // Hilo de sondeo periÃ³dico de latencias VPN en tiempo real (cada 25 segundos)
     let proxy_vpn_latencies = proxy.clone();
     let core_vpn_latencies = Arc::clone(&core);
     std::thread::spawn(move || {
@@ -2141,7 +2622,7 @@ fn run_app(app_root: PathBuf) -> Result<()> {
         }
     });
 
-    // Hilo de telemetría de alta frecuencia para el túnel activo (cada 5 segundos si está conectado)
+    // Hilo de telemetrÃ­a de alta frecuencia para el tÃºnel activo (cada 5 segundos si estÃ¡ conectado)
     let proxy_tunnel_ping = proxy.clone();
     let core_tunnel_ping = Arc::clone(&core);
     std::thread::spawn(move || {
@@ -2163,10 +2644,11 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                         tunnel_ping,
                     });
                 } else if samulibre_vpn::is_system_proxy_enabled() {
-                    // Watchdog Fail-Safe: VPN inactiva pero el proxy del SO quedó encendido
+                    // Watchdog Fail-Safe: VPN inactiva pero el proxy del SO quedÃ³ encendido
                     let _ = samulibre_vpn::reset_system_network_proxy();
                     let countries = c.get_vpn_countries();
-                    let _ = proxy_tunnel_ping.send_event(CustomUserEvent::VpnStateUpdated { state, countries });
+                    let _ = proxy_tunnel_ping
+                        .send_event(CustomUserEvent::VpnStateUpdated { state, countries });
                 }
             }
         }
@@ -2182,7 +2664,7 @@ fn run_app(app_root: PathBuf) -> Result<()> {
 
         match event {
             Event::NewEvents(StartCause::Init) => {
-                info!("SamuLibre Apple-Style GUI inicializado con éxito.");
+                info!("SamuLibre Apple-Style GUI inicializado con Ã©xito.");
             }
 
             Event::UserEvent(CustomUserEvent::UpdatePatchRules { rules, os_info, sentinel_status, kb_monitor_status }) => {
@@ -2241,14 +2723,49 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                 });
             }
 
+            Event::UserEvent(CustomUserEvent::TriggerFullScan) => {
+                if IS_SCAN_IN_PROGRESS.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
+                    window.set_visible(true);
+                    window.set_minimized(false);
+                    window.set_focus();
+                    let _ = webview.evaluate_script("if (window.showScanProgressUI) { window.showScanProgressUI(); }");
+                    return;
+                }
+
+                IS_SCAN_CANCELLED.store(false, Ordering::SeqCst);
+                window.set_visible(true);
+                window.set_minimized(false);
+                window.set_focus();
+                let _ = webview.evaluate_script("if (window.showScanProgressUI) { window.showScanProgressUI(); }");
+
+                let proxy_scan = proxy.clone();
+                let scanner_arc = if let Ok(c) = core_for_actions.lock() {
+                    Arc::clone(&c.scanner)
+                } else {
+                    IS_SCAN_IN_PROGRESS.store(false, Ordering::SeqCst);
+                    return;
+                };
+
+                std::thread::spawn(move || {
+                    execute_full_scan_loop(proxy_scan, scanner_arc);
+                    IS_SCAN_IN_PROGRESS.store(false, Ordering::SeqCst);
+                });
+            }
+
             Event::UserEvent(CustomUserEvent::TriggerUpdateSignatures) => {
                 let proxy_update = proxy.clone();
                 let core_update = Arc::clone(&core_for_actions);
 
                 std::thread::spawn(move || {
                     if let Ok(c) = core_update.lock() {
-                        if let Ok(mut s) = c.scanner.lock() {
-                            if let Ok(report) = s.update_signatures() {
+                        let res = if let Ok(mut s) = c.scanner.lock() {
+                            s.update_signatures()
+                        } else {
+                            Err(anyhow::anyhow!("El motor de escaneo está ocupado en otra operación."))
+                        };
+
+                        match res {
+                            Ok(report) => {
                                 let _ = proxy_update.send_event(CustomUserEvent::SignaturesUpdated {
                                     total: report.total_signatures,
                                     new_added: report.new_added,
@@ -2256,7 +2773,14 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                                     feed: report.feed_source,
                                 });
                             }
+                            Err(e) => {
+                                let _ = proxy_update.send_event(CustomUserEvent::RealTimeAlert {
+                                    title: "❌ Error de Actualización".to_string(),
+                                    details: format!("No se pudieron descargar ni sincronizar las firmas: {}", e),
+                                });
+                            }
                         }
+
                         let history = c.get_signature_update_history();
                         let _ = proxy_update.send_event(CustomUserEvent::UpdateHistoryLoaded { entries: history });
                     }
@@ -2430,7 +2954,7 @@ fn run_app(app_root: PathBuf) -> Result<()> {
 
             Event::UserEvent(CustomUserEvent::SignaturesUpdated { total, new_added, timestamp, feed }) => {
                 let msg = format!("Se sincronizaron {} firmas activas (+{} nuevas) desde {}.", total, new_added, feed);
-                let title = "✔ Base de Firmas Actualizada";
+                let title = "âœ” Base de Firmas Actualizada";
                 let t_json = serde_json::to_string(&title).unwrap_or_default();
                 let m_json = serde_json::to_string(&msg).unwrap_or_default();
                 let script = format!(
@@ -2504,16 +3028,94 @@ fn run_app(app_root: PathBuf) -> Result<()> {
                 let _ = webview.evaluate_script(&script);
             }
 
+            Event::UserEvent(CustomUserEvent::ScheduledScanConfigLoaded { config }) => {
+                let cfg_json = serde_json::to_string(&config).unwrap_or_else(|_| "{}".to_string());
+                let script = format!(
+                    "if (window.onScheduledScanConfigLoaded) {{ window.onScheduledScanConfigLoaded({}); }}",
+                    cfg_json
+                );
+                let _ = webview.evaluate_script(&script);
+            }
+
+            Event::UserEvent(CustomUserEvent::ScheduledScanCompleted { report }) => {
+                let rep_json = serde_json::to_string(&report).unwrap_or_else(|_| "{}".to_string());
+                let script = format!(
+                    "if (window.onScheduledScanCompleted) {{ window.onScheduledScanCompleted({}); }}",
+                    rep_json
+                );
+                let _ = webview.evaluate_script(&script);
+            }
+
+            Event::UserEvent(CustomUserEvent::WatcherSettingsLoaded { settings }) => {
+                let set_json = serde_json::to_string(&settings).unwrap_or_else(|_| "{}".to_string());
+                let script = format!(
+                    "if (window.onWatcherSettingsLoaded) {{ window.onWatcherSettingsLoaded({}); }}",
+                    set_json
+                );
+                let _ = webview.evaluate_script(&script);
+            }
+
+            Event::UserEvent(CustomUserEvent::SecurityExceptionsLoaded { exceptions }) => {
+                let ex_json = serde_json::to_string(&exceptions).unwrap_or_else(|_| "[]".to_string());
+                let script = format!(
+                    "if (window.renderSecurityExceptions) {{ window.renderSecurityExceptions({}); }}",
+                    ex_json
+                );
+                let _ = webview.evaluate_script(&script);
+            }
+
+            Event::UserEvent(CustomUserEvent::PathSelectedForException { path, name, is_dir, sha256, size }) => {
+                let payload = serde_json::json!({
+                    "path": path,
+                    "name": name,
+                    "is_dir": is_dir,
+                    "sha256": sha256,
+                    "size": size,
+                });
+                let script = format!(
+                    "if (window.onExceptionPathSelected) {{ window.onExceptionPathSelected({}); }}",
+                    serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string())
+                );
+                let _ = webview.evaluate_script(&script);
+            }
+
+            Event::UserEvent(CustomUserEvent::RealtimeTelemetryLoaded { telemetry }) => {
+                let telem_json = serde_json::to_string(&telemetry).unwrap_or_else(|_| "{}".to_string());
+                let script = format!(
+                    "if (window.onRealtimeTelemetryLoaded) {{ window.onRealtimeTelemetryLoaded({}); }}",
+                    telem_json
+                );
+                let _ = webview.evaluate_script(&script);
+            }
+
+            Event::UserEvent(CustomUserEvent::RealtimeDiagnosticReportLoaded { report }) => {
+                let rep_json = serde_json::to_string(&report).unwrap_or_else(|_| "{}".to_string());
+                let script = format!(
+                    "if (window.onRealtimeDiagnosticReportLoaded) {{ window.onRealtimeDiagnosticReportLoaded({}); }}",
+                    rep_json
+                );
+                let _ = webview.evaluate_script(&script);
+            }
+
+            Event::UserEvent(CustomUserEvent::ProtectionHealthLoaded { snapshot }) => {
+                let snap_json = serde_json::to_string(&snapshot).unwrap_or_else(|_| "{}".to_string());
+                let script = format!(
+                    "if (window.onProtectionHealthLoaded) {{ window.onProtectionHealthLoaded({}); }}",
+                    snap_json
+                );
+                let _ = webview.evaluate_script(&script);
+            }
+
             Event::UserEvent(CustomUserEvent::Quit) => {
                 #[cfg(target_os = "windows")]
                 {
                     if !is_running_as_admin() {
-                        let confirmed = request_uac_admin_confirmation("detener la protección de SamuLibre y salir");
+                        let confirmed = request_uac_admin_confirmation("detener la protecciÃ³n de SamuLibre y salir");
                         if !confirmed {
                             log_step("Intento de salida bloqueado: Permisos de Administrador denegados por UAC.");
                             let _ = proxy.send_event(CustomUserEvent::RealTimeAlert {
-                                title: "🛡️ Protección contra Manipulación".to_string(),
-                                details: "Se bloqueó el cierre de SamuLibre. Solo un Administrador del equipo puede detener la protección en tiempo real.".to_string(),
+                                title: "ðŸ›¡ï¸ ProtecciÃ³n contra ManipulaciÃ³n".to_string(),
+                                details: "Se bloqueÃ³ el cierre de SamuLibre. Solo un Administrador del equipo puede detener la protecciÃ³n en tiempo real.".to_string(),
                             });
                             return;
                         }
@@ -2528,7 +3130,7 @@ fn run_app(app_root: PathBuf) -> Result<()> {
             }
 
             // Al hacer clic en la "X" (Cerrar), la ventana se oculta a la bandeja del sistema
-            // sin detener la protección en segundo plano (comportamiento estándar de antivirus)
+            // sin detener la protecciÃ³n en segundo plano (comportamiento estÃ¡ndar de antivirus)
             Event::WindowEvent {
                 event: WindowEvent::CloseRequested,
                 ..
@@ -2553,7 +3155,9 @@ fn scan_paths_parallel(
     let last_ui_update = Arc::new(Mutex::new(std::time::Instant::now()));
     let start_time = std::time::Instant::now();
 
-    let num_cpus = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8);
+    let num_cpus = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(8);
     // Keep CPU cool and leave cores completely free:
     // On 16-core CPU (e.g. Ryzen 9 7940HS), use 5 threads (leaving 11 logical cores 100% idle at 0%).
     let scan_threads = if num_cpus > 8 {
@@ -2580,23 +3184,36 @@ fn scan_paths_parallel(
                 return;
             }
 
-            // Micro-pausa de 150us para permitir descanso térmico al CPU y evitar estrangulamiento
+            // Micro-pausa de 150us para permitir descanso tÃ©rmico al CPU y evitar estrangulamiento
             std::thread::sleep(std::time::Duration::from_micros(150));
 
             let curr_scanned = scanned_count.fetch_add(1, Ordering::Relaxed) + 1;
 
             if let Ok(res) = scanner_arc.scan_file(path) {
-                if res.status == samulibre_types::FileScanStatus::Infected || res.status == samulibre_types::FileScanStatus::Suspicious {
+                if res.status == samulibre_types::FileScanStatus::Infected
+                    || res.status == samulibre_types::FileScanStatus::Suspicious
+                {
                     threats_count.fetch_add(1, Ordering::Relaxed);
-                    let threat_name = res.detection_name.clone().unwrap_or_else(|| "Amenaza.Desconocida".to_string());
-                    let severity = if threat_name.to_lowercase().contains("critical") || threat_name.to_lowercase().contains("wiper") || threat_name.to_lowercase().contains("ransomware") || threat_name.to_lowercase().contains("eicar") {
-                        "Crítica".to_string()
-                    } else if threat_name.to_lowercase().contains("trojan") || threat_name.to_lowercase().contains("exploit") || threat_name.to_lowercase().contains("dropper") {
+                    let threat_name = res
+                        .detection_name
+                        .clone()
+                        .unwrap_or_else(|| "Amenaza.Desconocida".to_string());
+                    let severity = if threat_name.to_lowercase().contains("critical")
+                        || threat_name.to_lowercase().contains("wiper")
+                        || threat_name.to_lowercase().contains("ransomware")
+                        || threat_name.to_lowercase().contains("eicar")
+                    {
+                        "CrÃ­tica".to_string()
+                    } else if threat_name.to_lowercase().contains("trojan")
+                        || threat_name.to_lowercase().contains("exploit")
+                        || threat_name.to_lowercase().contains("dropper")
+                    {
                         "Alta".to_string()
                     } else {
                         "Media".to_string()
                     };
-                    let (origin_source, origin_url, human_explanation, suggested_action) = samulibre_scanner::extract_file_origin_and_story(path, &threat_name);
+                    let (origin_source, origin_url, human_explanation, suggested_action) =
+                        samulibre_scanner::extract_file_origin_and_story(path, &threat_name);
                     let rec = samulibre_types::ThreatRecord {
                         id: uuid::Uuid::new_v4().to_string(),
                         timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
@@ -2630,7 +3247,12 @@ fn scan_paths_parallel(
                 let t_count = threats_count.load(Ordering::Relaxed);
                 let elapsed_sec = start_time.elapsed().as_secs_f64().max(0.01);
                 let speed = (curr_scanned as f64 / elapsed_sec) as usize;
-                let current_label = format!("{} [{} arch/s | {} hilos EcoQoS]", path.file_name().unwrap_or_default().to_string_lossy(), speed, scan_threads);
+                let current_label = format!(
+                    "{} [{} arch/s | {} hilos EcoQoS]",
+                    path.file_name().unwrap_or_default().to_string_lossy(),
+                    speed,
+                    scan_threads
+                );
                 let _ = proxy.send_event(CustomUserEvent::ScanProgress {
                     files_scanned: curr_scanned,
                     current_file: current_label,
@@ -2688,13 +3310,24 @@ fn execute_scan_loop(
         dirs.push(cwd);
     }
 
-    let num_cpus = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8);
-    let scan_threads = if num_cpus > 8 { 5 } else if num_cpus > 4 { num_cpus - 2 } else { 1.max(num_cpus - 1) };
+    let num_cpus = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(8);
+    let scan_threads = if num_cpus > 8 {
+        5
+    } else if num_cpus > 4 {
+        num_cpus - 2
+    } else {
+        1.max(num_cpus - 1)
+    };
     let free_cores = num_cpus.saturating_sub(scan_threads);
 
     let _ = proxy.send_event(CustomUserEvent::ScanProgress {
         files_scanned: 0,
-        current_file: format!("Preparando escaneo EcoQoS ({} hilos activos, {} núcleos libres)...", scan_threads, free_cores),
+        current_file: format!(
+            "Preparando escaneo EcoQoS ({} hilos activos, {} nÃºcleos libres)...",
+            scan_threads, free_cores
+        ),
         threats_found: 0,
         is_done: false,
     });
@@ -2710,9 +3343,9 @@ fn execute_scan_loop(
             .filter_entry(|e| {
                 let name = e.file_name().to_string_lossy();
                 let path_str = e.path().to_string_lossy();
-                !name.starts_with('.') 
-                    && name != "node_modules" 
-                    && name != "target" 
+                !name.starts_with('.')
+                    && name != "node_modules"
+                    && name != "target"
                     && name != "$Recycle.Bin"
                     && !path_str.contains("Antivitus-SamuLibre")
                     && !path_str.contains("quarantine")
@@ -2725,7 +3358,7 @@ fn execute_scan_loop(
                 IS_SCAN_IN_PROGRESS.store(false, Ordering::SeqCst);
                 let _ = proxy.send_event(CustomUserEvent::ScanProgress {
                     files_scanned: 0,
-                    current_file: "Análisis detenido por el usuario.".to_string(),
+                    current_file: "AnÃ¡lisis detenido por el usuario.".to_string(),
                     threats_found: 0,
                     is_done: true,
                 });
@@ -2733,10 +3366,11 @@ fn execute_scan_loop(
             }
             if entry.file_type().is_file() {
                 let p_str = entry.path().to_string_lossy();
-                if p_str.contains("Antivitus-SamuLibre") 
-                    || p_str.contains("quarantine") 
-                    || p_str.contains("threat_history.json") 
-                    || p_str.ends_with(".quarantine") {
+                if p_str.contains("Antivitus-SamuLibre")
+                    || p_str.contains("quarantine")
+                    || p_str.contains("threat_history.json")
+                    || p_str.ends_with(".quarantine")
+                {
                     continue;
                 }
                 candidate_paths.push(entry.into_path());
@@ -2745,13 +3379,18 @@ fn execute_scan_loop(
     }
 
     let scan_start = std::time::Instant::now();
-    let (total_scanned, threats_found, infected_files) = scan_paths_parallel(candidate_paths, scanner_arc, proxy.clone());
+    let (total_scanned, threats_found, infected_files) =
+        scan_paths_parallel(candidate_paths, scanner_arc, proxy.clone());
     let elapsed_ms = scan_start.elapsed().as_millis() as u64;
 
     if !infected_files.is_empty() {
         let mut history = load_threat_history();
         for threat in &infected_files {
-            if !history.iter().any(|h| h.file_path == threat.file_path && h.sha256 == threat.sha256 && h.action_taken == "Pendiente") {
+            if !history.iter().any(|h| {
+                h.file_path == threat.file_path
+                    && h.sha256 == threat.sha256
+                    && h.action_taken == "Pendiente"
+            }) {
                 history.insert(0, threat.clone());
             }
         }
@@ -2774,6 +3413,158 @@ fn execute_scan_loop(
             format!("Escaneo multi-hilo finalizado en {:.2}s. {} amenaza(s) encontradas.", elapsed_ms as f64 / 1000.0, threats_found)
         } else {
             format!("Escaneo multi-hilo finalizado en {:.2}s. 0 amenazas. Sistema completamente limpio.", elapsed_ms as f64 / 1000.0)
+        },
+        threats_found,
+        is_done: true,
+    });
+}
+
+fn execute_full_scan_loop(
+    proxy: EventLoopProxy<CustomUserEvent>,
+    scanner_mutex: Arc<Mutex<samulibre_scanner::MultiEngineScanner>>,
+) {
+    let scanner_arc = if let Ok(s) = scanner_mutex.lock() {
+        Arc::new(s.clone())
+    } else {
+        IS_SCAN_IN_PROGRESS.store(false, Ordering::SeqCst);
+        return;
+    };
+
+    let mut dirs = Vec::new();
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(profile) = std::env::var("USERPROFILE") {
+            dirs.push(PathBuf::from(profile));
+        }
+        if let Ok(sys_drive) = std::env::var("SystemDrive") {
+            dirs.push(PathBuf::from(format!("{}\\", sys_drive)));
+        } else {
+            dirs.push(PathBuf::from("C:\\"));
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        if let Ok(home) = std::env::var("HOME") {
+            dirs.push(PathBuf::from(home));
+        }
+        dirs.push(PathBuf::from("/etc"));
+        dirs.push(PathBuf::from("/usr/bin"));
+        dirs.push(PathBuf::from("/usr/local/bin"));
+        dirs.push(PathBuf::from("/var/log"));
+        dirs.push(PathBuf::from("/tmp"));
+        dirs.push(PathBuf::from("/dev/shm"));
+    }
+
+    let num_cpus = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(8);
+    let scan_threads = if num_cpus > 8 {
+        6
+    } else if num_cpus > 4 {
+        num_cpus - 1
+    } else {
+        1.max(num_cpus)
+    };
+    let free_cores = num_cpus.saturating_sub(scan_threads);
+
+    let _ = proxy.send_event(CustomUserEvent::ScanProgress {
+        files_scanned: 0,
+        current_file: format!(
+            "Preparando Escaneo Completo ({} hilos activos, {} nÃºcleos libres)...",
+            scan_threads, free_cores
+        ),
+        threats_found: 0,
+        is_done: false,
+    });
+
+    let mut candidate_paths = Vec::new();
+    for dir in dirs {
+        if !dir.exists() {
+            continue;
+        }
+        for entry in WalkDir::new(&dir)
+            .max_depth(30)
+            .into_iter()
+            .filter_entry(|e| {
+                let name = e.file_name().to_string_lossy();
+                let path_str = e.path().to_string_lossy();
+                !name.starts_with('.')
+                    && name != "node_modules"
+                    && name != "target"
+                    && name != "$Recycle.Bin"
+                    && !path_str.contains("Antivitus-SamuLibre")
+                    && !path_str.contains("quarantine")
+                    && !path_str.contains("threat_history.json")
+                    && !path_str.contains("exclusions.json")
+                    && !path_str.contains("\\Windows\\WinSxS")
+            })
+            .filter_map(|e| e.ok())
+        {
+            if IS_SCAN_CANCELLED.load(Ordering::Relaxed) {
+                let _ = proxy.send_event(CustomUserEvent::ScanProgress {
+                    files_scanned: 0,
+                    current_file: "AnÃ¡lisis completo detenido por el usuario.".to_string(),
+                    threats_found: 0,
+                    is_done: true,
+                });
+                return;
+            }
+            if entry.file_type().is_file() {
+                let p_str = entry.path().to_string_lossy();
+                if p_str.contains("Antivitus-SamuLibre")
+                    || p_str.contains("quarantine")
+                    || p_str.contains("threat_history.json")
+                    || p_str.ends_with(".quarantine")
+                {
+                    continue;
+                }
+                candidate_paths.push(entry.into_path());
+            }
+        }
+    }
+
+    let scan_start = std::time::Instant::now();
+    let (total_scanned, threats_found, infected_files) =
+        scan_paths_parallel(candidate_paths, scanner_arc, proxy.clone());
+    let elapsed_ms = scan_start.elapsed().as_millis() as u64;
+
+    if !infected_files.is_empty() {
+        let mut history = load_threat_history();
+        for threat in &infected_files {
+            if !history.iter().any(|h| {
+                h.file_path == threat.file_path
+                    && h.sha256 == threat.sha256
+                    && h.action_taken == "Pendiente"
+            }) {
+                history.insert(0, threat.clone());
+            }
+        }
+        save_threat_history(&history);
+        let _ = proxy.send_event(CustomUserEvent::ThreatHistoryLoaded { history });
+    }
+
+    IS_SCAN_IN_PROGRESS.store(false, Ordering::SeqCst);
+
+    let _ = proxy.send_event(CustomUserEvent::ScanCompleted {
+        files_scanned: total_scanned,
+        threats_found,
+        elapsed_ms,
+        infected_files: infected_files.clone(),
+    });
+
+    let _ = proxy.send_event(CustomUserEvent::ScanProgress {
+        files_scanned: total_scanned,
+        current_file: if threats_found > 0 {
+            format!(
+                "Escaneo completo finalizado en {:.2}s. {} amenaza(s) encontradas.",
+                elapsed_ms as f64 / 1000.0,
+                threats_found
+            )
+        } else {
+            format!(
+                "Escaneo completo finalizado en {:.2}s. 0 amenazas. Sistema completamente limpio.",
+                elapsed_ms as f64 / 1000.0
+            )
         },
         threats_found,
         is_done: true,

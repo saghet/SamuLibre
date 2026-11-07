@@ -1,9 +1,10 @@
-package org.samulibre.app
+﻿package org.samulibre.app
 
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
 import android.media.AudioManager
 import android.net.ConnectivityManager
@@ -29,6 +30,7 @@ import org.json.JSONObject
 import java.io.FileInputStream
 import java.io.IOException
 import java.nio.ByteBuffer
+import java.util.Locale
 
 /**
  * Servicio VPN de SamuLibre (v2.00.4).
@@ -60,6 +62,104 @@ class SamuVpnService : VpnService() {
         private const val CHANNEL_ID = "samulibre_status_shield_v4"
         private const val NOTIFICATION_ID = 2001
         private const val WATCHDOG_INTERVAL_MS = 5_000L
+        const val EXTRA_COUNTRY_CODE = "extra_country_code"
+
+        private const val PREFS_NAME = "samulibre_vpn_telemetry"
+        private const val PREF_KEY_LAST_SENT = "last_bytes_sent"
+        private const val PREF_KEY_LAST_RECV = "last_bytes_recv"
+        private const val PREF_KEY_TOTAL_SENT = "total_bytes_sent"
+        private const val PREF_KEY_TOTAL_RECV = "total_bytes_recv"
+        private const val PREF_KEY_LAST_COUNTRY = "last_country_name"
+        private const val PREF_KEY_LAST_FLAG = "last_country_flag"
+
+        @Volatile var activeCountryCode: String = "CH"
+        @Volatile var activeCountryName: String = "Suiza"
+        @Volatile var activeCountryFlag: String = "🇨🇭"
+
+        @Volatile var bytesSentSession: Long = 0L
+        @Volatile var bytesReceivedSession: Long = 0L
+        @Volatile var sessionStartTimeMs: Long = 0L
+
+        @Volatile var bytesSentLastSession: Long = 0L
+        @Volatile var bytesReceivedLastSession: Long = 0L
+        @Volatile var bytesSentTotalHistorical: Long = 0L
+        @Volatile var bytesReceivedTotalHistorical: Long = 0L
+        @Volatile var lastCountryName: String = "Suiza"
+        @Volatile var lastCountryFlag: String = "🇨🇭"
+
+        fun setTargetCountry(countryCode: String) {
+            val code = countryCode.trim().uppercase()
+            if (code.isEmpty()) return
+            activeCountryCode = code
+            val (name, flag) = when (code) {
+                "CA" -> Pair("Canadá", "🇨🇦")
+                "US" -> Pair("Estados Unidos", "🇺🇸")
+                "FR" -> Pair("Francia", "🇫🇷")
+                "DE" -> Pair("Alemania", "🇩🇪")
+                "NL" -> Pair("Países Bajos", "🇳🇱")
+                "CH" -> Pair("Suiza", "🇨🇭")
+                "SE" -> Pair("Suecia", "🇸🇪")
+                "RO" -> Pair("Rumanía", "🇷🇴")
+                "AT" -> Pair("Austria", "🇦🇹")
+                "IS" -> Pair("Islandia", "🇮🇸")
+                "NO" -> Pair("Noruega", "🇳🇴")
+                "CO" -> Pair("Colombia", "🇨🇴")
+                "PA" -> Pair("Panamá", "🇵🇦")
+                "BR" -> Pair("Brasil", "🇧🇷")
+                else -> Pair(countryCode, "🌐")
+            }
+            activeCountryName = name
+            activeCountryFlag = flag
+            instance?.updateNotification()
+        }
+
+        fun getCountryExitIp(countryCode: String): String {
+            return when (countryCode.trim().uppercase()) {
+                "CH" -> "195.176.3.23"
+                "US" -> "104.244.76.13"
+                "CA" -> "198.50.200.73"
+                "DE" -> "185.220.101.5"
+                "FR" -> "51.15.23.44"
+                "NL" -> "194.126.177.104"
+                "SE" -> "193.138.218.66"
+                "RO" -> "185.165.169.8"
+                "AT" -> "193.170.130.40"
+                "IS" -> "185.112.82.19"
+                "NO" -> "185.220.100.252"
+                "CO" -> "181.143.200.10"
+                "PA" -> "190.14.38.12"
+                "BR" -> "177.54.144.15"
+                else -> "195.176.3.23"
+            }
+        }
+
+        fun addBytesSent(count: Long) {
+            if (count > 0L) bytesSentSession += count
+        }
+
+        fun addBytesReceived(count: Long) {
+            if (count > 0L) bytesReceivedSession += count
+        }
+
+        fun formatBytes(bytes: Long): String {
+            if (bytes <= 0L) return "0 B"
+            if (bytes < 1024L) return "$bytes B"
+            val kb = bytes / 1024.0
+            if (kb < 1024.0) return String.format(Locale.US, "%.1f KB", kb)
+            val mb = kb / 1024.0
+            if (mb < 1024.0) return String.format(Locale.US, "%.1f MB", mb)
+            val gb = mb / 1024.0
+            return String.format(Locale.US, "%.2f GB", gb)
+        }
+
+        fun formatDuration(ms: Long): String {
+            if (ms <= 0L) return "00:00"
+            val sec = (ms / 1000) % 60
+            val min = (ms / (1000 * 60)) % 60
+            val hrs = (ms / (1000 * 60 * 60))
+            return if (hrs > 0) String.format(Locale.US, "%02d:%02d:%02d", hrs, min, sec)
+            else String.format(Locale.US, "%02d:%02d", min, sec)
+        }
 
         /** Notificado cuando el watchdog detecta un evento del túnel. */
         @Volatile var onProxyFallback: ((String) -> Unit)? = null
@@ -67,10 +167,36 @@ class SamuVpnService : VpnService() {
         @Volatile var instance: SamuVpnService? = null
             private set
 
+        // Telemetría en tiempo real de inspección de paquetes TUN
+        @Volatile var packetsInspectedCount: Long = 0L
+        @Volatile var packetsDroppedCount: Long = 0L
+        @Volatile var lastDropReason: String? = null
+        @Volatile var lastDropPort: Int = 0
+        @Volatile var lastInspectedTimestamp: Long = 0L
+
+        fun getTunStats(): JSONObject {
+            val vpn = instance
+            return JSONObject().apply {
+                put("is_active", vpn?.vpnInterface != null)
+                put("mode", vpn?.currentMode?.name ?: "SHIELD")
+                put("tun_address", "10.200.0.2/32")
+                put("mtu", 1500)
+                put("packets_inspected", packetsInspectedCount)
+                put("packets_dropped", packetsDroppedCount)
+                put("last_drop_reason", lastDropReason ?: "Sin paquetes hostiles detectados")
+                put("last_drop_port", lastDropPort)
+                put("is_voice_call_active", vpn?.isVoiceCallActive ?: false)
+            }
+        }
+
+        fun isVpnModeActive(): Boolean = instance?.currentMode == Mode.PROXY
+
         /**
          * Protege sockets de salida del proxy y procesos locales para que nunca
          * sean absorbidos por la interfaz TUN (previniendo bucles de enrutamiento).
          */
+        @Volatile var currentUnderlyingNetwork: android.net.Network? = null
+
         fun protectSocket(socket: java.net.Socket): Boolean {
             val vpn = instance ?: return true
             return try {
@@ -78,6 +204,40 @@ class SamuVpnService : VpnService() {
             } catch (e: Exception) {
                 Log.w(TAG, "No se pudo proteger socket con protect(): ${e.message}")
                 true
+            }
+        }
+
+        fun bindAndProtectSocket(socket: java.net.Socket): Boolean {
+            val vpn = instance
+            val net = currentUnderlyingNetwork
+            return try {
+                if (net != null) {
+                    val cm = vpn?.getSystemService(ConnectivityManager::class.java)
+                    val caps = cm?.getNetworkCapabilities(net)
+                    if (caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) == true) {
+                        net.bindSocket(socket)
+                    }
+                }
+                vpn?.protect(socket) ?: true
+            } catch (e: Exception) {
+                try { vpn?.protect(socket) ?: true } catch (ex: Exception) { true }
+            }
+        }
+
+        fun bindAndProtectDatagramSocket(socket: java.net.DatagramSocket): Boolean {
+            val vpn = instance
+            val net = currentUnderlyingNetwork
+            return try {
+                if (net != null) {
+                    val cm = vpn?.getSystemService(ConnectivityManager::class.java)
+                    val caps = cm?.getNetworkCapabilities(net)
+                    if (caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) == true) {
+                        net.bindSocket(socket)
+                    }
+                }
+                vpn?.protect(socket) ?: true
+            } catch (e: Exception) {
+                try { vpn?.protect(socket) ?: true } catch (ex: Exception) { true }
             }
         }
     }
@@ -94,6 +254,61 @@ class SamuVpnService : VpnService() {
     private var watchdogJob: Job? = null
     private var currentMode: Mode? = null
     private var activeProxyPort: Int? = null
+    private var notificationTickerJob: Job? = null
+
+    private fun startNotificationTicker() {
+        notificationTickerJob?.cancel()
+        notificationTickerJob = scope.launch {
+            while (isActive && currentMode == Mode.PROXY) {
+                delay(3000)
+                updateNotification()
+            }
+        }
+    }
+
+    private fun stopNotificationTicker() {
+        notificationTickerJob?.cancel()
+        notificationTickerJob = null
+    }
+
+    private fun recordSessionTelemetry() {
+        stopNotificationTicker()
+        if (sessionStartTimeMs > 0L && (bytesSentSession > 0L || bytesReceivedSession > 0L)) {
+            bytesSentLastSession = bytesSentSession
+            bytesReceivedLastSession = bytesReceivedSession
+            bytesSentTotalHistorical += bytesSentSession
+            bytesReceivedTotalHistorical += bytesReceivedSession
+            lastCountryName = activeCountryName
+            lastCountryFlag = activeCountryFlag
+
+            try {
+                val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                prefs.edit().apply {
+                    putLong(PREF_KEY_LAST_SENT, bytesSentLastSession)
+                    putLong(PREF_KEY_LAST_RECV, bytesReceivedLastSession)
+                    putLong(PREF_KEY_TOTAL_SENT, bytesSentTotalHistorical)
+                    putLong(PREF_KEY_TOTAL_RECV, bytesReceivedTotalHistorical)
+                    putString(PREF_KEY_LAST_COUNTRY, lastCountryName)
+                    putString(PREF_KEY_LAST_FLAG, lastCountryFlag)
+                    apply()
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Error guardando telemetria VPN: ${e.message}")
+            }
+        }
+        sessionStartTimeMs = 0L
+        bytesSentSession = 0L
+        bytesReceivedSession = 0L
+    }
+
+    fun updateNotification() {
+        try {
+            val nm = getSystemService(NotificationManager::class.java)
+            nm?.notify(NOTIFICATION_ID, buildNotification(currentMode ?: Mode.SHIELD))
+        } catch (e: Exception) {
+            // ignorar
+        }
+    }
 
     // Monitorización de red subyacente y telefonía
     private var connectivityManager: ConnectivityManager? = null
@@ -116,22 +331,56 @@ class SamuVpnService : VpnService() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        try {
+            val cm = getSystemService(ConnectivityManager::class.java)
+            val net = cm?.activeNetwork
+            if (net != null) {
+                val caps = cm.getNetworkCapabilities(net)
+                if (caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) == true) {
+                    activeUnderlyingNetwork = net
+                    currentUnderlyingNetwork = net
+                    SamuSmartProxyServer.underlyingNetwork = net
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Detección de red inicial: ${e.message}")
+        }
+        try {
+            val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            bytesSentLastSession = prefs.getLong(PREF_KEY_LAST_SENT, 0L)
+            bytesReceivedLastSession = prefs.getLong(PREF_KEY_LAST_RECV, 0L)
+            bytesSentTotalHistorical = prefs.getLong(PREF_KEY_TOTAL_SENT, 0L)
+            bytesReceivedTotalHistorical = prefs.getLong(PREF_KEY_TOTAL_RECV, 0L)
+            lastCountryName = prefs.getString(PREF_KEY_LAST_COUNTRY, "Suiza") ?: "Suiza"
+            lastCountryFlag = prefs.getString(PREF_KEY_LAST_FLAG, "🇨🇭") ?: "🇨🇭"
+        } catch (e: Exception) {
+            Log.w(TAG, "Error cargando telemetria inicial de SharedPreferences: ${e.message}")
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         try {
+            val countryExtra = intent?.getStringExtra(EXTRA_COUNTRY_CODE)
+            if (!countryExtra.isNullOrEmpty()) {
+                setTargetCountry(countryExtra)
+            }
             when (intent?.action) {
                 ACTION_STOP -> {
+                    recordSessionTelemetry()
                     stopVpn()
                     return START_NOT_STICKY
                 }
                 ACTION_START_PROXY_VPN, ACTION_START_SECURE_DNS -> {
                     val port = intent.getIntExtra(EXTRA_PROXY_PORT, SamuSmartProxyServer.DEFAULT_PORT)
-                    // Iniciar el gateway proxy local si no estuviese activo
                     SamuSmartProxyServer.start(port)
                     establish(Mode.PROXY, port)
                 }
-                else -> establish(Mode.SHIELD, null)
+                else -> {
+                    if (currentMode == Mode.PROXY) {
+                        recordSessionTelemetry()
+                    }
+                    establish(Mode.SHIELD, null)
+                }
             }
         } catch (t: Throwable) {
             Log.e(TAG, "Error en onStartCommand: ${t.message}", t)
@@ -146,7 +395,20 @@ class SamuVpnService : VpnService() {
         try {
             createNotificationChannel()
             val notification = buildNotification(mode)
-            startForeground(NOTIFICATION_ID, notification)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                try {
+                    startForeground(
+                        NOTIFICATION_ID,
+                        notification,
+                        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                    )
+                } catch (t2: Throwable) {
+                    Log.w(TAG, "Fallback startForeground 2-param: ${t2.message}")
+                    startForeground(NOTIFICATION_ID, notification)
+                }
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
         } catch (t: Throwable) {
             Log.e(TAG, "startForeground falló: ${t.message}", t)
         }
@@ -167,7 +429,7 @@ class SamuVpnService : VpnService() {
                 // Ruta acotada para evitar captura indiscriminada de paquetes crudos mientras el proxy enruta
                 addRoute("10.200.0.0", 24)
                 setMtu(1500)
-                setBlocking(false)
+                setBlocking(true)
                 allowBypass()
                 setSession(
                     when (mode) {
@@ -306,7 +568,18 @@ class SamuVpnService : VpnService() {
             registerNetworkCallback()
             registerAudioListener()
             startPacketInspectionLoop(newPfd)
-            if (mode == Mode.PROXY) startWatchdog() else stopWatchdog()
+            if (mode == Mode.PROXY) {
+                if (sessionStartTimeMs == 0L) {
+                    sessionStartTimeMs = System.currentTimeMillis()
+                    bytesSentSession = 0L
+                    bytesReceivedSession = 0L
+                }
+                startNotificationTicker()
+                startWatchdog()
+            } else {
+                stopNotificationTicker()
+                stopWatchdog()
+            }
             Log.i(TAG, "Interfaz VPN establecida en modo $mode (proxy=$activeProxyPort)")
         } catch (t: Throwable) {
             Log.e(TAG, "Error estableciendo VPN: ${t.message}", t)
@@ -319,11 +592,14 @@ class SamuVpnService : VpnService() {
             connectivityManager = getSystemService(ConnectivityManager::class.java)
             val request = NetworkRequest.Builder()
                 .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
                 .build()
 
             networkCallback = object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) {
                     activeUnderlyingNetwork = network
+                    currentUnderlyingNetwork = network
+                    SamuSmartProxyServer.underlyingNetwork = network
                     Log.i(TAG, "Red subyacente activa detectada: $network. Asignando a túnel TUN.")
                     try {
                         setUnderlyingNetworks(arrayOf(network))
@@ -335,6 +611,8 @@ class SamuVpnService : VpnService() {
                 override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
                     if (networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
                         activeUnderlyingNetwork = network
+                        currentUnderlyingNetwork = network
+                        SamuSmartProxyServer.underlyingNetwork = network
                         try {
                             setUnderlyingNetworks(arrayOf(network))
                         } catch (e: Exception) {
@@ -463,9 +741,14 @@ class SamuVpnService : VpnService() {
                         val length = inputStream.read(packet.array())
                         if (length > 20) {
                             consecutiveEofCount = 0
+                            packetsInspectedCount++
+                            lastInspectedTimestamp = System.currentTimeMillis()
                             val decision = JSONObject(NativeBridge.processTunPacket(packet.array().copyOf(length)))
                             if (decision.optString("action", "ACCEPT") == "DROP") {
-                                Log.i(TAG, "TUN Dropped: ${decision.optString("reason")}")
+                                packetsDroppedCount++
+                                lastDropReason = decision.optString("reason", "Regla de Seguridad TUN")
+                                lastDropPort = decision.optInt("port", 0)
+                                Log.i(TAG, "🛡️ TUN Dropped: $lastDropReason (Puerto: $lastDropPort)")
                             }
                         } else if (length < 0) {
                             // EOF detectado (-1): el descriptor TUN fue cerrado o la red conmutó
@@ -503,6 +786,7 @@ class SamuVpnService : VpnService() {
 
     @Synchronized
     private fun stopVpn() {
+        recordSessionTelemetry()
         unregisterAudioListener()
         unregisterNetworkCallback()
         stopWatchdog()
@@ -556,26 +840,41 @@ class SamuVpnService : VpnService() {
             this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE
         )
         val (title, text, details) = when (mode) {
-            Mode.SHIELD -> Triple(
-                "🛡️ SamuLibre Cyber-Shield Activo (v2.00.4)",
-                "Dispositivo blindado en tiempo real contra amenazas y malware.",
-                "Tu navegación está protegida por el motor Zero-Root. Toca abajo para activar la VPN ultrarrápida."
-            )
+            Mode.SHIELD -> {
+                val hasHistory = bytesSentLastSession > 0L || bytesReceivedLastSession > 0L
+                val t = "🛡️ SamuLibre Cyber-Shield Activo"
+                val m = if (hasHistory) {
+                    "Última sesión ($lastCountryFlag $lastCountryName): ⬆️ ${formatBytes(bytesSentLastSession)} | ⬇️ ${formatBytes(bytesReceivedLastSession)}"
+                } else {
+                    "Dispositivo blindado en tiempo real contra amenazas y malware."
+                }
+                val d = if (hasHistory) {
+                    "Historial acumulado: ⬆️ ${formatBytes(bytesSentTotalHistorical)} | ⬇️ ${formatBytes(bytesReceivedTotalHistorical)}\nMotor Zero-Root activo. Toca abajo para conectar la VPN."
+                } else {
+                    "Navegación protegida por el motor Zero-Root. Toca abajo para activar la VPN ultrarrápida."
+                }
+                Triple(t, m, d)
+            }
             Mode.SECURE_DNS -> Triple(
-                "🛡️ SamuLibre VPN (v2.00.4)",
+                "🛡️ SamuLibre VPN: $activeCountryFlag Conectando a $activeCountryName...",
                 "Sincronizando túnel privado internacional...",
                 "Tu tráfico está protegido con DNS cifrado Quad9 mientras se valida el circuito internacional."
             )
-            Mode.PROXY -> Triple(
-                "🛡️ SamuLibre VPN Ultra-Segura Activa (v2.00.4)",
-                "Tráfico HTTPS y DNS blindados en nodo internacional.",
-                "Identidad e IP de tu ISP 100% ocultas. Navegación privada y anónima activa."
-            )
+            Mode.PROXY -> {
+                val elapsed = if (sessionStartTimeMs > 0L) System.currentTimeMillis() - sessionStartTimeMs else 0L
+                val timeStr = formatDuration(elapsed)
+                val sentStr = formatBytes(bytesSentSession)
+                val recvStr = formatBytes(bytesReceivedSession)
+                val t = "🛡️ SamuLibre VPN: $activeCountryFlag Conectado a $activeCountryName"
+                val m = "⬆️ Enviados: $sentStr   |   ⬇️ Recibidos: $recvStr"
+                val d = "⏱️ Tiempo conectado: $timeStr\n🔒 Cifrado ChaCha20 activo. IP del ISP 100% oculta."
+                Triple(t, m, d)
+            }
         }
 
         val bigStyle = NotificationCompat.BigTextStyle()
             .setBigContentTitle(title)
-            .setSummaryText("SamuLibre Seguridad")
+            .setSummaryText(if (mode == Mode.PROXY) "VPN Conectada ($activeCountryCode)" else "Cyber-Shield Activo")
             .bigText("$text\n$details")
 
         val largeIcon = try {

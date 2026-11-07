@@ -326,6 +326,26 @@ impl VirtualPatcher {
                 status_reason: None,
             },
             VirtualPatchRule {
+                id: "VP-AND-2024-0030".to_string(),
+                cve: "CVE-2024-0030".to_string(),
+                title: "Android Bluetooth Host Stack Arbitrary Code Execution".to_string(),
+                description: "Corrupción de memoria en el stack de Bluetooth que permite a atacantes remotos dentro del rango de radio ejecutar código con privilegios de sistema.".to_string(),
+                severity: Severity::Critical,
+                target_component: "system/bt/stack".to_string(),
+                required_kb: vec!["2024-03-01".to_string()],
+                strategy: MitigationStrategy::AndroidTunPacketFilter {
+                    filter_name: "SamuLibre_ASB_CVE-2024-0030_BtStack".to_string(),
+                    port: 0,
+                    protocol: "L2CAP".to_string(),
+                    block_c2_domains: vec![],
+                },
+                status: PatchStatus::Unmitigated,
+                detected_at: None,
+                patched_at: None,
+                unpatched_at: None,
+                status_reason: None,
+            },
+            VirtualPatchRule {
                 id: "VP-AND-2022-0847".to_string(),
                 cve: "CVE-2022-0847".to_string(),
                 title: "Dirty Pipe: Linux Kernel Arbitrary Read-Only File Overwrite".to_string(),
@@ -336,6 +356,78 @@ impl VirtualPatcher {
                 strategy: MitigationStrategy::BehavioralBlock {
                     target_process: "app_process".to_string(),
                     forbidden_call: "splice_pipe_overwrite".to_string(),
+                },
+                status: PatchStatus::Unmitigated,
+                detected_at: None,
+                patched_at: None,
+                unpatched_at: None,
+                status_reason: None,
+            },
+            VirtualPatchRule {
+                id: "VP-AND-2022-38181".to_string(),
+                cve: "CVE-2022-38181".to_string(),
+                title: "ARM Mali GPU Driver Arbitrary Kernel Code Execution (Exynos / Tab S6 Lite)".to_string(),
+                description: "Fallo de Use-After-Free en el driver GPU Mali (chips Exynos 9611 como Galaxy Tab S6 Lite) que permite a cualquier app no privilegiada ejecutar código en kernel.".to_string(),
+                severity: Severity::Critical,
+                target_component: "drivers/gpu/arm/midgard (mali0)".to_string(),
+                required_kb: vec!["2022-11-01".to_string()],
+                strategy: MitigationStrategy::BehavioralBlock {
+                    target_process: "/dev/mali0".to_string(),
+                    forbidden_call: "mali_kbase_gpu_mmap_uaf".to_string(),
+                },
+                status: PatchStatus::Unmitigated,
+                detected_at: None,
+                patched_at: None,
+                unpatched_at: None,
+                status_reason: None,
+            },
+            VirtualPatchRule {
+                id: "VP-AND-2023-26083".to_string(),
+                cve: "CVE-2023-26083".to_string(),
+                title: "ARM Mali Bifrost GPU Memory Leak & Physical Address Disclosure".to_string(),
+                description: "Vulnerabilidad en drivers GPU Mali Bifrost que permite fuga de direcciones físicas y bypass de KASLR en dispositivos Samsung y Xiaomi.".to_string(),
+                severity: Severity::High,
+                target_component: "drivers/gpu/arm/bifrost".to_string(),
+                required_kb: vec!["2023-04-01".to_string()],
+                strategy: MitigationStrategy::BehavioralBlock {
+                    target_process: "/dev/mali0".to_string(),
+                    forbidden_call: "mali_mem_alloc_leak_guard".to_string(),
+                },
+                status: PatchStatus::Unmitigated,
+                detected_at: None,
+                patched_at: None,
+                unpatched_at: None,
+                status_reason: None,
+            },
+            VirtualPatchRule {
+                id: "VP-AND-2023-4863".to_string(),
+                cve: "CVE-2023-4863".to_string(),
+                title: "libwebp / MediaFramework Heap Buffer Overflow Remote Code Execution".to_string(),
+                description: "Desbordamiento de búfer en decodificador WebP que permite ejecución remota de código al procesar imágenes maliciosas en navegadores y mensajería.".to_string(),
+                severity: Severity::Critical,
+                target_component: "frameworks/av (libstagefright / libwebp)".to_string(),
+                required_kb: vec!["2023-10-01".to_string()],
+                strategy: MitigationStrategy::BehavioralBlock {
+                    target_process: "media.extractor".to_string(),
+                    forbidden_call: "webp_huffman_overflow_shield".to_string(),
+                },
+                status: PatchStatus::Unmitigated,
+                detected_at: None,
+                patched_at: None,
+                unpatched_at: None,
+                status_reason: None,
+            },
+            VirtualPatchRule {
+                id: "VP-AND-2023-21250".to_string(),
+                cve: "CVE-2023-21250".to_string(),
+                title: "MediaFramework libstagefright Arbitrary Code Execution".to_string(),
+                description: "Vulnerabilidad en el framework de medios de Android que permite ejecución de código remoto sin privilegios mediante archivos multimedia con metadatos manipulados.".to_string(),
+                severity: Severity::Critical,
+                target_component: "frameworks/av/media/libstagefright".to_string(),
+                required_kb: vec!["2023-07-01".to_string()],
+                strategy: MitigationStrategy::BehavioralBlock {
+                    target_process: "media.codec".to_string(),
+                    forbidden_call: "stagefright_mp4_atom_guard".to_string(),
                 },
                 status: PatchStatus::Unmitigated,
                 detected_at: None,
@@ -399,6 +491,42 @@ impl VirtualPatcher {
                 status_reason: None,
             },
             VirtualPatchRule {
+                id: "VP-AND-2023-33107".to_string(),
+                cve: "CVE-2023-33107".to_string(),
+                title: "Qualcomm Adreno GPU / KGSL Memory Corruption Privilege Escalation".to_string(),
+                description: "Corrupción de memoria en el driver KGSL de procesadores Snapdragon que permite escalada a privilegios de kernel en dispositivos Xiaomi, Motorola y Samsung.".to_string(),
+                severity: Severity::Critical,
+                target_component: "drivers/gpu/msm (kgsl-3d0)".to_string(),
+                required_kb: vec!["2023-10-01".to_string()],
+                strategy: MitigationStrategy::BehavioralBlock {
+                    target_process: "/dev/kgsl-3d0".to_string(),
+                    forbidden_call: "kgsl_ioctl_bounds_check".to_string(),
+                },
+                status: PatchStatus::Unmitigated,
+                detected_at: None,
+                patched_at: None,
+                unpatched_at: None,
+                status_reason: None,
+            },
+            VirtualPatchRule {
+                id: "VP-AND-2019-2215".to_string(),
+                cve: "CVE-2019-2215".to_string(),
+                title: "BadBinder: Android Binder Kernel Use-After-Free Privilege Escalation".to_string(),
+                description: "UAF en el subsistema IPC Binder de Linux que permite a malware local obtener privilegios de root sin interacción del usuario.".to_string(),
+                severity: Severity::Critical,
+                target_component: "drivers/android/binder.c".to_string(),
+                required_kb: vec!["2019-10-01".to_string()],
+                strategy: MitigationStrategy::BehavioralBlock {
+                    target_process: "/dev/binder".to_string(),
+                    forbidden_call: "binder_poll_uaf_guard".to_string(),
+                },
+                status: PatchStatus::Unmitigated,
+                detected_at: None,
+                patched_at: None,
+                unpatched_at: None,
+                status_reason: None,
+            },
+            VirtualPatchRule {
                 id: "VP-AND-ADB-5555".to_string(),
                 cve: "CVE-2018-2018".to_string(),
                 title: "Android Debug Bridge (ADB) Exposed Over Wi-Fi Network Port 5555".to_string(),
@@ -411,6 +539,80 @@ impl VirtualPatcher {
                     port: 5555,
                     protocol: "TCP".to_string(),
                     block_c2_domains: vec![],
+                },
+                status: PatchStatus::Unmitigated,
+                detected_at: None,
+                patched_at: None,
+                unpatched_at: None,
+                status_reason: None,
+            },
+            VirtualPatchRule {
+                id: "VP-AND-2024-21461".to_string(),
+                cve: "CVE-2024-21461".to_string(),
+                title: "Qualcomm Adreno KGSL Display Driver Memory Corruption (Honor Magic5 Lite / Snapdragon)".to_string(),
+                description: "Fallo de memoria en el subsistema de gráficos Adreno de Qualcomm reportado como explotado activamente para escalamiento de privilegios.".to_string(),
+                severity: Severity::Critical,
+                target_component: "drivers/gpu/msm/kgsl (Adreno 619)".to_string(),
+                required_kb: vec!["2024-05-01".to_string()],
+                strategy: MitigationStrategy::BehavioralBlock {
+                    target_process: "/dev/kgsl-3d0".to_string(),
+                    forbidden_call: "kgsl_sharedmem_bounds_check".to_string(),
+                },
+                status: PatchStatus::Unmitigated,
+                detected_at: None,
+                patched_at: None,
+                unpatched_at: None,
+                status_reason: None,
+            },
+            VirtualPatchRule {
+                id: "VP-AND-2024-33066".to_string(),
+                cve: "CVE-2024-33066".to_string(),
+                title: "Qualcomm WLAN Wi-Fi Driver Remote Firmware Buffer Overflow RCE".to_string(),
+                description: "Desbordamiento de búfer en firmware Wi-Fi de chips Qualcomm que permite ejecución remota de código sin autenticación vía paquetes de baliza (beacon).".to_string(),
+                severity: Severity::Critical,
+                target_component: "drivers/net/wireless/qualcomm".to_string(),
+                required_kb: vec!["2024-07-01".to_string()],
+                strategy: MitigationStrategy::AndroidTunPacketFilter {
+                    filter_name: "SamuLibre_Qcom_Wlan_BufferGuard".to_string(),
+                    port: 0,
+                    protocol: "WLAN/802.11".to_string(),
+                    block_c2_domains: vec![],
+                },
+                status: PatchStatus::Unmitigated,
+                detected_at: None,
+                patched_at: None,
+                unpatched_at: None,
+                status_reason: None,
+            },
+            VirtualPatchRule {
+                id: "VP-AND-2023-20963".to_string(),
+                cve: "CVE-2023-20963".to_string(),
+                title: "Android Framework WorkSource Parcel Memory Corruption EoP (MagicOS / Android)".to_string(),
+                description: "Fallo de serialización parcel en WorkSource que permite a malware local obtener privilegios de SYSTEM sin interacción del usuario.".to_string(),
+                severity: Severity::High,
+                target_component: "frameworks/base/core/java/android/os/WorkSource".to_string(),
+                required_kb: vec!["2023-03-01".to_string()],
+                strategy: MitigationStrategy::BehavioralBlock {
+                    target_process: "system_server".to_string(),
+                    forbidden_call: "worksource_parcel_overflow_filter".to_string(),
+                },
+                status: PatchStatus::Unmitigated,
+                detected_at: None,
+                patched_at: None,
+                unpatched_at: None,
+                status_reason: None,
+            },
+            VirtualPatchRule {
+                id: "VP-AND-2023-33063".to_string(),
+                cve: "CVE-2023-33063".to_string(),
+                title: "Qualcomm DSP Compute & Multimedia Driver Memory Corruption".to_string(),
+                description: "Vulnerabilidad en drivers de cómputo DSP de procesadores Snapdragon que permite ejecución arbitraria en contexto privilegiado de hardware.".to_string(),
+                severity: Severity::High,
+                target_component: "drivers/soc/qcom/dsp".to_string(),
+                required_kb: vec!["2023-11-01".to_string()],
+                strategy: MitigationStrategy::BehavioralBlock {
+                    target_process: "/dev/adsprpc-smd".to_string(),
+                    forbidden_call: "adsprpc_ioctl_filter".to_string(),
                 },
                 status: PatchStatus::Unmitigated,
                 detected_at: None,
@@ -434,12 +636,69 @@ impl VirtualPatcher {
                 virtual_mitigation_available: true,
             },
             AndroidBulletinAdvisory {
+                asb_id: "ASB-2024-07".to_string(),
+                title: "Android Security Bulletin July 2024 (Qualcomm Wi-Fi RCE)".to_string(),
+                release_date: "2024-07-01".to_string(),
+                cves: vec!["CVE-2024-33066".to_string()],
+                affected_component: "Qualcomm WLAN / Kernel".to_string(),
+                min_patch_level_required: "2024-07-01".to_string(),
+                virtual_mitigation_available: true,
+            },
+            AndroidBulletinAdvisory {
+                asb_id: "ASB-2024-05".to_string(),
+                title: "Android Security Bulletin May 2024 (Qualcomm Adreno KGSL EoP)".to_string(),
+                release_date: "2024-05-01".to_string(),
+                cves: vec!["CVE-2024-21461".to_string()],
+                affected_component: "Qualcomm Adreno GPU (Snapdragon 695)".to_string(),
+                min_patch_level_required: "2024-05-01".to_string(),
+                virtual_mitigation_available: true,
+            },
+            AndroidBulletinAdvisory {
+                asb_id: "ASB-2024-03".to_string(),
+                title: "Android Security Bulletin March 2024 (Bluetooth Stack ACE)".to_string(),
+                release_date: "2024-03-01".to_string(),
+                cves: vec!["CVE-2024-0030".to_string()],
+                affected_component: "System / Bluetooth Host".to_string(),
+                min_patch_level_required: "2024-03-01".to_string(),
+                virtual_mitigation_available: true,
+            },
+            AndroidBulletinAdvisory {
                 asb_id: "ASB-2023-12".to_string(),
                 title: "Android Security Bulletin December 2023 (Bluetooth RCE)".to_string(),
                 release_date: "2023-12-01".to_string(),
                 cves: vec!["CVE-2023-40088".to_string()],
                 affected_component: "System / Bluetooth Stack".to_string(),
                 min_patch_level_required: "2023-12-01".to_string(),
+                virtual_mitigation_available: true,
+            },
+            AndroidBulletinAdvisory {
+                asb_id: "ASB-2023-10".to_string(),
+                title: "Android Security Bulletin October 2023 (Media WebP & Qualcomm GPU)"
+                    .to_string(),
+                release_date: "2023-10-01".to_string(),
+                cves: vec!["CVE-2023-4863".to_string(), "CVE-2023-33107".to_string()],
+                affected_component: "MediaFramework / Adreno GPU".to_string(),
+                min_patch_level_required: "2023-10-01".to_string(),
+                virtual_mitigation_available: true,
+            },
+            AndroidBulletinAdvisory {
+                asb_id: "ASB-2023-04".to_string(),
+                title: "Android Security Bulletin April 2023 (ARM Mali GPU Bifrost / Exynos)"
+                    .to_string(),
+                release_date: "2023-04-01".to_string(),
+                cves: vec!["CVE-2023-26083".to_string()],
+                affected_component: "Kernel / ARM Mali GPU".to_string(),
+                min_patch_level_required: "2023-04-01".to_string(),
+                virtual_mitigation_available: true,
+            },
+            AndroidBulletinAdvisory {
+                asb_id: "ASB-2022-11".to_string(),
+                title: "Android Security Bulletin November 2022 (Mali GPU UAF / Tab S6 Lite)"
+                    .to_string(),
+                release_date: "2022-11-01".to_string(),
+                cves: vec!["CVE-2022-38181".to_string()],
+                affected_component: "Kernel / Mali Midgard & Bifrost Driver".to_string(),
+                min_patch_level_required: "2022-11-01".to_string(),
                 virtual_mitigation_available: true,
             },
             AndroidBulletinAdvisory {
@@ -453,7 +712,8 @@ impl VirtualPatcher {
             },
             AndroidBulletinAdvisory {
                 asb_id: "ASB-2020-05".to_string(),
-                title: "Android Security Bulletin May 2020 (StrandHogg 2.0 Task Hijack)".to_string(),
+                title: "Android Security Bulletin May 2020 (StrandHogg 2.0 Task Hijack)"
+                    .to_string(),
                 release_date: "2020-05-01".to_string(),
                 cves: vec!["CVE-2020-0096".to_string()],
                 affected_component: "ActivityManager / UI Framework".to_string(),
@@ -492,7 +752,8 @@ impl VirtualPatcher {
                     rule.status = PatchStatus::VirtualPatchActive;
                     rule.patched_at = Some(now);
                     rule.status_reason = Some(
-                        "Blindado activamente por SamuLibre Virtual Patching Shield (Zero-Root).".to_string(),
+                        "Blindado activamente por SamuLibre Virtual Patching Shield (Zero-Root)."
+                            .to_string(),
                     );
                 } else {
                     rule.status = PatchStatus::Unmitigated;
@@ -514,7 +775,11 @@ impl VirtualPatcher {
         #[cfg(target_os = "windows")]
         {
             let mut cmd = Command::new("powershell");
-            cmd.args(["-NoProfile", "-Command", "Get-HotFix | Select-Object -ExpandProperty HotFixID"]);
+            cmd.args([
+                "-NoProfile",
+                "-Command",
+                "Get-HotFix | Select-Object -ExpandProperty HotFixID",
+            ]);
             cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
             let output = cmd.output();
 
@@ -535,7 +800,10 @@ impl VirtualPatcher {
     }
 
     /// Evalúa el sistema contra el catálogo de CVEs mediante la Matriz Multi-Criterio Inteligente
-    pub fn scan_and_evaluate(&mut self, simulated_kbs: Option<HashSet<String>>) -> (usize, usize, usize) {
+    pub fn scan_and_evaluate(
+        &mut self,
+        simulated_kbs: Option<HashSet<String>>,
+    ) -> (usize, usize, usize) {
         #[cfg(target_os = "windows")]
         let os_info = get_windows_os_info();
         #[cfg(not(target_os = "windows"))]
@@ -554,14 +822,23 @@ impl VirtualPatcher {
             let mut reason = String::new();
 
             // Criterio 1: Verificación de KBs instaladas explícitamente
-            if rule.required_kb.iter().any(|kb| installed_kbs.contains(&kb.to_uppercase())) {
+            if rule
+                .required_kb
+                .iter()
+                .any(|kb| installed_kbs.contains(&kb.to_uppercase()))
+            {
                 is_native = true;
-                reason = format!("Actualización oficial ({}) instalada y confirmada en el sistema.", rule.required_kb.join(", "));
+                reason = format!(
+                    "Actualización oficial ({}) instalada y confirmada en el sistema.",
+                    rule.required_kb.join(", ")
+                );
             }
 
             // Criterio 2: Inteligencia de Compilación (OS Build & UBR) y Componentes Nativos
             if !is_native {
-                if let Some((native_flag, res_reason)) = check_cve_native_mitigation(rule.cve.as_str(), os_info.as_ref()) {
+                if let Some((native_flag, res_reason)) =
+                    check_cve_native_mitigation(rule.cve.as_str(), os_info.as_ref())
+                {
                     if native_flag {
                         is_native = true;
                     } else {
@@ -570,7 +847,12 @@ impl VirtualPatcher {
                     reason = res_reason;
                 } else {
                     #[cfg(not(target_os = "windows"))]
-                    if let MitigationStrategy::KernelSysctlHardening { ref parameter, ref safe_value, .. } = rule.strategy {
+                    if let MitigationStrategy::KernelSysctlHardening {
+                        ref parameter,
+                        ref safe_value,
+                        ..
+                    } = rule.strategy
+                    {
                         let path = format!("/proc/sys/{}", parameter.replace('.', "/"));
                         if let Ok(content) = std::fs::read_to_string(&path) {
                             if content.trim() == safe_value.trim() {
@@ -580,9 +862,14 @@ impl VirtualPatcher {
                         }
                     }
                     #[cfg(target_os = "windows")]
-                    if matches!(rule.strategy, MitigationStrategy::KernelSysctlHardening { .. }) {
+                    if matches!(
+                        rule.strategy,
+                        MitigationStrategy::KernelSysctlHardening { .. }
+                    ) {
                         is_immune = true;
-                        reason = "Inmune: Parámetro exclusivo de kernel Linux (Inexistente en Windows).".to_string();
+                        reason =
+                            "Inmune: Parámetro exclusivo de kernel Linux (Inexistente en Windows)."
+                                .to_string();
                     }
                 }
             }
@@ -598,7 +885,10 @@ impl VirtualPatcher {
                 native_fixed += 1;
             } else if is_native {
                 if rule.status == PatchStatus::VirtualPatchActive {
-                    info!("Desactivando parche virtual para {} porque está protegido nativamente.", rule.cve);
+                    info!(
+                        "Desactivando parche virtual para {} porque está protegido nativamente.",
+                        rule.cve
+                    );
                     let _ = revert_mitigation_helper(dry_run, &rule.strategy);
                     rule.unpatched_at = Some(now);
                 }
@@ -611,7 +901,9 @@ impl VirtualPatcher {
                     active_vpatches += 1;
                 } else {
                     rule.status = PatchStatus::Unmitigated;
-                    rule.status_reason = Some("Vulnerabilidad expuesta en el SO: parche virtual recomendado.".to_string());
+                    rule.status_reason = Some(
+                        "Vulnerabilidad expuesta en el SO: parche virtual recomendado.".to_string(),
+                    );
                     rule.detected_at = Some(now);
                     unmitigated += 1;
                 }
@@ -641,7 +933,10 @@ impl VirtualPatcher {
     }
 
     /// Revisa si el sistema ya instaló parches oficiales y retira mitigaciones virtuales automáticamente
-    pub fn check_and_deactivate_obsolete_patches(&mut self, simulated_kbs: Option<HashSet<String>>) -> Result<usize> {
+    pub fn check_and_deactivate_obsolete_patches(
+        &mut self,
+        simulated_kbs: Option<HashSet<String>>,
+    ) -> Result<usize> {
         let (unmitigated, _, native_fixed) = self.scan_and_evaluate(simulated_kbs);
         info!(
             "Auditoría de parchado virtual completada: {} abiertas, {} corregidas nativamente/inmunes.",
@@ -669,20 +964,30 @@ impl VirtualPatcher {
     pub fn toggle_patch(&mut self, cve: &str, enable: bool) -> Result<VirtualPatchRule> {
         let dry_run = self.dry_run;
         let now = Utc::now();
-        let rule_idx = self.rules.iter().position(|r| r.cve.eq_ignore_ascii_case(cve) || r.id.eq_ignore_ascii_case(cve))
+        let rule_idx = self
+            .rules
+            .iter()
+            .position(|r| r.cve.eq_ignore_ascii_case(cve) || r.id.eq_ignore_ascii_case(cve))
             .ok_or_else(|| anyhow::anyhow!("No se encontró la regla para el CVE: {}", cve))?;
 
         if enable {
             let strategy = self.rules[rule_idx].strategy.clone();
-            info!("Activando parche virtual para {}: {}", self.rules[rule_idx].cve, self.rules[rule_idx].title);
+            info!(
+                "Activando parche virtual para {}: {}",
+                self.rules[rule_idx].cve, self.rules[rule_idx].title
+            );
             enforce_mitigation_helper(dry_run, &strategy)?;
             let rule = &mut self.rules[rule_idx];
             rule.status = PatchStatus::VirtualPatchActive;
             rule.patched_at = Some(now);
-            rule.status_reason = Some("Parche virtual aplicado manualmente y activo desde SamuLibre.".to_string());
+            rule.status_reason =
+                Some("Parche virtual aplicado manualmente y activo desde SamuLibre.".to_string());
         } else {
             let strategy = self.rules[rule_idx].strategy.clone();
-            info!("Desactivando parche virtual para {}: {}", self.rules[rule_idx].cve, self.rules[rule_idx].title);
+            info!(
+                "Desactivando parche virtual para {}: {}",
+                self.rules[rule_idx].cve, self.rules[rule_idx].title
+            );
             revert_mitigation_helper(dry_run, &strategy)?;
             let installed_kbs = self.get_installed_kbs();
             let rule = &mut self.rules[rule_idx];
@@ -690,15 +995,26 @@ impl VirtualPatcher {
 
             let os_info = {
                 #[cfg(target_os = "windows")]
-                { get_windows_os_info() }
+                {
+                    get_windows_os_info()
+                }
                 #[cfg(not(target_os = "windows"))]
-                { get_linux_os_info() }
+                {
+                    get_linux_os_info()
+                }
             };
 
-            if rule.required_kb.iter().any(|kb| installed_kbs.contains(&kb.to_uppercase())) {
+            if rule
+                .required_kb
+                .iter()
+                .any(|kb| installed_kbs.contains(&kb.to_uppercase()))
+            {
                 rule.status = PatchStatus::NativePatchInstalled;
-                rule.status_reason = Some("Protegido nativamente por actualización oficial del SO.".to_string());
-            } else if let Some((native_flag, reason)) = check_cve_native_mitigation(&rule.cve, os_info.as_ref()) {
+                rule.status_reason =
+                    Some("Protegido nativamente por actualización oficial del SO.".to_string());
+            } else if let Some((native_flag, reason)) =
+                check_cve_native_mitigation(&rule.cve, os_info.as_ref())
+            {
                 if native_flag {
                     rule.status = PatchStatus::NativePatchInstalled;
                 } else {
@@ -707,7 +1023,10 @@ impl VirtualPatcher {
                 rule.status_reason = Some(reason);
             } else {
                 rule.status = PatchStatus::Unmitigated;
-                rule.status_reason = Some("Vulnerabilidad expuesta: parche virtual desactivado por el usuario.".to_string());
+                rule.status_reason = Some(
+                    "Vulnerabilidad expuesta: parche virtual desactivado por el usuario."
+                        .to_string(),
+                );
             }
         }
 
@@ -726,34 +1045,75 @@ impl VirtualPatcher {
             for rule in &mut self.rules {
                 if rule.status == PatchStatus::Unmitigated {
                     if rule.severity == Severity::Critical || rule.severity == Severity::High {
-                        info!("Centinela: Auto-parchando vulnerabilidad crítica {}...", rule.cve);
+                        info!(
+                            "Centinela: Auto-parchando vulnerabilidad crítica {}...",
+                            rule.cve
+                        );
                         if enforce_mitigation_helper(self.dry_run, &rule.strategy).is_ok() {
                             rule.status = PatchStatus::VirtualPatchActive;
                             rule.patched_at = Some(now);
-                            rule.status_reason = Some("Mitigado automáticamente por el Centinela Autónomo de SamuLibre.".to_string());
+                            rule.status_reason = Some(
+                                "Mitigado automáticamente por el Centinela Autónomo de SamuLibre."
+                                    .to_string(),
+                            );
                             auto_patched.push(format!("{} - {}", rule.cve, rule.title));
-                            self.auto_patched_history.push(format!("[{}] Auto-mitigado: {}", now.format("%Y-%m-%d %H:%M"), rule.cve));
+                            self.auto_patched_history.push(format!(
+                                "[{}] Auto-mitigado: {}",
+                                now.format("%Y-%m-%d %H:%M"),
+                                rule.cve
+                            ));
                         }
                     }
                 }
             }
         }
 
-        let unmitigated_after = self.rules.iter().filter(|r| r.status == PatchStatus::Unmitigated).count();
-        let active_vpatches = self.rules.iter().filter(|r| r.status == PatchStatus::VirtualPatchActive).count();
+        let unmitigated_after = self
+            .rules
+            .iter()
+            .filter(|r| r.status == PatchStatus::Unmitigated)
+            .count();
+        let active_vpatches = self
+            .rules
+            .iter()
+            .filter(|r| r.status == PatchStatus::VirtualPatchActive)
+            .count();
 
-        (unmitigated_after, active_vpatches, native_fixed, auto_patched)
+        (
+            unmitigated_after,
+            active_vpatches,
+            native_fixed,
+            auto_patched,
+        )
     }
 
     pub fn set_auto_patch_enabled(&mut self, enabled: bool) {
         self.auto_patch_enabled = enabled;
-        info!("Centinela: Política de Auto-Parchado configurada a: {}", enabled);
+        info!(
+            "Centinela: Política de Auto-Parchado configurada a: {}",
+            enabled
+        );
     }
 
     pub fn get_sentinel_status(&self) -> SentinelStatusInfo {
-        let unmitigated = self.rules.iter().filter(|r| r.status == PatchStatus::Unmitigated).count();
-        let active_vpatches = self.rules.iter().filter(|r| r.status == PatchStatus::VirtualPatchActive).count();
-        let native_fixed = self.rules.iter().filter(|r| r.status == PatchStatus::NativePatchInstalled || r.status == PatchStatus::NotApplicable).count();
+        let unmitigated = self
+            .rules
+            .iter()
+            .filter(|r| r.status == PatchStatus::Unmitigated)
+            .count();
+        let active_vpatches = self
+            .rules
+            .iter()
+            .filter(|r| r.status == PatchStatus::VirtualPatchActive)
+            .count();
+        let native_fixed = self
+            .rules
+            .iter()
+            .filter(|r| {
+                r.status == PatchStatus::NativePatchInstalled
+                    || r.status == PatchStatus::NotApplicable
+            })
+            .count();
 
         SentinelStatusInfo {
             is_active: true,
@@ -777,8 +1137,17 @@ impl VirtualPatcher {
                     if let Ok(content) = fs::read_to_string(&path) {
                         if let Ok(rule) = serde_json::from_str::<VirtualPatchRule>(&content) {
                             // Purga automática de falsos positivos de boletines que no son CVEs
-                            if rule.cve.starts_with("CVE-UNKNOWN-") && rule.required_kb.iter().any(|kb| KNOWN_NON_CVE_KBS.contains(&kb.as_str())) {
-                                info!("Purgando regla de falso positivo dinámico: {} ({})", rule.cve, path.display());
+                            if rule.cve.starts_with("CVE-UNKNOWN-")
+                                && rule
+                                    .required_kb
+                                    .iter()
+                                    .any(|kb| KNOWN_NON_CVE_KBS.contains(&kb.as_str()))
+                            {
+                                info!(
+                                    "Purgando regla de falso positivo dinámico: {} ({})",
+                                    rule.cve,
+                                    path.display()
+                                );
                                 let _ = fs::remove_file(&path);
                                 continue;
                             }
@@ -786,9 +1155,16 @@ impl VirtualPatcher {
                                 info!("Regla dinámica cargada para {}", rule.cve);
                                 self.rules.push(rule);
                             }
-                        } else if let Ok(rules_vec) = serde_json::from_str::<Vec<VirtualPatchRule>>(&content) {
+                        } else if let Ok(rules_vec) =
+                            serde_json::from_str::<Vec<VirtualPatchRule>>(&content)
+                        {
                             for rule in rules_vec {
-                                if rule.cve.starts_with("CVE-UNKNOWN-") && rule.required_kb.iter().any(|kb| KNOWN_NON_CVE_KBS.contains(&kb.as_str())) {
+                                if rule.cve.starts_with("CVE-UNKNOWN-")
+                                    && rule
+                                        .required_kb
+                                        .iter()
+                                        .any(|kb| KNOWN_NON_CVE_KBS.contains(&kb.as_str()))
+                                {
                                     continue;
                                 }
                                 if !self.rules.iter().any(|r| r.cve == rule.cve) {
@@ -837,7 +1213,11 @@ impl VirtualPatcher {
             if let Ok(content) = fs::read_to_string(catalog_path) {
                 if let Ok(advisories) = serde_json::from_str::<Vec<KbAdvisory>>(&content) {
                     for adv in advisories {
-                        if !self.monitored_kbs.iter().any(|k| k.kb_id.eq_ignore_ascii_case(&adv.kb_id)) {
+                        if !self
+                            .monitored_kbs
+                            .iter()
+                            .any(|k| k.kb_id.eq_ignore_ascii_case(&adv.kb_id))
+                        {
                             self.monitored_kbs.push(adv);
                         }
                     }
@@ -910,7 +1290,10 @@ impl VirtualPatcher {
                     let text = String::from_utf8_lossy(&output.stdout);
                     for line in text.lines() {
                         let t = line.trim().to_uppercase();
-                        if t.starts_with("KB") && t.len() > 2 && !KNOWN_NON_CVE_KBS.contains(&t.as_str()) {
+                        if t.starts_with("KB")
+                            && t.len() > 2
+                            && !KNOWN_NON_CVE_KBS.contains(&t.as_str())
+                        {
                             pending.insert(t);
                         }
                     }
@@ -924,7 +1307,10 @@ impl VirtualPatcher {
     /// Analiza un KB con la IA local y sintetiza su parche virtual de mitigación
     pub fn analyze_kb(&mut self, advisory: &KbAdvisory) -> Result<AiPatchAnalysisResult> {
         if KNOWN_NON_CVE_KBS.contains(&advisory.kb_id.as_str()) {
-            anyhow::bail!("KB {} está en la lista de exclusión de plataforma/definiciones (no es un CVE)", advisory.kb_id);
+            anyhow::bail!(
+                "KB {} está en la lista de exclusión de plataforma/definiciones (no es un CVE)",
+                advisory.kb_id
+            );
         }
         let analysis = self.ai_analyst.analyze_kb(advisory)?;
 
@@ -933,20 +1319,31 @@ impl VirtualPatcher {
         if !rules_dir.exists() {
             let _ = fs::create_dir_all(rules_dir);
         }
-        let rule_file = rules_dir.join(format!("dynamic_{}.json", analysis.generated_rule.cve.replace('-', "_")));
+        let rule_file = rules_dir.join(format!(
+            "dynamic_{}.json",
+            analysis.generated_rule.cve.replace('-', "_")
+        ));
         if let Ok(json_str) = serde_json::to_string_pretty(&analysis.generated_rule) {
             let _ = fs::write(&rule_file, json_str);
         }
 
         // Agregar o actualizar la regla en la lista de reglas activas
-        if let Some(pos) = self.rules.iter().position(|r| r.cve == analysis.generated_rule.cve) {
+        if let Some(pos) = self
+            .rules
+            .iter()
+            .position(|r| r.cve == analysis.generated_rule.cve)
+        {
             self.rules[pos] = analysis.generated_rule.clone();
         } else {
             self.rules.push(analysis.generated_rule.clone());
         }
 
         // Registrar en historial de análisis de IA
-        if let Some(pos) = self.ai_patch_results.iter().position(|r| r.kb_id == analysis.kb_id) {
+        if let Some(pos) = self
+            .ai_patch_results
+            .iter()
+            .position(|r| r.kb_id == analysis.kb_id)
+        {
             self.ai_patch_results[pos] = analysis.clone();
         } else {
             self.ai_patch_results.push(analysis.clone());
@@ -956,7 +1353,12 @@ impl VirtualPatcher {
     }
 
     /// Analiza texto sin procesar provisto por el usuario desde la UI o CLI
-    pub fn analyze_raw_kb(&mut self, kb_id: &str, title: &str, description: &str) -> Result<AiPatchAnalysisResult> {
+    pub fn analyze_raw_kb(
+        &mut self,
+        kb_id: &str,
+        title: &str,
+        description: &str,
+    ) -> Result<AiPatchAnalysisResult> {
         let advisory = KbAdvisory {
             kb_id: kb_id.to_string(),
             title: title.to_string(),
@@ -979,9 +1381,13 @@ impl VirtualPatcher {
         let installed_kbs = self.get_installed_kbs();
         let os_info = {
             #[cfg(target_os = "windows")]
-            { get_windows_os_info() }
+            {
+                get_windows_os_info()
+            }
             #[cfg(not(target_os = "windows"))]
-            { get_linux_os_info() }
+            {
+                get_linux_os_info()
+            }
         };
         let mut results = Vec::new();
 
@@ -991,20 +1397,27 @@ impl VirtualPatcher {
                 continue;
             }
             let is_installed = installed_kbs.contains(&adv.kb_id.to_uppercase());
-            let is_natively_protected = !adv.cves.is_empty() && adv.cves.iter().all(|c| {
-                if let Some((is_native, _)) = check_cve_native_mitigation(c, os_info.as_ref()) {
-                    is_native
-                } else {
-                    false
-                }
-            });
+            let is_natively_protected = !adv.cves.is_empty()
+                && adv.cves.iter().all(|c| {
+                    if let Some((is_native, _)) = check_cve_native_mitigation(c, os_info.as_ref()) {
+                        is_native
+                    } else {
+                        false
+                    }
+                });
 
             // Siempre analizamos el KB con la IA local para mantener el historial listo
-            let already_analyzed = self.ai_patch_results.iter().any(|r| r.kb_id.eq_ignore_ascii_case(&adv.kb_id));
+            let already_analyzed = self
+                .ai_patch_results
+                .iter()
+                .any(|r| r.kb_id.eq_ignore_ascii_case(&adv.kb_id));
             let analysis = if !already_analyzed {
                 self.analyze_kb(adv).ok()
             } else {
-                self.ai_patch_results.iter().find(|r| r.kb_id.eq_ignore_ascii_case(&adv.kb_id)).cloned()
+                self.ai_patch_results
+                    .iter()
+                    .find(|r| r.kb_id.eq_ignore_ascii_case(&adv.kb_id))
+                    .cloned()
             };
 
             if let Some(an) = analysis {
@@ -1014,33 +1427,60 @@ impl VirtualPatcher {
                     // Auto-Retire: Si el KB ya está instalado o está cubierto nativamente por la compilación del SO,
                     // retirar inmediatamente cualquier parche virtual que se hubiera aplicado preventivamente.
                     let cve = an.generated_rule.cve.clone();
-                    let current_status = self.rules.iter().find(|r| r.cve == cve).map(|r| r.status.clone());
+                    let current_status = self
+                        .rules
+                        .iter()
+                        .find(|r| r.cve == cve)
+                        .map(|r| r.status.clone());
                     if current_status == Some(PatchStatus::VirtualPatchActive) {
                         let reason = if is_installed {
                             format!("instalación oficial de {}", adv.kb_id)
                         } else {
                             format!("protección nativa de compilación del SO (Supersesión)")
                         };
-                        info!("Auto-Retire: Parche virtual para {} auto-retirado tras {}", cve, reason);
+                        info!(
+                            "Auto-Retire: Parche virtual para {} auto-retirado tras {}",
+                            cve, reason
+                        );
                         let _ = self.toggle_patch(&cve, false);
-                        let log_entry = format!("{}: Parche virtual para {} auto-retirado tras {}", Utc::now().format("%Y-%m-%d %H:%M:%S"), cve, reason);
+                        let log_entry = format!(
+                            "{}: Parche virtual para {} auto-retirado tras {}",
+                            Utc::now().format("%Y-%m-%d %H:%M:%S"),
+                            cve,
+                            reason
+                        );
                         if !self.auto_patched_history.contains(&log_entry) {
                             self.auto_patched_history.push(log_entry);
                         }
                     }
                 } else if self.ai_autopilot_enabled && an.safety_verified {
                     // Solo se aplica el parche virtual si REALMENTE falta y NO está protegido nativamente
-                    if !an.generated_rule.cve.starts_with("CVE-UNKNOWN") && (an.generated_rule.severity == Severity::Critical || an.generated_rule.severity == Severity::High) {
+                    if !an.generated_rule.cve.starts_with("CVE-UNKNOWN")
+                        && (an.generated_rule.severity == Severity::Critical
+                            || an.generated_rule.severity == Severity::High)
+                    {
                         let cve = an.generated_rule.cve.clone();
-                    let current_status = self.rules.iter().find(|r| r.cve == cve).map(|r| r.status.clone());
-                    if current_status == Some(PatchStatus::Unmitigated) {
-                        info!("Auto-Pilot IA: Aplicando parche virtual automático para {}", cve);
-                        let _ = self.toggle_patch(&cve, true);
-                        let log_entry = format!("{}: Auto-parcheado por IA local ({}) ante ausencia de {}", Utc::now().format("%Y-%m-%d %H:%M:%S"), cve, adv.kb_id);
-                        if !self.auto_patched_history.contains(&log_entry) {
-                            self.auto_patched_history.push(log_entry);
+                        let current_status = self
+                            .rules
+                            .iter()
+                            .find(|r| r.cve == cve)
+                            .map(|r| r.status.clone());
+                        if current_status == Some(PatchStatus::Unmitigated) {
+                            info!(
+                                "Auto-Pilot IA: Aplicando parche virtual automático para {}",
+                                cve
+                            );
+                            let _ = self.toggle_patch(&cve, true);
+                            let log_entry = format!(
+                                "{}: Auto-parcheado por IA local ({}) ante ausencia de {}",
+                                Utc::now().format("%Y-%m-%d %H:%M:%S"),
+                                cve,
+                                adv.kb_id
+                            );
+                            if !self.auto_patched_history.contains(&log_entry) {
+                                self.auto_patched_history.push(log_entry);
+                            }
                         }
-                    }
                     }
                 }
             }
@@ -1054,7 +1494,9 @@ impl VirtualPatcher {
     pub fn run_daily_kb_verification(&mut self) -> (usize, Vec<String>) {
         let now = Utc::now();
         let check_time_str = now.format("%Y-%m-%d %H:%M:%S UTC").to_string();
-        let next_time_str = (now + chrono::Duration::hours(24)).format("%Y-%m-%d %H:%M:%S UTC").to_string();
+        let next_time_str = (now + chrono::Duration::hours(24))
+            .format("%Y-%m-%d %H:%M:%S UTC")
+            .to_string();
         self.last_daily_check = Some(check_time_str.clone());
         self.next_daily_check = Some(next_time_str);
 
@@ -1066,7 +1508,11 @@ impl VirtualPatcher {
             if KNOWN_NON_CVE_KBS.contains(&pending_kb.as_str()) {
                 continue;
             }
-            if !self.monitored_kbs.iter().any(|k| k.kb_id.eq_ignore_ascii_case(pending_kb)) {
+            if !self
+                .monitored_kbs
+                .iter()
+                .any(|k| k.kb_id.eq_ignore_ascii_case(pending_kb))
+            {
                 new_kbs_found += 1;
                 let adv = KbAdvisory {
                     kb_id: pending_kb.clone(),
@@ -1086,7 +1532,11 @@ impl VirtualPatcher {
         let _ = self.scan_and_evaluate(None);
         let _ = self.run_ai_kb_audit_cycle();
 
-        let active_count = self.rules.iter().filter(|r| r.status == PatchStatus::VirtualPatchActive).count();
+        let active_count = self
+            .rules
+            .iter()
+            .filter(|r| r.status == PatchStatus::VirtualPatchActive)
+            .count();
         let log_msg = format!(
             "[{}] Verificación diaria de KBs: {} pendientes en WUA, {} nuevos catalogados, parches virtuales activos: {}",
             check_time_str,
@@ -1106,7 +1556,10 @@ impl VirtualPatcher {
             let _ = fs::create_dir_all(kbs_dir);
         }
         let log_file = kbs_dir.join("daily_check_log.json");
-        let _ = fs::write(&log_file, serde_json::to_string_pretty(&self.daily_check_log).unwrap_or_default());
+        let _ = fs::write(
+            &log_file,
+            serde_json::to_string_pretty(&self.daily_check_log).unwrap_or_default(),
+        );
 
         (new_kbs_found, self.daily_check_log.clone())
     }
@@ -1114,8 +1567,16 @@ impl VirtualPatcher {
     /// Obtiene el estado consolidado del monitor de KBs y la IA
     pub fn get_kb_monitor_status(&self) -> KbMonitorStatus {
         let installed = self.get_installed_kbs();
-        let pending_count = self.monitored_kbs.iter().filter(|k| !installed.contains(&k.kb_id.to_uppercase())).count();
-        let auto_vpatch_count = self.rules.iter().filter(|r| r.status == PatchStatus::VirtualPatchActive && r.id.starts_with("VP-AI")).count();
+        let pending_count = self
+            .monitored_kbs
+            .iter()
+            .filter(|k| !installed.contains(&k.kb_id.to_uppercase()))
+            .count();
+        let auto_vpatch_count = self
+            .rules
+            .iter()
+            .filter(|r| r.status == PatchStatus::VirtualPatchActive && r.id.starts_with("VP-AI"))
+            .count();
 
         KbMonitorStatus {
             last_check_time: self.last_audit_time.clone(),
@@ -1181,7 +1642,10 @@ pub fn get_windows_os_info() -> Option<OsVersionInfo> {
         let mut display_ver: String = "11".to_string();
 
         let mut cmd = Command::new("reg");
-        cmd.args(["query", r"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion"]);
+        cmd.args([
+            "query",
+            r"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion",
+        ]);
         cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
 
         if let Ok(output) = cmd.output() {
@@ -1190,7 +1654,9 @@ pub fn get_windows_os_info() -> Option<OsVersionInfo> {
                 for line in stdout.lines() {
                     let parts: Vec<&str> = line.split_whitespace().collect();
                     if parts.len() >= 3 {
-                        if parts[0].eq_ignore_ascii_case("CurrentBuildNumber") || parts[0].eq_ignore_ascii_case("CurrentBuild") {
+                        if parts[0].eq_ignore_ascii_case("CurrentBuildNumber")
+                            || parts[0].eq_ignore_ascii_case("CurrentBuild")
+                        {
                             if let Ok(b) = parts[2].parse::<u32>() {
                                 build_num = Some(b);
                             }
@@ -1231,7 +1697,10 @@ pub fn is_service_installed(service_name: &str) -> bool {
     #[cfg(target_os = "windows")]
     {
         let mut cmd = Command::new("reg");
-        cmd.args(["query", &format!(r"HKLM\SYSTEM\CurrentControlSet\Services\{}", service_name)]);
+        cmd.args([
+            "query",
+            &format!(r"HKLM\SYSTEM\CurrentControlSet\Services\{}", service_name),
+        ]);
         cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
         if let Ok(out) = cmd.output() {
             return out.status.success();
@@ -1241,13 +1710,19 @@ pub fn is_service_installed(service_name: &str) -> bool {
 }
 
 /// Evalúa si un CVE específico ya está mitigado nativamente por la versión del sistema operativo o si el sistema es inmune
-pub fn check_cve_native_mitigation(cve: &str, os_info: Option<&OsVersionInfo>) -> Option<(bool, String)> {
+pub fn check_cve_native_mitigation(
+    cve: &str,
+    os_info: Option<&OsVersionInfo>,
+) -> Option<(bool, String)> {
     #[cfg(target_os = "windows")]
     {
         if let Some(os) = os_info {
             match cve {
                 "CVE-2024-38063" => {
-                    if os.build_number > 26100 || (os.build_number == 26100 && os.ubr >= 1591) || (os.build_number >= 22621 && os.ubr >= 4037) {
+                    if os.build_number > 26100
+                        || (os.build_number == 26100 && os.ubr >= 1591)
+                        || (os.build_number >= 22621 && os.ubr >= 4037)
+                    {
                         return Some((true, format!(
                             "Corregido nativamente por Windows 11 {} (Compilación {}.{}, tcpip.sys actualizado)",
                             os.display_version, os.build_number, os.ubr
@@ -1257,8 +1732,16 @@ pub fn check_cve_native_mitigation(cve: &str, os_info: Option<&OsVersionInfo>) -
                 "CVE-2024-38077" => {
                     if !is_service_installed("TermServLicensing") {
                         return Some((false, "Inmune: El servicio de licencias RDS (TermServLicensing) solo existe en Windows Server. Inexistente en Windows 11.".to_string()));
-                    } else if os.build_number > 26100 || (os.build_number == 26100 && os.ubr >= 1150) {
-                        return Some((true, format!("Corregido nativamente en servidor por compilación {}.{}", os.build_number, os.ubr)));
+                    } else if os.build_number > 26100
+                        || (os.build_number == 26100 && os.ubr >= 1150)
+                    {
+                        return Some((
+                            true,
+                            format!(
+                                "Corregido nativamente en servidor por compilación {}.{}",
+                                os.build_number, os.ubr
+                            ),
+                        ));
                     }
                 }
                 "CVE-2021-36958" => {
@@ -1270,7 +1753,10 @@ pub fn check_cve_native_mitigation(cve: &str, os_info: Option<&OsVersionInfo>) -
                     }
                 }
                 "CVE-2023-21823" => {
-                    if os.build_number >= 22631 || (os.build_number == 22621 && os.ubr >= 1255) || os.build_number >= 26100 {
+                    if os.build_number >= 22631
+                        || (os.build_number == 22621 && os.ubr >= 1255)
+                        || os.build_number >= 26100
+                    {
                         return Some((true, format!(
                             "Corregido nativamente: Driver CLFS y componente gráfico securizado en Windows 11 (Build {}.{}).",
                             os.build_number, os.ubr
@@ -1301,7 +1787,10 @@ pub fn check_cve_native_mitigation(cve: &str, os_info: Option<&OsVersionInfo>) -
                 _ => {
                     // Heurística de supersesión acumulativa para Windows 11 Build 26100+ (24H2/25H2)
                     if os.build_number >= 26100 {
-                        if cve.starts_with("CVE-2021-") || cve.starts_with("CVE-2022-") || cve.starts_with("CVE-2023-") {
+                        if cve.starts_with("CVE-2021-")
+                            || cve.starts_with("CVE-2022-")
+                            || cve.starts_with("CVE-2023-")
+                        {
                             return Some((true, format!(
                                 "Corregido nativamente: Vulnerabilidad histórica resuelta e incorporada en la imagen base de Windows 11 Build {}.",
                                 os.build_number
@@ -1318,7 +1807,10 @@ pub fn check_cve_native_mitigation(cve: &str, os_info: Option<&OsVersionInfo>) -
         match cve {
             "CVE-2021-4034" => {
                 if !std::path::Path::new("/usr/bin/pkexec").exists() {
-                    return Some((false, "Inmune: pkexec no se encuentra instalado en este sistema.".to_string()));
+                    return Some((
+                        false,
+                        "Inmune: pkexec no se encuentra instalado en este sistema.".to_string(),
+                    ));
                 } else {
                     return Some((true, "Mitigación activa y paquete de seguridad USN-5252 verificado en el sistema.".to_string()));
                 }
@@ -1338,12 +1830,20 @@ fn enforce_mitigation_helper(dry_run: bool, strategy: &MitigationStrategy) -> Re
     }
 
     match strategy {
-        MitigationStrategy::NetworkFirewall { rule_name, port, protocol, direction } => {
+        MitigationStrategy::NetworkFirewall {
+            rule_name,
+            port,
+            protocol,
+            direction,
+        } => {
             #[cfg(target_os = "windows")]
             {
                 let mut cmd = Command::new("netsh");
                 cmd.args([
-                    "advfirewall", "firewall", "add", "rule",
+                    "advfirewall",
+                    "firewall",
+                    "add",
+                    "rule",
                     &format!("name={}", rule_name),
                     &format!("dir={}", direction),
                     "action=block",
@@ -1363,15 +1863,44 @@ fn enforce_mitigation_helper(dry_run: bool, strategy: &MitigationStrategy) -> Re
                 let chain = if direction == "in" { "INPUT" } else { "OUTPUT" };
                 let mut cmd = Command::new("iptables");
                 if *port > 0 {
-                    cmd.args([dir_flag, chain, "-p", protocol, "--dport", &port.to_string(), "-j", "DROP", "-m", "comment", "--comment", rule_name]);
+                    cmd.args([
+                        dir_flag,
+                        chain,
+                        "-p",
+                        protocol,
+                        "--dport",
+                        &port.to_string(),
+                        "-j",
+                        "DROP",
+                        "-m",
+                        "comment",
+                        "--comment",
+                        rule_name,
+                    ]);
                 } else {
-                    cmd.args([dir_flag, chain, "-p", protocol, "-j", "DROP", "-m", "comment", "--comment", rule_name]);
+                    cmd.args([
+                        dir_flag,
+                        chain,
+                        "-p",
+                        protocol,
+                        "-j",
+                        "DROP",
+                        "-m",
+                        "comment",
+                        "--comment",
+                        rule_name,
+                    ]);
                 }
                 let _ = cmd.output();
             }
             info!("Regla de firewall {} aplicada.", rule_name);
         }
-        MitigationStrategy::RegistryHardening { key_path, value_name, safe_value, .. } => {
+        MitigationStrategy::RegistryHardening {
+            key_path,
+            value_name,
+            safe_value,
+            ..
+        } => {
             #[cfg(target_os = "windows")]
             {
                 let mut cmd = Command::new("reg");
@@ -1379,9 +1908,15 @@ fn enforce_mitigation_helper(dry_run: bool, strategy: &MitigationStrategy) -> Re
                 cmd.creation_flags(0x08000000);
                 let _ = cmd.output();
             }
-            info!("Clave de registro {}/{} endurecida a {}.", key_path, value_name, safe_value);
+            info!(
+                "Clave de registro {}/{} endurecida a {}.",
+                key_path, value_name, safe_value
+            );
         }
-        MitigationStrategy::ServiceMitigation { service_name, startup_type } => {
+        MitigationStrategy::ServiceMitigation {
+            service_name,
+            startup_type,
+        } => {
             #[cfg(target_os = "windows")]
             {
                 let mut cmd = Command::new("sc");
@@ -1389,27 +1924,67 @@ fn enforce_mitigation_helper(dry_run: bool, strategy: &MitigationStrategy) -> Re
                 cmd.creation_flags(0x08000000);
                 let _ = cmd.output();
             }
-            info!("Servicio {} configurado en modo {}.", service_name, startup_type);
+            info!(
+                "Servicio {} configurado en modo {}.",
+                service_name, startup_type
+            );
         }
-        MitigationStrategy::BehavioralBlock { target_process, forbidden_call } => {
-            info!("Bloqueo de comportamiento activo para {} ({})", target_process, forbidden_call);
+        MitigationStrategy::BehavioralBlock {
+            target_process,
+            forbidden_call,
+        } => {
+            info!(
+                "Bloqueo de comportamiento activo para {} ({})",
+                target_process, forbidden_call
+            );
         }
-        MitigationStrategy::KernelSysctlHardening { parameter, safe_value, .. } => {
+        MitigationStrategy::KernelSysctlHardening {
+            parameter,
+            safe_value,
+            ..
+        } => {
             #[cfg(target_os = "linux")]
             {
                 let path = format!("/proc/sys/{}", parameter.replace('.', "/"));
                 let _ = std::fs::write(&path, safe_value);
             }
-            info!("Parámetro de kernel {} endurecido a {}.", parameter, safe_value);
+            info!(
+                "Parámetro de kernel {} endurecido a {}.",
+                parameter, safe_value
+            );
         }
-        MitigationStrategy::AndroidTunPacketFilter { filter_name, port, protocol, block_c2_domains } => {
-            info!("Filtro TUN Android {} activo para puerto {}/{} ({} dominios C2)", filter_name, port, protocol, block_c2_domains.len());
+        MitigationStrategy::AndroidTunPacketFilter {
+            filter_name,
+            port,
+            protocol,
+            block_c2_domains,
+        } => {
+            info!(
+                "Filtro TUN Android {} activo para puerto {}/{} ({} dominios C2)",
+                filter_name,
+                port,
+                protocol,
+                block_c2_domains.len()
+            );
         }
-        MitigationStrategy::AndroidPermissionRevoke { target_package, permission, rationale } => {
-            info!("Escudo de permisos Android activo: revocar/alertar {} para {} ({})", permission, target_package, rationale);
+        MitigationStrategy::AndroidPermissionRevoke {
+            target_package,
+            permission,
+            rationale,
+        } => {
+            info!(
+                "Escudo de permisos Android activo: revocar/alertar {} para {} ({})",
+                permission, target_package, rationale
+            );
         }
-        MitigationStrategy::AndroidOverlayGuard { target_package, reason } => {
-            info!("Escudo Anti-Overlay Android activo para paquete {}: {}", target_package, reason);
+        MitigationStrategy::AndroidOverlayGuard {
+            target_package,
+            reason,
+        } => {
+            info!(
+                "Escudo Anti-Overlay Android activo para paquete {}: {}",
+                target_package, reason
+            );
         }
     }
     Ok(())
@@ -1427,17 +2002,42 @@ fn revert_mitigation_helper(dry_run: bool, strategy: &MitigationStrategy) -> Res
             #[cfg(target_os = "windows")]
             {
                 let mut cmd = Command::new("netsh");
-                cmd.args(["advfirewall", "firewall", "delete", "rule", &format!("name={}", rule_name)]);
+                cmd.args([
+                    "advfirewall",
+                    "firewall",
+                    "delete",
+                    "rule",
+                    &format!("name={}", rule_name),
+                ]);
                 cmd.creation_flags(0x08000000);
                 let _ = cmd.output();
             }
             #[cfg(not(target_os = "windows"))]
             {
-                let _ = Command::new("iptables").args(["-D", "INPUT", "-m", "comment", "--comment", rule_name, "-j", "DROP"]).output();
+                let _ = Command::new("iptables")
+                    .args([
+                        "-D",
+                        "INPUT",
+                        "-m",
+                        "comment",
+                        "--comment",
+                        rule_name,
+                        "-j",
+                        "DROP",
+                    ])
+                    .output();
             }
-            info!("Regla de firewall {} eliminada (parche nativo instalado).", rule_name);
+            info!(
+                "Regla de firewall {} eliminada (parche nativo instalado).",
+                rule_name
+            );
         }
-        MitigationStrategy::RegistryHardening { key_path, value_name, revert_value, .. } => {
+        MitigationStrategy::RegistryHardening {
+            key_path,
+            value_name,
+            revert_value,
+            ..
+        } => {
             #[cfg(target_os = "windows")]
             {
                 let mut cmd = Command::new("reg");
@@ -1445,7 +2045,10 @@ fn revert_mitigation_helper(dry_run: bool, strategy: &MitigationStrategy) -> Res
                 cmd.creation_flags(0x08000000);
                 let _ = cmd.output();
             }
-            info!("Clave de registro {}/{} restaurada al valor estándar.", key_path, value_name);
+            info!(
+                "Clave de registro {}/{} restaurada al valor estándar.",
+                key_path, value_name
+            );
         }
         MitigationStrategy::ServiceMitigation { service_name, .. } => {
             #[cfg(target_os = "windows")]
@@ -1458,24 +2061,44 @@ fn revert_mitigation_helper(dry_run: bool, strategy: &MitigationStrategy) -> Res
             info!("Servicio {} restaurado a inicio por demanda.", service_name);
         }
         MitigationStrategy::BehavioralBlock { target_process, .. } => {
-            info!("Bloqueo de comportamiento para {} desactivado.", target_process);
+            info!(
+                "Bloqueo de comportamiento para {} desactivado.",
+                target_process
+            );
         }
-        MitigationStrategy::KernelSysctlHardening { parameter, revert_value, .. } => {
+        MitigationStrategy::KernelSysctlHardening {
+            parameter,
+            revert_value,
+            ..
+        } => {
             #[cfg(target_os = "linux")]
             {
                 let path = format!("/proc/sys/{}", parameter.replace('.', "/"));
                 let _ = std::fs::write(&path, revert_value);
             }
-            info!("Parámetro de kernel {} restaurado a {}.", parameter, revert_value);
+            info!(
+                "Parámetro de kernel {} restaurado a {}.",
+                parameter, revert_value
+            );
         }
         MitigationStrategy::AndroidTunPacketFilter { filter_name, .. } => {
             info!("Filtro TUN Android {} desactivado.", filter_name);
         }
-        MitigationStrategy::AndroidPermissionRevoke { target_package, permission, .. } => {
-            info!("Escudo de permisos Android para {} ({}) restaurado.", target_package, permission);
+        MitigationStrategy::AndroidPermissionRevoke {
+            target_package,
+            permission,
+            ..
+        } => {
+            info!(
+                "Escudo de permisos Android para {} ({}) restaurado.",
+                target_package, permission
+            );
         }
         MitigationStrategy::AndroidOverlayGuard { target_package, .. } => {
-            info!("Escudo Anti-Overlay Android para {} desactivado.", target_package);
+            info!(
+                "Escudo Anti-Overlay Android para {} desactivado.",
+                target_package
+            );
         }
     }
     Ok(())
@@ -1489,7 +2112,7 @@ mod tests {
     fn test_android_asb_catalog_and_audit() {
         let mut patcher = VirtualPatcher::new(true);
         patcher.load_android_asb_catalog();
-        assert_eq!(patcher.get_rules().len(), 6);
+        assert_eq!(patcher.get_rules().len(), 17);
 
         // Dispositivo abandonado por fabricante con SPL antiguo (2021-01-01)
         let old_device = AndroidSecurityInfo {
@@ -1507,11 +2130,14 @@ mod tests {
         };
 
         let evaluated = patcher.audit_android_security(&old_device);
-        assert_eq!(evaluated.len(), 6);
+        assert_eq!(evaluated.len(), 17);
 
         // Con auto_patch_enabled = true, deben quedar con VirtualPatchActive
-        let active_vpatches = evaluated.iter().filter(|r| r.status == PatchStatus::VirtualPatchActive).count();
-        assert!(active_vpatches >= 5);
+        let active_vpatches = evaluated
+            .iter()
+            .filter(|r| r.status == PatchStatus::VirtualPatchActive)
+            .count();
+        assert!(active_vpatches >= 12);
     }
 
     #[test]
@@ -1519,10 +2145,16 @@ mod tests {
     fn test_windows_11_intelligent_audit() {
         let mut patcher = VirtualPatcher::new(true);
         let (unmitigated, active, native) = patcher.scan_and_evaluate(None);
-        println!("Resultados: unmitigated={}, active={}, native={}", unmitigated, active, native);
+        println!(
+            "Resultados: unmitigated={}, active={}, native={}",
+            unmitigated, active, native
+        );
 
         for rule in patcher.get_rules() {
-            println!("CVE: {} -> Status: {:?}, Reason: {:?}", rule.cve, rule.status, rule.status_reason);
+            println!(
+                "CVE: {} -> Status: {:?}, Reason: {:?}",
+                rule.cve, rule.status, rule.status_reason
+            );
         }
 
         // En un Windows 11 actualizado (como el del usuario con Build 26200), no debe haber ninguna vulnerabilidad sin mitigar
@@ -1561,12 +2193,15 @@ mod tests {
     fn test_non_cve_kb_never_generates_rule() {
         let mut patcher = VirtualPatcher::new(true);
         // KB5007651 (Windows Security platform) no debe sintetizar reglas CVE-UNKNOWN
-        let res = patcher.analyze_raw_kb("KB5007651", "Windows Security platform", "Platform update");
+        let res =
+            patcher.analyze_raw_kb("KB5007651", "Windows Security platform", "Platform update");
         assert!(res.is_err());
-        assert!(!patcher.get_rules().iter().any(|r| r.cve == "CVE-UNKNOWN-KB5007651"));
+        assert!(!patcher
+            .get_rules()
+            .iter()
+            .any(|r| r.cve == "CVE-UNKNOWN-KB5007651"));
 
         // Descartar una regla inexistente devuelve error controlado
         assert!(patcher.dismiss_patch_rule("CVE-UNKNOWN-KB0000000").is_err());
     }
 }
-

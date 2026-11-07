@@ -199,9 +199,14 @@ mod tests {
         let h1 = compute_fuzzy_hash(b1);
         let h2 = compute_fuzzy_hash(b2);
         let sim = compare_fuzzy_hashes(&h1, &h2);
-        assert!(sim > 70, "Similar binaries should have high fuzzy match score: {}", sim);
+        assert!(
+            sim > 70,
+            "Similar binaries should have high fuzzy match score: {}",
+            sim
+        );
 
-        let totally_different = b"ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ9876543210";
+        let totally_different =
+            b"ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ9876543210";
         let h3 = compute_fuzzy_hash(totally_different);
         let sim_diff = compare_fuzzy_hashes(&h1, &h3);
         assert!(sim_diff < sim);
@@ -221,4 +226,3 @@ mod tests {
         assert!(profile.overall_entropy > 7.2);
     }
 }
-

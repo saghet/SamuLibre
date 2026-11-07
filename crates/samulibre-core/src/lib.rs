@@ -16,11 +16,17 @@ use std::sync::{Arc, Mutex};
 use tracing::{info, warn};
 use uuid::Uuid;
 
+pub mod health;
+pub use health::*;
+
 pub mod sandbox;
 pub use sandbox::*;
 
 pub mod reputation;
 pub use reputation::*;
+
+pub mod scheduler;
+pub use scheduler::*;
 
 pub struct SamuLibreCore {
     pub patcher: Arc<Mutex<VirtualPatcher>>,
@@ -28,9 +34,11 @@ pub struct SamuLibreCore {
     pub scanner: Arc<Mutex<MultiEngineScanner>>,
     pub vpn: Arc<Mutex<VpnManager>>,
     pub watcher: Arc<Mutex<RealTimeWatcher>>,
+    pub health: Arc<Mutex<ProtectionHealthManager>>,
     pub copilot: Arc<Mutex<CyberCopilotEngine>>,
     pub sandbox: Arc<Mutex<MicroSandbox>>,
     pub reputation: Arc<Mutex<CommunityReputationEngine>>,
+    pub scheduler: Arc<Mutex<ScheduledScanManager>>,
     alerts_history: Arc<Mutex<Vec<ThreatAlert>>>,
     _active_watcher: Arc<Mutex<Option<samulibre_watcher::RecommendedWatcher>>>,
 }
@@ -41,10 +49,23 @@ impl SamuLibreCore {
         let shield = Arc::new(Mutex::new(EndpointShield::new(canary_dir)));
         let scanner = Arc::new(Mutex::new(MultiEngineScanner::new()));
         let vpn = Arc::new(Mutex::new(VpnManager::new(vpn_dir)));
-        let watcher = Arc::new(Mutex::new(RealTimeWatcher::new(Arc::clone(&scanner), Path::new("data").join("quarantine"))));
+        let watcher = Arc::new(Mutex::new(RealTimeWatcher::new(
+            Arc::clone(&scanner),
+            Path::new("data").join("quarantine"),
+        )));
+        let health = Arc::new(Mutex::new(ProtectionHealthManager::new(
+            Arc::clone(&scanner),
+            Arc::clone(&watcher),
+            Path::new("data").join("quarantine"),
+        )));
         let copilot = Arc::new(Mutex::new(CyberCopilotEngine::new()));
-        let sandbox = Arc::new(Mutex::new(MicroSandbox::new(Path::new("data").join("sandbox"))));
+        let sandbox = Arc::new(Mutex::new(MicroSandbox::new(
+            Path::new("data").join("sandbox"),
+        )));
         let reputation = Arc::new(Mutex::new(CommunityReputationEngine::new()));
+        let scheduler = Arc::new(Mutex::new(ScheduledScanManager::new(
+            Path::new("data").join("scheduled_scans.json"),
+        )));
 
         Self {
             patcher,
@@ -52,9 +73,11 @@ impl SamuLibreCore {
             scanner,
             vpn,
             watcher,
+            health,
             copilot,
             sandbox,
             reputation,
+            scheduler,
             alerts_history: Arc::new(Mutex::new(Vec::new())),
             _active_watcher: Arc::new(Mutex::new(None)),
         }
@@ -79,7 +102,10 @@ impl SamuLibreCore {
             );
             if unmitigated > 0 {
                 let applied = patcher.apply_virtual_patches()?;
-                info!("Parchado Virtual: {} reglas de mitigación aplicadas.", applied);
+                info!(
+                    "Parchado Virtual: {} reglas de mitigación aplicadas.",
+                    applied
+                );
             }
         }
 
@@ -104,7 +130,10 @@ impl SamuLibreCore {
 
             let alerts_hist_clone = Arc::clone(&self.alerts_history);
             match w.start_background_watcher(move |alert| {
-                warn!("[REAL-TIME WATCHER] Interceptada amenaza en tiempo real: {} - {}", alert.title, alert.details);
+                warn!(
+                    "[REAL-TIME WATCHER] Interceptada amenaza en tiempo real: {} - {}",
+                    alert.title, alert.details
+                );
                 if let Ok(mut hist) = alerts_hist_clone.lock() {
                     hist.push(alert);
                 }
@@ -133,7 +162,10 @@ impl SamuLibreCore {
         if let Ok(shield) = self.shield.lock() {
             let canary_alerts = shield.check_canary_integrity();
             for alert in canary_alerts {
-                warn!("[CRITICAL] Trampa de Ransomware activada: {}", alert.details);
+                warn!(
+                    "[CRITICAL] Trampa de Ransomware activada: {}",
+                    alert.details
+                );
                 new_alerts.push(alert);
             }
         }
@@ -142,14 +174,20 @@ impl SamuLibreCore {
         if let Ok(mut shield) = self.shield.lock() {
             let lsass_alerts = shield.scan_processes_for_lsass_dumpers();
             for alert in lsass_alerts {
-                warn!("[CRITICAL] Ataque de robo de credenciales neutralizado: {}", alert.details);
+                warn!(
+                    "[CRITICAL] Ataque de robo de credenciales neutralizado: {}",
+                    alert.details
+                );
                 new_alerts.push(alert);
             }
 
             // 3. Inspeccionar procesos buscando ladrones de cookies/tokens de navegador
             let stealer_alerts = shield.scan_processes_for_browser_token_stealers();
             for alert in stealer_alerts {
-                warn!("[HIGH] Intento de robo de sesiones de navegador: {}", alert.details);
+                warn!(
+                    "[HIGH] Intento de robo de sesiones de navegador: {}",
+                    alert.details
+                );
                 new_alerts.push(alert);
             }
         }
@@ -334,7 +372,10 @@ impl SamuLibreCore {
         }
     }
 
-    pub fn analyze_kb_advisory(&self, advisory: &samulibre_types::KbAdvisory) -> Result<samulibre_types::AiPatchAnalysisResult> {
+    pub fn analyze_kb_advisory(
+        &self,
+        advisory: &samulibre_types::KbAdvisory,
+    ) -> Result<samulibre_types::AiPatchAnalysisResult> {
         if let Ok(mut patcher) = self.patcher.lock() {
             patcher.analyze_kb(advisory)
         } else {
@@ -342,7 +383,12 @@ impl SamuLibreCore {
         }
     }
 
-    pub fn analyze_raw_kb(&self, kb_id: &str, title: &str, description: &str) -> Result<samulibre_types::AiPatchAnalysisResult> {
+    pub fn analyze_raw_kb(
+        &self,
+        kb_id: &str,
+        title: &str,
+        description: &str,
+    ) -> Result<samulibre_types::AiPatchAnalysisResult> {
         if let Ok(mut patcher) = self.patcher.lock() {
             patcher.analyze_raw_kb(kb_id, title, description)
         } else {
@@ -364,11 +410,20 @@ impl SamuLibreCore {
         }
     }
 
-    pub fn connect_vpn(&self, country_id: &str, kill_switch: bool) -> Result<samulibre_vpn::VpnConnectionState> {
+    pub fn connect_vpn(
+        &self,
+        country_id: &str,
+        kill_switch: bool,
+    ) -> Result<samulibre_vpn::VpnConnectionState> {
         self.connect_vpn_ext(country_id, kill_switch, false)
     }
 
-    pub fn connect_vpn_ext(&self, country_id: &str, kill_switch: bool, double_encryption: bool) -> Result<samulibre_vpn::VpnConnectionState> {
+    pub fn connect_vpn_ext(
+        &self,
+        country_id: &str,
+        kill_switch: bool,
+        double_encryption: bool,
+    ) -> Result<samulibre_vpn::VpnConnectionState> {
         if let Ok(mut vpn) = self.vpn.lock() {
             vpn.connect_country_ext(country_id, kill_switch, double_encryption)
         } else {
@@ -494,19 +549,29 @@ impl SamuLibreCore {
         let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
         let scanner_ok = if let Ok(s) = self.scanner.lock() {
-            format!("Activo ({} firmas activas, {} reglas YARA-X, Entropía Shannon)", s.signature_count(), s.rule_count())
+            format!(
+                "Activo ({} firmas activas, {} reglas YARA-X, Entropía Shannon)",
+                s.signature_count(),
+                s.rule_count()
+            )
         } else {
             "Inaccesible".to_string()
         };
 
         let shield_ok = if let Ok(sh) = self.shield.lock() {
-            format!("Activo ({} canarios anti-ransomware, Monitor LSASS/DPAPI)", sh.get_canary_count())
+            format!(
+                "Activo ({} canarios anti-ransomware, Monitor LSASS/DPAPI)",
+                sh.get_canary_count()
+            )
         } else {
             "Inaccesible".to_string()
         };
 
         let patcher_ok = if let Ok(p) = self.patcher.lock() {
-            format!("Activo ({} CVEs evaluados, Kernel Build y Drivers verificados)", p.get_rules().len())
+            format!(
+                "Activo ({} CVEs evaluados, Kernel Build y Drivers verificados)",
+                p.get_rules().len()
+            )
         } else {
             "Inaccesible".to_string()
         };
@@ -514,7 +579,10 @@ impl SamuLibreCore {
         let vpn_ok = if let Ok(v) = self.vpn.lock() {
             let state = v.get_state();
             if state.is_connected {
-                format!("Conectado ({:?}, DNS Quad9 antifiltrado)", state.country_name)
+                format!(
+                    "Conectado ({:?}, DNS Quad9 antifiltrado)",
+                    state.country_name
+                )
             } else {
                 "Listo (8 países con leyes de privacidad estricta disponibles)".to_string()
             }
@@ -523,7 +591,10 @@ impl SamuLibreCore {
         };
 
         let watcher_ok = if let Ok(w) = self.watcher.lock() {
-            format!("Activo (Vigilancia On-Access en segundo plano, {} registros en cuarentena)", w.list_quarantine_records().len())
+            format!(
+                "Activo (Vigilancia On-Access en segundo plano, {} registros en cuarentena)",
+                w.list_quarantine_records().len()
+            )
         } else {
             "Inaccesible".to_string()
         };
@@ -539,7 +610,8 @@ impl SamuLibreCore {
         SecurityAuditReport {
             timestamp,
             overall_score: 100,
-            certification_level: "Grado de Excelencia A+ (Cumplimiento AV-TEST / MITRE ATT&CK)".to_string(),
+            certification_level: "Grado de Excelencia A+ (Cumplimiento AV-TEST / MITRE ATT&CK)"
+                .to_string(),
             scanner_status: scanner_ok,
             shield_status: shield_ok,
             patcher_status: patcher_ok,
@@ -590,6 +662,55 @@ impl SamuLibreCore {
         }
     }
 
+    pub fn list_security_exceptions(&self) -> Vec<samulibre_types::SecurityException> {
+        if let Ok(s) = self.scanner.lock() {
+            s.list_security_exceptions()
+        } else {
+            Vec::new()
+        }
+    }
+
+    pub fn add_security_exception(
+        &self,
+        ex: samulibre_types::SecurityException,
+    ) -> Result<samulibre_types::SecurityException, String> {
+        if let Ok(mut s) = self.scanner.lock() {
+            s.add_security_exception(ex)
+        } else {
+            Err("No se pudo adquirir el bloqueo del motor de escaneo.".to_string())
+        }
+    }
+
+    pub fn toggle_security_exception(&self, id: &str) -> Option<bool> {
+        if let Ok(mut s) = self.scanner.lock() {
+            s.toggle_security_exception(id)
+        } else {
+            None
+        }
+    }
+
+    pub fn remove_security_exception(&self, id: &str) -> bool {
+        if let Ok(mut s) = self.scanner.lock() {
+            s.remove_security_exception(id)
+        } else {
+            false
+        }
+    }
+
+    pub fn modify_security_exception(
+        &self,
+        id: &str,
+        scope: samulibre_types::ExceptionScope,
+        expires_at: Option<String>,
+        justification: String,
+    ) -> bool {
+        if let Ok(mut s) = self.scanner.lock() {
+            s.modify_security_exception(id, scope, expires_at, justification)
+        } else {
+            false
+        }
+    }
+
     pub fn get_quarantined_records(&self) -> Vec<samulibre_watcher::QuarantineRecord> {
         if let Ok(w) = self.watcher.lock() {
             w.list_quarantine_records()
@@ -614,9 +735,14 @@ impl SamuLibreCore {
         }
     }
 
-    pub fn isolate_file_manually(&self, path: &Path) -> Result<samulibre_watcher::QuarantineRecord> {
+    pub fn isolate_file_manually(
+        &self,
+        path: &Path,
+    ) -> Result<samulibre_watcher::QuarantineRecord> {
         let scan = self.scan_file_path(path)?;
-        let threat_name = scan.detection_name.unwrap_or_else(|| "Aislamiento.Manual.Usuario".to_string());
+        let threat_name = scan
+            .detection_name
+            .unwrap_or_else(|| "Aislamiento.Manual.Usuario".to_string());
         if let Ok(w) = self.watcher.lock() {
             w.isolate_file(path, &threat_name, &scan.engine, &scan.sha256)
         } else {
@@ -624,7 +750,9 @@ impl SamuLibreCore {
         }
     }
 
-    pub fn execute_on_access_lab_test(&self) -> Result<(String, Option<samulibre_watcher::QuarantineRecord>)> {
+    pub fn execute_on_access_lab_test(
+        &self,
+    ) -> Result<(String, Option<samulibre_watcher::QuarantineRecord>)> {
         let sample_dir = Path::new("data").join("test_samples");
         let _ = std::fs::create_dir_all(&sample_dir);
         let sample_path = sample_dir.join("test_live_sample.ps1");
@@ -712,10 +840,19 @@ impl SamuLibreCore {
             .map(|s| s.local_port)
             .collect();
         let persistence = self.get_persistence_entries();
-        let suspicious_persistence = persistence.iter().filter(|p| p.status == FileScanStatus::Suspicious).count();
+        let suspicious_persistence = persistence
+            .iter()
+            .filter(|p| p.status == FileScanStatus::Suspicious)
+            .count();
         let rules = self.get_patch_rules();
-        let active_patches = rules.iter().filter(|r| r.status == samulibre_types::PatchStatus::VirtualPatchActive).count();
-        let unmitigated = rules.iter().filter(|r| r.status == samulibre_types::PatchStatus::Unmitigated).count();
+        let active_patches = rules
+            .iter()
+            .filter(|r| r.status == samulibre_types::PatchStatus::VirtualPatchActive)
+            .count();
+        let unmitigated = rules
+            .iter()
+            .filter(|r| r.status == samulibre_types::PatchStatus::Unmitigated)
+            .count();
         let quarantine_count = self.get_quarantined_records().len();
 
         let telemetry = CopilotSystemTelemetry {
@@ -769,7 +906,10 @@ impl SamuLibreCore {
     }
 
     /// Consulta o somete indicadores de amenaza en el motor de reputación comunitario con K-Anonimato
-    pub fn query_community_reputation(&self, hash_or_prefix: &str) -> Vec<reputation::CommunityThreatIndicator> {
+    pub fn query_community_reputation(
+        &self,
+        hash_or_prefix: &str,
+    ) -> Vec<reputation::CommunityThreatIndicator> {
         if let Ok(rep) = self.reputation.lock() {
             if hash_or_prefix.len() == 5 {
                 rep.query_by_k_anonymity_prefix(hash_or_prefix)
@@ -822,7 +962,12 @@ impl SamuLibreCore {
     }
 
     /// Desinstala y elimina limpiamente una extensión de navegador
-    pub fn uninstall_browser_extension(&self, browser: &str, profile: &str, ext_id: &str) -> Result<String> {
+    pub fn uninstall_browser_extension(
+        &self,
+        browser: &str,
+        profile: &str,
+        ext_id: &str,
+    ) -> Result<String> {
         samulibre_shield::remove_browser_extension(browser, profile, ext_id)
     }
 
@@ -860,10 +1005,152 @@ impl SamuLibreCore {
             tamper_attempts_detected: anti_tamper_status.tamper_attempts_detected,
         }
     }
+
+    // ==========================================
+    // MÉTODOS DE ESCANEO PROGRAMADO (Windows & Linux)
+    // ==========================================
+
+    pub fn get_scheduled_scan_config(&self) -> samulibre_types::ScheduledScanConfig {
+        if let Ok(sched) = self.scheduler.lock() {
+            sched.get_config()
+        } else {
+            samulibre_types::ScheduledScanConfig::default()
+        }
+    }
+
+    pub fn update_scheduled_scan_config(
+        &self,
+        config: samulibre_types::ScheduledScanConfig,
+    ) -> Result<()> {
+        if let Ok(mut sched) = self.scheduler.lock() {
+            sched.update_config(config)
+        } else {
+            anyhow::bail!("No se pudo bloquear el planificador de escaneos.")
+        }
+    }
+
+    pub fn execute_scheduled_scan_now(&self) -> Result<ScheduledScanReport> {
+        let scanner = if let Ok(s) = self.scanner.lock() {
+            s.clone()
+        } else {
+            anyhow::bail!("No se pudo acceder al motor de escaneo.");
+        };
+
+        let vault = if let Ok(w) = self.watcher.lock() {
+            Some(w.get_vault())
+        } else {
+            None
+        };
+
+        if let Ok(mut sched) = self.scheduler.lock() {
+            let q_fn = move |path: &Path, threat: &str, engine: &str, sha: &str| {
+                if let Some(ref v) = vault {
+                    let _ = v.isolate_file(path, threat, engine, sha);
+                }
+            };
+            sched.execute_scan(&scanner, Some(&q_fn))
+        } else {
+            anyhow::bail!("No se pudo ejecutar el escaneo programado.");
+        }
+    }
+
+    pub fn check_and_run_scheduled_scan_if_due(&self) -> Option<ScheduledScanReport> {
+        let is_due = if let Ok(sched) = self.scheduler.lock() {
+            sched.is_scan_due()
+        } else {
+            false
+        };
+
+        if is_due {
+            self.execute_scheduled_scan_now().ok()
+        } else {
+            None
+        }
+    }
+
+    // ==========================================
+    // MÉTODOS DE PROTECCIÓN EN TIEMPO REAL (Watcher)
+    // ==========================================
+
+    pub fn get_watcher_settings(&self) -> samulibre_types::WatcherSettings {
+        if let Ok(w) = self.watcher.lock() {
+            w.get_settings()
+        } else {
+            samulibre_types::WatcherSettings::default()
+        }
+    }
+
+    pub fn add_watcher_dir(&self, dir: impl AsRef<Path>) {
+        if let Ok(mut w) = self.watcher.lock() {
+            w.add_watch_dir(dir);
+        }
+    }
+
+    pub fn remove_watcher_dir(&self, dir: impl AsRef<Path>) -> bool {
+        if let Ok(mut w) = self.watcher.lock() {
+            w.remove_watch_dir(dir)
+        } else {
+            false
+        }
+    }
+
+    pub fn get_realtime_telemetry(&self) -> samulibre_types::RealtimeTelemetry {
+        if let Ok(w) = self.watcher.lock() {
+            w.get_telemetry()
+        } else {
+            samulibre_types::RealtimeTelemetry::default()
+        }
+    }
+
+    pub fn run_realtime_autodiagnostic(&self) -> samulibre_types::RealtimeDiagnosticReport {
+        if let Ok(w) = self.watcher.lock() {
+            w.run_autodiagnostic()
+        } else {
+            samulibre_types::RealtimeDiagnosticReport {
+                timestamp: chrono::Utc::now().to_rfc3339(),
+                overall_status: samulibre_types::RealtimeProtectionStatus::Error,
+                windows_service_ok: false,
+                file_monitor_ok: false,
+                event_queue_ok: false,
+                scan_engine_ok: false,
+                signatures_ok: false,
+                yara_ok: false,
+                heuristic_ok: false,
+                quarantine_ok: false,
+                ui_communication_ok: false,
+                tests_executed: 0,
+                tests_passed: 0,
+                details: Vec::new(),
+            }
+        }
+    }
+
+    /// Retorna una evaluación completa y fáctica de los 9 subsistemas de protección (Fuente Única de Verdad)
+    pub fn get_protection_health(&self) -> samulibre_types::ProtectionHealthSnapshot {
+        if let Ok(h) = self.health.lock() {
+            h.evaluate_health()
+        } else {
+            samulibre_types::ProtectionHealthSnapshot {
+                overall_status: samulibre_types::SubsystemState::Unknown,
+                overall_status_label: "Desconocido".to_string(),
+                overall_status_color: "gray".to_string(),
+                checked_at: chrono::Utc::now().to_rfc3339(),
+                subsystems: Vec::new(),
+                active_watch_dirs: Vec::new(),
+                telemetry: samulibre_types::RealtimeTelemetry::default(),
+                evidence_summary: "No se pudo adquirir bloqueo del Administrador de Salud."
+                    .to_string(),
+            }
+        }
+    }
 }
 
 #[allow(dead_code)]
-fn audit_browser_profiles(user_data_dir: &Path, browser_name: &str, reports: &mut Vec<samulibre_shield::ExtensionAuditReport>) {
+fn audit_browser_profiles(
+    user_data_dir: &Path,
+    browser_name: &str,
+    reports: &mut Vec<samulibre_shield::ExtensionAuditReport>,
+) {
     if !user_data_dir.exists() {
         return;
     }
@@ -882,7 +1169,12 @@ fn audit_browser_profiles(user_data_dir: &Path, browser_name: &str, reports: &mu
 }
 
 #[allow(dead_code)]
-fn audit_extensions_in_dir(dir: &Path, browser_name: &str, profile_name: &str, reports: &mut Vec<samulibre_shield::ExtensionAuditReport>) {
+fn audit_extensions_in_dir(
+    dir: &Path,
+    browser_name: &str,
+    profile_name: &str,
+    reports: &mut Vec<samulibre_shield::ExtensionAuditReport>,
+) {
     if !dir.exists() {
         return;
     }
@@ -894,7 +1186,11 @@ fn audit_extensions_in_dir(dir: &Path, browser_name: &str, profile_name: &str, r
                     for sub in sub_entries.flatten() {
                         let manifest = sub.path().join("manifest.json");
                         if manifest.exists() {
-                            if let Some(r) = samulibre_shield::audit_extension_manifest(&manifest, browser_name, profile_name) {
+                            if let Some(r) = samulibre_shield::audit_extension_manifest(
+                                &manifest,
+                                browser_name,
+                                profile_name,
+                            ) {
                                 reports.push(r);
                             }
                         }

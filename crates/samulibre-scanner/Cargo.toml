@@ -16,3 +16,5 @@ regex = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 chrono = { workspace = true }
+ureq = { workspace = true }
+uuid = { workspace = true }

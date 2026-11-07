@@ -13,9 +13,25 @@ pub struct FirewallVerdict {
 
 /// Binarios Living-off-the-Land (LOLBins) que frecuentemente se abusan para descargar payloads o C2
 const LOLBINS: &[&str] = &[
-    "powershell.exe", "pwsh.exe", "cmd.exe", "rundll32.exe", "certutil.exe", "bitsadmin.exe",
-    "mshta.exe", "wscript.exe", "cscript.exe", "regsvr32.exe", "schtasks.exe", "at.exe",
-    "wmic.exe", "bash", "sh", "nc", "netcat", "ncat", "socat",
+    "powershell.exe",
+    "pwsh.exe",
+    "cmd.exe",
+    "rundll32.exe",
+    "certutil.exe",
+    "bitsadmin.exe",
+    "mshta.exe",
+    "wscript.exe",
+    "cscript.exe",
+    "regsvr32.exe",
+    "schtasks.exe",
+    "at.exe",
+    "wmic.exe",
+    "bash",
+    "sh",
+    "nc",
+    "netcat",
+    "ncat",
+    "socat",
 ];
 
 /// Puertos comunes de Command & Control (C2) y reverse shells
@@ -27,14 +43,15 @@ const C2_SUSPICIOUS_PORTS: &[u16] = &[
 pub fn is_private_or_local_ip(ip_str: &str) -> bool {
     if let Ok(ip) = ip_str.parse::<IpAddr>() {
         match ip {
-            IpAddr::V4(v4) => {
-                v4.is_loopback() || v4.is_private() || v4.is_link_local()
-            }
+            IpAddr::V4(v4) => v4.is_loopback() || v4.is_private() || v4.is_link_local(),
             IpAddr::V6(v6) => v6.is_loopback(),
         }
     } else {
         // Si no se puede parsear como IP, verificar strings comunes
-        ip_str == "127.0.0.1" || ip_str == "localhost" || ip_str.starts_with("192.168.") || ip_str.starts_with("10.")
+        ip_str == "127.0.0.1"
+            || ip_str == "localhost"
+            || ip_str.starts_with("192.168.")
+            || ip_str.starts_with("10.")
     }
 }
 
@@ -67,7 +84,10 @@ impl AdaptiveFirewall {
         if self.blocked_ips.contains(remote_ip) {
             return FirewallVerdict {
                 allowed: false,
-                reason: format!("Dirección IP remota {} bloqueada explícitamente en el firewall.", remote_ip),
+                reason: format!(
+                    "Dirección IP remota {} bloqueada explícitamente en el firewall.",
+                    remote_ip
+                ),
                 severity: "Alta".to_string(),
                 should_isolate_pid: false,
             };
@@ -152,7 +172,8 @@ mod tests {
     #[test]
     fn test_c2_suspicious_port_blocked() {
         let mut fw = AdaptiveFirewall::new();
-        let verdict = fw.inspect_outbound_connection(9999, "unknown_worker.exe", "198.51.100.22", 4444);
+        let verdict =
+            fw.inspect_outbound_connection(9999, "unknown_worker.exe", "198.51.100.22", 4444);
         assert!(!verdict.allowed);
         assert!(verdict.reason.contains("C2"));
     }

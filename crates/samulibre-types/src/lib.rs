@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use uuid::Uuid;
 
 /// Severidad de amenaza o vulnerabilidad
@@ -128,6 +129,7 @@ pub enum ThreatCategory {
     LsassMemoryAccess,
     BrowserCredentialTheft,
     RansomwareCanaryTrip,
+    RansomwareActivity,
     VirtualPatchApplied,
     VirtualPatchReverted,
     VpnKillswitchEngaged,
@@ -138,6 +140,118 @@ pub enum ThreatCategory {
     AndroidAccessibilityAbuse,
     AndroidMaliciousApkSideload,
     AndroidAsbVulnerabilityDetected,
+}
+
+/// Clasificación de veredicto en 5 niveles para mitigar y gestionar falsos positivos
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ThreatVerdict {
+    /// Amenaza confirmada mediante firma exacta SHA-256 o regla YARA estricta
+    ConfirmedMalware,
+    /// Alta probabilidad de malware según heurística multicapa y análisis de comportamiento
+    LikelyMalware,
+    /// Resultado no concluyente (archivo protegido o empaquetado no analizable directamente)
+    Inconclusive,
+    /// Archivo benigno probablemente empaquetado o herramienta de administración legítima
+    LikelyFalsePositive,
+    /// Falso positivo confirmado y verificado (exclusión anclada por hash SHA-256)
+    ConfirmedFalsePositive,
+}
+
+/// Registro de exclusión de análisis anclada criptográficamente por hash SHA-256
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PinnedExclusion {
+    pub path: String,
+    pub sha256: Option<String>,
+    pub reason: String,
+    pub added_at: String,
+}
+
+/// Categoría técnica del elemento excluido en el módulo avanzado de excepciones
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ExceptionType {
+    Folder { include_subdirectories: bool },
+    File { sha256_pinned: Option<String> },
+    Extension { ext: String },
+    Sha256Hash { hash: String },
+}
+
+/// Alcance granular de la excepción en los motores de protección
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExceptionScope {
+    pub manual_scan: bool,
+    pub realtime_protection: bool,
+    pub heuristic_analysis: bool,
+    pub scheduled_scan: bool,
+    pub downloaded_files: bool,
+}
+
+impl Default for ExceptionScope {
+    fn default() -> Self {
+        Self {
+            manual_scan: true,
+            realtime_protection: true,
+            heuristic_analysis: true,
+            scheduled_scan: true,
+            downloaded_files: true,
+        }
+    }
+}
+
+/// Categoría de justificación operativa de la excepción
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ReasonCategory {
+    LegitimateApplication,
+    SoftwareDevelopment,
+    AdministrativeTool,
+    EnterpriseSoftware,
+    InvestigatedFalsePositive,
+    Other,
+}
+
+/// Nivel de riesgo asignado a la excepción según su amplitud y criticidad
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ExceptionRiskLevel {
+    Low,
+    Medium,
+    High,
+    Critical,
+}
+
+/// Registro en bitácora de auditoría para trazabilidad de modificaciones
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExceptionAuditEntry {
+    pub timestamp: String,
+    pub action: String,
+    pub details: String,
+}
+
+/// Registro completo de una Excepción de Seguridad en SamuLibre
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SecurityException {
+    pub id: String,
+    pub name: String,
+    pub target: String,
+    pub exception_type: ExceptionType,
+    pub scope: ExceptionScope,
+    pub reason_category: ReasonCategory,
+    pub justification: String,
+    pub risk_level: ExceptionRiskLevel,
+    pub created_at: String,
+    pub expires_at: Option<String>,
+    pub is_active: bool,
+    pub audit_history: Vec<ExceptionAuditEntry>,
+}
+
+impl SecurityException {
+    /// Determina si una excepción temporal ha caducado
+    pub fn is_expired(&self) -> bool {
+        if let Some(ref exp_str) = self.expires_at {
+            if let Ok(exp_dt) = chrono::DateTime::parse_from_rfc3339(exp_str) {
+                return chrono::Utc::now() > exp_dt.with_timezone(&chrono::Utc);
+            }
+        }
+        false
+    }
 }
 
 /// Información multiplataforma del sistema operativo
@@ -364,4 +478,222 @@ pub struct AndroidPackageInfo {
     pub sha256: Option<String>,
 }
 
+/// Frecuencia configurada para escaneos programados en Windows y Linux
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ScheduleFrequency {
+    Daily,
+    Weekly,
+    Hourly,
+    IntervalHours(u32),
+    Every8Days,
+    IntervalDays(u32),
+}
 
+/// Objetivo del escaneo programado
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ScanTargetType {
+    Quick,
+    Full,
+    Custom,
+}
+
+/// Configuración persistente del planificador de escaneos
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScheduledScanConfig {
+    pub enabled: bool,
+    pub frequency: ScheduleFrequency,
+    pub target_type: ScanTargetType,
+    pub custom_paths: Vec<String>,
+    pub scheduled_time: String,
+    pub last_run: Option<String>,
+    pub next_run: Option<String>,
+    pub last_result_threats: usize,
+    pub last_result_scanned: usize,
+}
+
+impl Default for ScheduledScanConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            frequency: ScheduleFrequency::Daily,
+            target_type: ScanTargetType::Quick,
+            custom_paths: Vec::new(),
+            scheduled_time: "02:00".to_string(),
+            last_run: None,
+            next_run: None,
+            last_result_threats: 0,
+            last_result_scanned: 0,
+        }
+    }
+}
+
+/// Configuración de directorios y estado de la protección en tiempo real (Watcher)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WatcherSettings {
+    pub enabled: bool,
+    pub custom_watch_dirs: Vec<String>,
+    pub files_inspected_total: usize,
+    pub threats_intercepted_total: usize,
+}
+
+impl Default for WatcherSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            custom_watch_dirs: Vec::new(),
+            files_inspected_total: 0,
+            threats_intercepted_total: 0,
+        }
+    }
+}
+
+/// Estados operacionales de la protección en tiempo real
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RealtimeProtectionStatus {
+    Active,
+    Initializing,
+    Partial,
+    Disabled,
+    Error,
+    Unverified,
+}
+
+impl std::fmt::Display for RealtimeProtectionStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Active => write!(f, "PROTECCIÓN ACTIVA"),
+            Self::Initializing => write!(f, "INICIALIZANDO"),
+            Self::Partial => write!(f, "PROTECCIÓN PARCIAL"),
+            Self::Disabled => write!(f, "PROTECCIÓN DESACTIVADA"),
+            Self::Error => write!(f, "ERROR DE PROTECCIÓN"),
+            Self::Unverified => write!(f, "NO VERIFICADO"),
+        }
+    }
+}
+
+/// Telemetría y estado en tiempo real del subsistema de monitorización y cola
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RealtimeTelemetry {
+    pub status: RealtimeProtectionStatus,
+    pub status_detail: String,
+    pub service_running: bool,
+    pub watcher_running: bool,
+    pub queue_depth: usize,
+    pub events_enqueued_total: usize,
+    pub events_processed_total: usize,
+    pub events_dropped_total: usize,
+    pub files_inspected_total: usize,
+    pub threats_intercepted_total: usize,
+    pub last_event_path: Option<String>,
+    pub last_event_timestamp: Option<String>,
+    pub last_error: Option<String>,
+    pub uptime_seconds: u64,
+    pub monitored_paths: Vec<String>,
+}
+
+impl Default for RealtimeTelemetry {
+    fn default() -> Self {
+        Self {
+            status: RealtimeProtectionStatus::Unverified,
+            status_detail: "Esperando inicialización del subsistema...".to_string(),
+            service_running: false,
+            watcher_running: false,
+            queue_depth: 0,
+            events_enqueued_total: 0,
+            events_processed_total: 0,
+            events_dropped_total: 0,
+            files_inspected_total: 0,
+            threats_intercepted_total: 0,
+            last_event_path: None,
+            last_event_timestamp: None,
+            last_error: None,
+            uptime_seconds: 0,
+            monitored_paths: Vec::new(),
+        }
+    }
+}
+
+/// Informe de autodiagnóstico integral de protección en tiempo real
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RealtimeDiagnosticReport {
+    pub timestamp: String,
+    pub overall_status: RealtimeProtectionStatus,
+    pub windows_service_ok: bool,
+    pub file_monitor_ok: bool,
+    pub event_queue_ok: bool,
+    pub scan_engine_ok: bool,
+    pub signatures_ok: bool,
+    pub yara_ok: bool,
+    pub heuristic_ok: bool,
+    pub quarantine_ok: bool,
+    pub ui_communication_ok: bool,
+    pub tests_executed: usize,
+    pub tests_passed: usize,
+    pub details: Vec<RealtimeDiagnosticTestResult>,
+}
+
+/// Resultado de una prueba puntual del autodiagnóstico
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RealtimeDiagnosticTestResult {
+    pub name: String,
+    pub passed: bool,
+    pub duration_ms: u64,
+    pub correlation_id: Option<String>,
+    pub detail: String,
+}
+
+/// Estados normalizados para los subsistemas de protección
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SubsystemState {
+    Running,
+    Stopped,
+    Starting,
+    Degraded,
+    Failed,
+    NotInstalled,
+    NotConfigured,
+    NotTested,
+    Unknown,
+}
+
+impl std::fmt::Display for SubsystemState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Running => write!(f, "RUNNING"),
+            Self::Stopped => write!(f, "STOPPED"),
+            Self::Starting => write!(f, "STARTING"),
+            Self::Degraded => write!(f, "DEGRADED"),
+            Self::Failed => write!(f, "FAILED"),
+            Self::NotInstalled => write!(f, "NOT_INSTALLED"),
+            Self::NotConfigured => write!(f, "NOT_CONFIGURED"),
+            Self::NotTested => write!(f, "NOT_TESTED"),
+            Self::Unknown => write!(f, "UNKNOWN"),
+        }
+    }
+}
+
+/// Informe de salud y evidencia de un subsistema individual de protección
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubsystemHealthReport {
+    pub name: String,
+    pub state: SubsystemState,
+    pub checked_at: String,
+    pub last_event: Option<String>,
+    pub last_error: Option<String>,
+    pub version: Option<String>,
+    pub metrics: HashMap<String, String>,
+    pub evidence: String,
+}
+
+/// Instantánea centralizada del estado de salud de todos los subsistemas (Fuente Única de Verdad)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProtectionHealthSnapshot {
+    pub overall_status: SubsystemState,
+    pub overall_status_label: String,
+    pub overall_status_color: String, // "green", "yellow", "red", "gray"
+    pub checked_at: String,
+    pub subsystems: Vec<SubsystemHealthReport>,
+    pub active_watch_dirs: Vec<String>,
+    pub telemetry: RealtimeTelemetry,
+    pub evidence_summary: String,
+}

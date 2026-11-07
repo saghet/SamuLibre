@@ -28,7 +28,8 @@ pub fn scan_process_memory_for_fileless(pid: u32, process_name: &str) -> Vec<Fil
                 if parts.len() >= 2 {
                     let perms = parts[1];
                     let is_rwx = perms.starts_with("rwx");
-                    let is_unbacked = parts.len() < 6 || parts[5] == "[anon]" || parts[5].contains("(deleted)");
+                    let is_unbacked =
+                        parts.len() < 6 || parts[5] == "[anon]" || parts[5].contains("(deleted)");
 
                     if is_rwx && is_unbacked {
                         let addr_str = parts[0].split('-').next().unwrap_or("0");
@@ -38,7 +39,10 @@ pub fn scan_process_memory_for_fileless(pid: u32, process_name: &str) -> Vec<Fil
                             process_name: process_name.to_string(),
                             address: addr,
                             size: 4096,
-                            reason: format!("Región de memoria anónima ejecutable y modificable (RWX): {}", parts[0]),
+                            reason: format!(
+                                "Región de memoria anónima ejecutable y modificable (RWX): {}",
+                                parts[0]
+                            ),
                         });
                     }
                 }
