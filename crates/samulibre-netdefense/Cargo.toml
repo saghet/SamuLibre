@@ -1,0 +1,36 @@
+[package]
+name = "samulibre-netdefense"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "SamuLibre Network Defense Engine: WFP Firewall, App Control, DoH/DoT DNS Protection, Tor Secure Mode & Threat Intelligence"
+
+[dependencies]
+samulibre-types = { path = "../samulibre-types" }
+samulibre-intel = { path = "../samulibre-intel" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+sysinfo = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+uuid = { workspace = true }
+ureq = { workspace = true }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-pki-types = "1"
+webpki-roots = "0.26"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_NetworkManagement_WindowsFilteringPlatform",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_Networking_WinSock",
+    "Win32_System_Rpc",
+] }

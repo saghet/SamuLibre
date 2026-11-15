@@ -5,6 +5,42 @@ El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/
 
 ---
 
+## [2.0.20] - 2026-11-15
+
+### Agregado
+- **Crate `samulibre-intel` (Threat Intelligence & Signature Ecosystem):**
+  - Base de datos central normalizada (`samulibre_intel.db`) con historial de cambios, deduplicación por `content_hash`, control de licencias SBOM y manifiesto firmado (`manifest.json`).
+  - Integración de **YARA Forge** (*Core* en producción, *Extended* en observación, *Full* en laboratorio) y repositorios verificados (*Neo23x0 Signature-Base*, *Yara-Rules*, *ReversingLabs*, *Ditekshen*, *ATR*).
+  - **Motor Anti-Falsos Positivos (`AntiFalsePositiveEngine`) y `YaraPromotionGate`:** Clasificación por 3 entornos (*Laboratorio → Observación → Producción*), verificación Authenticode y pruebas de regresión.
+  - **Caché Binaria YARA (`SAMUYAR2` `compiled_yara.bin`):** Carga rápida de reglas YARA-X compiladas con validación sintáctica y detección de reglas genéricas o corruptas.
+  - **Adaptador Sigma / MITRE ATT&CK (`BehaviorRuleAdapter`)** y **SamuLibre Driver Security Intelligence (`DriverSecurityIntel`)** con base *LOLDrivers* para detección de riesgos BYOVD.
+  - **Conectores Threat Intel Live:** *Abuse.ch MalwareBazaar* (POST API v1), *ThreatFox* (POST API v1, ventana 7 días), *URLhaus* (API v1), *Feodo Tracker*, *YARAify*, *AlienVault OTX* (paginación hasta 150 pulses) y *ClamAV* local.
+- **Gestión Segura de API Keys y Auto-Sync Diaria:**
+  - Panel **🔑 API Keys** en el encabezado del Explorador de Base de Firmas Activas con botones **💾 Guardar Llaves**, **💾 Guardar y Probar** y **⚡ Probar Feeds**, respaldado en `data/secure/intel_keys.json` (excluido de Git y logs).
+  - Hilo de actualización automática diaria cada 24 horas para feeds API y repositorios incrementales de hashes (`Neo23x0/signature-base`, `LOLDrivers`).
+- **Crate `samulibre-netdefense` y Expansión de UI:**
+  - Tarjeta ampliada **IOCs de Red (C2 / Dom / URL)** con desglose en vivo y filtros dedicados para **Red (C2/Dom/URL)**, **Dominios**, **URLs** e **IPs C2**.
+
+### Corregido
+- Endpoints retirados (`410 Gone`) de Abuse.ch migrados a APIs v1 autenticadas con header `Auth-Key`.
+- Tolerancia a BOM UTF-8 al leer `data/secure/intel_keys.json`.
+- Unificación de **🔄 Sincronizar Ahora** para ejecutar también los conectores Threat Intel y refrescar desde SQLite.
+- Corrección de falsos positivos en tiempo real sobre scripts temporales de PowerShell (`__PSScriptPolicyTest_*.ps1`) y endurecimiento de cuarentena.
+
+---
+
+## [2.2.0] - 2026-11-07
+
+### Agregado
+- **SamuLibre Security Center Unificado:** Consola ejecutiva integral de ciberseguridad para endpoints con panel de control de 9 secciones, índice de salud global circular (0-100%) y telemetría en tiempo real sin métricas simuladas.
+- **Integración de Suite VPN Corporativa:** Interfaz y telemetría en vivo del motor `samulibre-vpn` (WireGuard / OpenVPN / Tor), temporizador de conexión, contadores de velocidad y tráfico, selector de servidores seguros (Suiza, Islandia, Suecia, Alemania), protección contra fugas DNS e IPv6 (`netsh advfirewall`), Kill Switch WFP y mecanismo failsafe de restauración de red (`emergency_recover_vpn`).
+- **SamuLibre Virtual Patching Engine Fortalecido:** Gestión y auditoría de mitigaciones compensatorias quirúrgicas para vulnerabilidades críticas de Windows (Follina CVE-2022-30190, PrintNightmare CVE-2021-34527, Zerologon CVE-2020-1472, CVE-2023-36884, CVE-2024-38063), diferenciación estricta entre mitigación compensatoria y parche nativo instalado, validación de compatibilidad previa y registro de incidentes de explotación.
+- **Windows Patch Intelligence Service:** Descubrimiento e inventario nativo del sistema operativo (edición, versión, compilación, UBR, arquitectura), consulta autoritativa de paquetes de servicio CBS (`Component Based Servicing`) y WUA (`Windows Update Agent`), correlación con catálogos oficiales de MSRC y CISA KEV (Known Exploited Vulnerabilities), y detección de reinicios pendientes (`RebootPending`, `PendingFileRenameOperations`) sin forzar reinicios no autorizados.
+- **Motor de Correlación Bidireccional CVE ↔ KB ↔ Virtual Patching:** Grafo relacional interactivo con filtrado por explotación activa en la naturaleza (CISA KEV), severidad CVSS > 9.0, estado de KB y reglas compensatorias activas.
+- **Instalador Controlado de Actualizaciones Oficiales:** Instalación de KBs vía WUA API con requerimiento de consentimiento explícito del administrador y garantía estricta de no interrupción de tareas ni reinicio forzado.
+
+---
+
 ## [2.1.13] - 2026-11-07
 
 ### Agregado

@@ -69,20 +69,102 @@ pub struct DetailedUpdateReport {
     pub downloaded_files: Vec<String>,
 }
 
-/// Definición de una fuente de actualización
-#[derive(Debug, Clone)]
+/// Definición de una fuente de actualización con procedencia, confiabilidad, versión e integridad
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct UpdateSource {
     pub name: String,
     pub url: String,
     pub source_type: UpdateSourceType,
     pub description: String,
+    #[serde(default = "default_trust_score")]
+    pub trust_score: u8,
+    #[serde(default = "default_ttl_hours")]
+    pub ttl_hours: u32,
+    #[serde(default)]
+    pub version: String,
+    #[serde(default)]
+    pub integrity_sha256: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+fn default_trust_score() -> u8 {
+    85
+}
+fn default_ttl_hours() -> u32 {
+    24
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum UpdateSourceType {
     YaraRule,
     HashDatabase,
+    MalwareBazaarSha256,
     IpBlocklist,
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct SignatureCatalogEntry {
+    pub kind: String,       // "SHA256" | "YARA" | "BEHAVIOR" | "C2_IP" | "DOMAIN" | "URL"
+    pub identifier: String, // hash, nombre de regla o IP
+    pub family: String,     // familia o descripción de amenaza
+    pub source: String,     // feed de origen
+    pub added_at: String,   // timestamp de incorporación
+    #[serde(default)]
+    pub license: String,
+    #[serde(default)]
+    pub source_url: String,
+    #[serde(default)]
+    pub rule_author: String,
+    #[serde(default)]
+    pub validation_status: String,
+    #[serde(default)]
+    pub validation_score: u8,
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct SignatureDatabaseSummary {
+    pub sha256_hashes: usize,
+    pub yara_rules: usize,
+    pub c2_ips: usize,
+    pub total_protections: usize,
+    pub last_updated: String,
+    pub active_feeds: Vec<String>,
+    #[serde(default)]
+    pub domains: usize,
+    #[serde(default)]
+    pub urls: usize,
+    #[serde(default)]
+    pub behavior_rules: usize,
+    #[serde(default)]
+    pub loldrivers_count: usize,
+    #[serde(default)]
+    pub connected_sources: usize,
+    #[serde(default)]
+    pub yara_lab: usize,
+    #[serde(default)]
+    pub yara_pending: usize,
+    #[serde(default)]
+    pub yara_rejected: usize,
+    #[serde(default)]
+    pub yara_obsolete: usize,
+    #[serde(default)]
+    pub fp_reported: usize,
+    #[serde(default)]
+    pub sources_detail: Vec<samulibre_intel::IntelSource>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SignatureCatalogResponse {
+    pub summary: SignatureDatabaseSummary,
+    pub entries: Vec<SignatureCatalogEntry>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SignatureCatalogPageResponse {
+    pub summary: SignatureDatabaseSummary,
+    pub total_filtered: usize,
+    pub page: usize,
+    pub page_size: usize,
+    pub entries: Vec<SignatureCatalogEntry>,
 }
 
 /// Gestor de Fuentes de Actualización (Source Manager)
@@ -99,12 +181,80 @@ impl SourceManager {
                     url: "https://raw.githubusercontent.com/Yara-Rules/rules/master/malware/MALW_Eicar.yar".to_string(),
                     source_type: UpdateSourceType::YaraRule,
                     description: "Regla YARA comunitaria para verificación de firma estándar EICAR".to_string(),
+                    trust_score: 95,
+                    ttl_hours: 168,
+                    version: "Yara-Rules/master".to_string(),
+                    integrity_sha256: None,
+                },
+                UpdateSource {
+                    name: "Neo23x0 Signature-Base (Hash IOCs SHA-256)".to_string(),
+                    url: "https://raw.githubusercontent.com/Neo23x0/signature-base/master/iocs/hash-iocs.txt".to_string(),
+                    source_type: UpdateSourceType::HashDatabase,
+                    description: "Base comunitaria verificada de hashes SHA-256 de malware y APT".to_string(),
+                    trust_score: 92,
+                    ttl_hours: 24,
+                    version: "Neo23x0/master".to_string(),
+                    integrity_sha256: None,
+                },
+                UpdateSource {
+                    name: "Neo23x0 YARA (Mimikatz & Credential Dumpers)".to_string(),
+                    url: "https://raw.githubusercontent.com/Neo23x0/signature-base/master/yara/gen_mimikatz.yar".to_string(),
+                    source_type: UpdateSourceType::YaraRule,
+                    description: "Reglas YARA para detección de volcadores de credenciales".to_string(),
+                    trust_score: 90,
+                    ttl_hours: 72,
+                    version: "Neo23x0/master".to_string(),
+                    integrity_sha256: None,
+                },
+                UpdateSource {
+                    name: "Neo23x0 YARA (CobaltStrike)".to_string(),
+                    url: "https://raw.githubusercontent.com/Neo23x0/signature-base/master/yara/gen_cobaltstrike.yar".to_string(),
+                    source_type: UpdateSourceType::YaraRule,
+                    description: "Reglas YARA para detección de beacons CobaltStrike".to_string(),
+                    trust_score: 90,
+                    ttl_hours: 72,
+                    version: "Neo23x0/master".to_string(),
+                    integrity_sha256: None,
+                },
+                UpdateSource {
+                    name: "Yara-Rules Official (Emotet)".to_string(),
+                    url: "https://raw.githubusercontent.com/Yara-Rules/rules/master/malware/MALW_Emotet.yar".to_string(),
+                    source_type: UpdateSourceType::YaraRule,
+                    description: "Reglas YARA comunitarias para familia Emotet".to_string(),
+                    trust_score: 82,
+                    ttl_hours: 72,
+                    version: "Yara-Rules/master".to_string(),
+                    integrity_sha256: None,
+                },
+                UpdateSource {
+                    name: "Yara-Rules Official (Mirai)".to_string(),
+                    url: "https://raw.githubusercontent.com/Yara-Rules/rules/master/malware/MALW_Mirai.yar".to_string(),
+                    source_type: UpdateSourceType::YaraRule,
+                    description: "Reglas YARA comunitarias para familia Mirai".to_string(),
+                    trust_score: 82,
+                    ttl_hours: 72,
+                    version: "Yara-Rules/master".to_string(),
+                    integrity_sha256: None,
+                },
+                UpdateSource {
+                    name: "Abuse.ch MalwareBazaar (Recent SHA-256 Live Feed)".to_string(),
+                    url: "https://bazaar.abuse.ch/export/txt/sha256/recent/".to_string(),
+                    source_type: UpdateSourceType::MalwareBazaarSha256,
+                    description: "Muestras activas recientes de malware (últimas 48h) desde MalwareBazaar".to_string(),
+                    trust_score: 96,
+                    ttl_hours: 4,
+                    version: "abuse.ch/bazaar-recent".to_string(),
+                    integrity_sha256: None,
                 },
                 UpdateSource {
                     name: "Abuse.ch Feodo Tracker (Active Botnet C2 Blocklist)".to_string(),
                     url: "https://feodotracker.abuse.ch/downloads/ipblocklist.txt".to_string(),
                     source_type: UpdateSourceType::IpBlocklist,
                     description: "Lista abierta de direcciones IP de servidores Command & Control activos".to_string(),
+                    trust_score: 96,
+                    ttl_hours: 12,
+                    version: "abuse.ch/feodo-v1".to_string(),
+                    integrity_sha256: None,
                 },
             ],
         }
@@ -227,7 +377,11 @@ impl YaraRulesManager {
                     if cleaned.starts_with('"') {
                         if let Some(end_quote) = cleaned[1..].find('"') {
                             let text = &cleaned[1..=end_quote];
-                            if text.len() >= 4 {
+                            let is_eicar_rule = current_rule_name
+                                .as_deref()
+                                .map(|n| n.eq_ignore_ascii_case("eicar"))
+                                .unwrap_or(false);
+                            if text.len() >= 12 || (is_eicar_rule && text.len() >= 4) {
                                 string_patterns.push(regex::escape(text));
                             }
                         }
@@ -276,19 +430,28 @@ impl ClamAvIntegration {
                 continue;
             }
 
+            if let Some((hash_raw, rest)) = trimmed.split_once(';') {
+                let hash = hash_raw.trim().to_lowercase();
+                let name = rest.trim().to_string();
+                if hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()) && !name.is_empty() {
+                    signatures.insert(hash, name);
+                }
+                continue;
+            }
+
             let parts: Vec<&str> = trimmed.split(':').collect();
             if parts.len() == 3 {
                 // ClamAV .hdb / .hsb format: HASH:SIZE:NAME
                 let hash = parts[0].trim().to_lowercase();
                 let name = parts[2].trim().to_string();
-                if hash.len() == 64 {
+                if hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()) {
                     signatures.insert(hash, format!("ClamAV.{}", name));
                 }
             } else if parts.len() == 2 {
                 // Formato simple: HASH:NAME
                 let hash = parts[0].trim().to_lowercase();
                 let name = parts[1].trim().to_string();
-                if hash.len() == 64 {
+                if hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()) {
                     signatures.insert(hash, name);
                 }
             }
@@ -314,6 +477,25 @@ impl ThreatIntelligenceManager {
             }
         }
         ips
+    }
+
+    /// Parsea el feed de hashes SHA-256 recientes de Abuse.ch MalwareBazaar (1 hash por línea)
+    pub fn parse_malwarebazaar_sha256(content: &str) -> HashMap<String, String> {
+        let mut hashes = HashMap::new();
+        for line in content.lines() {
+            let trimmed = line.trim().to_lowercase();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+            if trimmed.len() == 64 && trimmed.bytes().all(|b| b.is_ascii_hexdigit()) {
+                let short_id = &trimmed[..8];
+                hashes.insert(
+                    trimmed.clone(),
+                    format!("MalwareBazaar.Recent.{}", short_id),
+                );
+            }
+        }
+        hashes
     }
 }
 
@@ -442,6 +624,7 @@ impl UpdateManager {
         let mut downloaded_files = Vec::new();
         let mut new_yara_rules: Vec<PatternRule> = Vec::new();
         let mut downloaded_hashes: HashMap<String, String> = HashMap::new();
+        let mut downloaded_hash_sources: HashMap<String, String> = HashMap::new();
         let mut downloaded_c2_ips: Vec<String> = Vec::new();
         let mut total_bytes_downloaded = 0usize;
 
@@ -550,8 +733,21 @@ impl UpdateManager {
                 }
                 UpdateSourceType::HashDatabase => {
                     let hashes = ClamAvIntegration::parse_clamav_hash_database(content_str);
+                    for h in hashes.keys() {
+                        downloaded_hash_sources.insert(h.clone(), source.name.clone());
+                    }
                     downloaded_hashes.extend(hashes);
                     downloaded_files.push(source.name.clone());
+                }
+                UpdateSourceType::MalwareBazaarSha256 => {
+                    let hashes = ThreatIntelligenceManager::parse_malwarebazaar_sha256(content_str);
+                    if !hashes.is_empty() {
+                        for h in hashes.keys() {
+                            downloaded_hash_sources.insert(h.clone(), source.name.clone());
+                        }
+                        downloaded_hashes.extend(hashes);
+                        downloaded_files.push("malwarebazaar_recent_sha256.txt".to_string());
+                    }
                 }
             }
         }
@@ -640,10 +836,6 @@ impl UpdateManager {
                 "Backdoor.Win32.RemcosRAT.Client",
             ),
             (
-                "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
-                "Trojan.Win32.AsyncRAT.C2Channel",
-            ),
-            (
                 "32b139977cfb9a01be3fc4863c18b7ae293b67be06eec43eb91fe5d35eb7b3fe",
                 "Trojan.Win32.Emotet.Payload",
             ),
@@ -653,12 +845,44 @@ impl UpdateManager {
             ),
         ];
 
+        // 7. Incorporar firmas base conocidas verificadas (fuente única compartida con ScannerEngine)
         let initial_count = existing_hashes.len();
+        let mut hash_sources_meta: HashMap<String, (String, String)> = HashMap::new();
+        let catalog_path = self.signatures_dir.join("signatures_catalog.json");
+        if let Ok(raw_cat) = fs::read_to_string(&catalog_path) {
+            if let Ok(prev_cat) = serde_json::from_str::<SignatureCatalogResponse>(&raw_cat) {
+                for entry in prev_cat.entries {
+                    if entry.kind == "SHA256" {
+                        hash_sources_meta.insert(entry.identifier, (entry.source, entry.added_at));
+                    }
+                }
+            }
+        }
+
+        for &(h, n) in crate::default_builtin_signatures() {
+            let h_low = h.to_lowercase();
+            existing_hashes.entry(h_low.clone()).or_insert_with(|| n.to_string());
+            hash_sources_meta
+                .entry(h_low)
+                .or_insert_with(|| ("Base Verificada SamuLibre".to_string(), timestamp_str.clone()));
+        }
         for (h, n) in verified_signatures {
-            existing_hashes.insert(h.to_lowercase(), n.to_string());
+            let h_low = h.to_lowercase();
+            existing_hashes.entry(h_low.clone()).or_insert_with(|| n.to_string());
+            hash_sources_meta
+                .entry(h_low)
+                .or_insert_with(|| ("Base Verificada SamuLibre".to_string(), timestamp_str.clone()));
         }
         for (h, n) in downloaded_hashes {
-            existing_hashes.insert(h.to_lowercase(), n);
+            let h_low = h.to_lowercase();
+            let src = downloaded_hash_sources
+                .get(&h_low)
+                .cloned()
+                .unwrap_or_else(|| "Feed Comunitario".to_string());
+            existing_hashes.insert(h_low.clone(), n);
+            hash_sources_meta
+                .entry(h_low)
+                .or_insert_with(|| (src, timestamp_str.clone()));
         }
 
         let new_added_hashes = existing_hashes.len().saturating_sub(initial_count);
@@ -707,7 +931,67 @@ impl UpdateManager {
             };
         }
 
-        // 9. Registrar la operación en el historial persistente (con datos reales)
+        // 9. Guardar catálogo estructurado de firmas para inspección en UI
+        let mut catalog_entries = Vec::with_capacity(
+            existing_hashes.len() + new_yara_rules.len() + downloaded_c2_ips.len(),
+        );
+        for (h, family) in &existing_hashes {
+            let (source, added_at) = hash_sources_meta
+                .get(h)
+                .cloned()
+                .unwrap_or_else(|| ("Base Local".to_string(), timestamp_str.clone()));
+            catalog_entries.push(SignatureCatalogEntry {
+                kind: "SHA256".to_string(),
+                identifier: h.clone(),
+                family: family.clone(),
+                source,
+                added_at,
+                ..Default::default()
+            });
+        }
+        for rule in &new_yara_rules {
+            catalog_entries.push(SignatureCatalogEntry {
+                kind: "YARA".to_string(),
+                identifier: rule.name.clone(),
+                family: rule.description.clone(),
+                source: "Yara-Rules / Neo23x0".to_string(),
+                added_at: timestamp_str.clone(),
+                ..Default::default()
+            });
+        }
+        for ip in &downloaded_c2_ips {
+            catalog_entries.push(SignatureCatalogEntry {
+                kind: "C2_IP".to_string(),
+                identifier: ip.clone(),
+                family: "Botnet Command & Control (Feodo Tracker)".to_string(),
+                source: "Abuse.ch Feodo Tracker".to_string(),
+                added_at: timestamp_str.clone(),
+                ..Default::default()
+            });
+        }
+        let catalog_summary = SignatureDatabaseSummary {
+            sha256_hashes: existing_hashes.len(),
+            yara_rules: total_yara_rules,
+            c2_ips: downloaded_c2_ips.len(),
+            total_protections: existing_hashes.len() + total_yara_rules + downloaded_c2_ips.len(),
+            last_updated: timestamp_str.clone(),
+            active_feeds: self
+                .source_manager
+                .get_sources()
+                .iter()
+                .map(|s| s.name.clone())
+                .collect(),
+            ..Default::default()
+        };
+        let catalog_obj = SignatureCatalogResponse {
+            summary: catalog_summary,
+            entries: catalog_entries,
+        };
+        if let Ok(cat_json) = serde_json::to_string(&catalog_obj) {
+            let _ = AtomicInstaller::atomic_write(&catalog_path, cat_json.as_bytes());
+        }
+
+        // 10. Registrar la operación en el historial persistente (con datos reales)
         let version_tag = format!(
             "v{}.{:02}",
             chrono::Local::now().format("%Y.%m.%d"),
@@ -782,6 +1066,384 @@ impl UpdateManager {
             new_added_hashes, total_yara_rules
         );
         report
+    }
+}
+
+/// Construye el catálogo vivo de firmas combinando memoria activa, metadatos guardados y Feodo C2 blocklist.
+pub fn build_signatures_catalog(
+    signatures_dir: &Path,
+    memory_hashes: &HashMap<String, String>,
+    pattern_rules: &[PatternRule],
+) -> SignatureCatalogResponse {
+    let catalog_path = signatures_dir.join("signatures_catalog.json");
+    let mut meta_map: HashMap<String, (String, String)> = HashMap::new();
+    let mut last_updated = "Base local".to_string();
+
+    if let Ok(raw) = fs::read_to_string(&catalog_path) {
+        if let Ok(prev) = serde_json::from_str::<SignatureCatalogResponse>(&raw) {
+            last_updated = prev.summary.last_updated;
+            for entry in prev.entries {
+                if entry.kind == "SHA256" {
+                    meta_map.insert(entry.identifier, (entry.source, entry.added_at));
+                }
+            }
+        }
+    }
+
+    let mut entries = Vec::with_capacity(memory_hashes.len() + pattern_rules.len() + 64);
+    for (h, family) in memory_hashes {
+        let (source, added_at) = meta_map
+            .get(h)
+            .cloned()
+            .unwrap_or_else(|| ("Base Local / Neo23x0".to_string(), last_updated.clone()));
+        entries.push(SignatureCatalogEntry {
+            kind: "SHA256".to_string(),
+            identifier: h.clone(),
+            family: family.clone(),
+            source,
+            added_at,
+            ..Default::default()
+        });
+    }
+
+    for rule in pattern_rules {
+        entries.push(SignatureCatalogEntry {
+            kind: "YARA".to_string(),
+            identifier: rule.name.clone(),
+            family: rule.description.clone(),
+            source: "Motor YARA / Heurístico".to_string(),
+            added_at: last_updated.clone(),
+            ..Default::default()
+        });
+    }
+
+    let feodo_path = signatures_dir.join("feodo_c2_blocklist.txt");
+    let mut c2_count = 0usize;
+    if let Ok(content) = fs::read_to_string(&feodo_path) {
+        let ips = ThreatIntelligenceManager::parse_feodo_ip_blocklist(&content);
+        c2_count = ips.len();
+        for ip in ips {
+            entries.push(SignatureCatalogEntry {
+                kind: "C2_IP".to_string(),
+                identifier: ip,
+                family: "Botnet Command & Control (Feodo Tracker)".to_string(),
+                source: "Abuse.ch Feodo Tracker".to_string(),
+                added_at: last_updated.clone(),
+                ..Default::default()
+            });
+        }
+    }
+
+    let active_feeds = SourceManager::new()
+        .get_sources()
+        .iter()
+        .map(|s| s.name.clone())
+        .collect();
+
+    let mut summary = SignatureDatabaseSummary {
+        sha256_hashes: memory_hashes.len(),
+        yara_rules: pattern_rules.len(),
+        c2_ips: c2_count,
+        total_protections: memory_hashes.len() + pattern_rules.len() + c2_count,
+        last_updated,
+        active_feeds,
+        domains: 0,
+        urls: 0,
+        behavior_rules: 0,
+        loldrivers_count: 0,
+        connected_sources: 0,
+        yara_lab: 0,
+        yara_pending: 0,
+        yara_rejected: 0,
+        yara_obsolete: 0,
+        fp_reported: 0,
+        sources_detail: Vec::new(),
+    };
+
+    // Enriquecer con métricas reales de la Base Central SamuLibre Threat Intelligence (SQLite)
+    let data_dir = signatures_dir
+        .parent()
+        .unwrap_or_else(|| Path::new("data"));
+    let intel_db_path = {
+        let candidate = data_dir.join("intel").join("samulibre_intel.db");
+        if candidate.exists() {
+            candidate
+        } else {
+            Path::new("data").join("intel").join("samulibre_intel.db")
+        }
+    };
+    if intel_db_path.exists() {
+        if let Ok(db) = samulibre_intel::IntelDatabase::open(&intel_db_path) {
+            if let Ok(stats) = db.get_stats() {
+                summary.sha256_hashes = summary.sha256_hashes.max(stats.sha256_approved);
+                summary.yara_rules = stats.yara_approved + stats.yara_restricted;
+                summary.c2_ips = summary.c2_ips.max(stats.c2_ips_approved);
+                summary.domains = stats.domains_approved;
+                summary.urls = stats.urls_approved;
+                summary.behavior_rules = stats.behavior_rules_approved;
+                summary.loldrivers_count = stats.loldrivers_count;
+                summary.connected_sources = stats.connected_sources;
+                summary.yara_lab = stats.yara_lab;
+                summary.yara_pending = stats.yara_observation;
+                summary.yara_rejected = stats.yara_rejected;
+                summary.yara_obsolete = stats.yara_obsolete;
+                summary.total_protections = summary.sha256_hashes
+                    + summary.yara_rules
+                    + summary.c2_ips
+                    + summary.domains
+                    + summary.urls
+                    + summary.behavior_rules;
+            }
+            if let Ok(srcs) = db.list_sources() {
+                summary.active_feeds = srcs
+                    .iter()
+                    .filter(|s| s.status == "OK")
+                    .map(|s| s.name.clone())
+                    .collect();
+                summary.sources_detail = srcs;
+            }
+            if let Ok(preview) = db.list_catalog_preview(500) {
+                let mut seen: std::collections::HashSet<(String, String)> = entries
+                    .iter()
+                    .map(|e| (e.kind.clone(), e.identifier.clone()))
+                    .collect();
+                for (kind, identifier, family, source, added_at) in preview {
+                    if seen.insert((kind.clone(), identifier.clone())) {
+                        entries.push(SignatureCatalogEntry {
+                            kind,
+                            identifier,
+                            family,
+                            source,
+                            added_at,
+                            ..Default::default()
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    let fp_path = {
+        let candidate = data_dir.join("audit").join("fp_feedback.json");
+        if candidate.exists() {
+            candidate
+        } else {
+            Path::new("data").join("audit").join("fp_feedback.json")
+        }
+    };
+    if let Ok(fp_raw) = fs::read_to_string(&fp_path) {
+        if let Ok(arr) = serde_json::from_str::<Vec<serde_json::Value>>(&fp_raw) {
+            summary.fp_reported = arr.len();
+        }
+    }
+
+    SignatureCatalogResponse { summary, entries }
+}
+
+/// Carga el catálogo completo directamente desde disco (`data/signatures`) sin bloquear ningún mutex del motor.
+pub fn load_signatures_catalog_from_disk(signatures_dir: &Path) -> SignatureCatalogResponse {
+    let mut hashes: HashMap<String, String> = HashMap::new();
+    for &(h, n) in crate::default_builtin_signatures() {
+        hashes.insert(h.to_lowercase(), n.to_string());
+    }
+
+    let db_path = signatures_dir.join("malware_hashes.db");
+    if let Ok(content) = fs::read_to_string(&db_path) {
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+            if let Some((hash, name)) = trimmed.split_once(':').or_else(|| trimmed.split_once(';')) {
+                let h = hash.trim().to_lowercase();
+                if h.len() == 64 && h.bytes().all(|b| b.is_ascii_hexdigit()) {
+                    hashes.insert(h, name.trim().to_string());
+                }
+            }
+        }
+    }
+
+    let mut rules: Vec<PatternRule> = Vec::new();
+    let yara_dir = signatures_dir.join("yara_rules");
+    if let Ok(entries) = fs::read_dir(&yara_dir) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if p.extension().and_then(|s| s.to_str()) == Some("yar") {
+                if let Ok(content) = fs::read_to_string(&p) {
+                    let fname = p.file_name().unwrap_or_default().to_string_lossy();
+                    if let Ok(parsed) = YaraRulesManager::parse_yara_content(&content, &fname) {
+                        for r in parsed {
+                            if !rules.iter().any(|existing| existing.name == r.name) {
+                                rules.push(r);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    build_signatures_catalog(signatures_dir, &hashes, &rules)
+}
+
+/// Consulta paginada directamente sobre SQLite (`samulibre_intel.db`) sin truncamiento ni carga masiva en RAM.
+pub fn query_signatures_from_intel_db(
+    signatures_dir: &Path,
+    kind: &str,
+    status_filter: &str,
+    query: &str,
+    page: usize,
+    page_size: usize,
+) -> Option<SignatureCatalogPageResponse> {
+    let data_dir = signatures_dir
+        .parent()
+        .unwrap_or_else(|| Path::new("data"));
+    let intel_db_path = {
+        let candidate = data_dir.join("intel").join("samulibre_intel.db");
+        if candidate.exists() {
+            candidate
+        } else {
+            Path::new("data").join("intel").join("samulibre_intel.db")
+        }
+    };
+    if !intel_db_path.exists() {
+        return None;
+    }
+
+    let db = samulibre_intel::IntelDatabase::open(&intel_db_path).ok()?;
+    let stats = db.get_stats().ok()?;
+    let page_res = db
+        .query_catalog_paginated(kind, status_filter, query, page, page_size)
+        .ok()?;
+    let srcs = db.list_sources().unwrap_or_default();
+
+    let last_updated = srcs
+        .iter()
+        .filter_map(|s| s.last_sync_at.as_deref())
+        .max()
+        .map(|s| s.chars().take(19).collect::<String>().replace('T', " "))
+        .unwrap_or_else(|| chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
+
+    let mut fp_reported = 0usize;
+    let fp_path = {
+        let candidate = data_dir.join("audit").join("fp_feedback.json");
+        if candidate.exists() {
+            candidate
+        } else {
+            Path::new("data").join("audit").join("fp_feedback.json")
+        }
+    };
+    if let Ok(fp_raw) = fs::read_to_string(&fp_path) {
+        if let Ok(arr) = serde_json::from_str::<Vec<serde_json::Value>>(&fp_raw) {
+            fp_reported = arr.len();
+        }
+    }
+
+    let yara_active = stats.yara_approved + stats.yara_restricted;
+    let total_protections = stats.sha256_approved
+        + yara_active
+        + stats.c2_ips_approved
+        + stats.domains_approved
+        + stats.urls_approved
+        + stats.behavior_rules_approved;
+
+    let active_feeds = srcs
+        .iter()
+        .filter(|s| s.status == "OK")
+        .map(|s| s.name.clone())
+        .collect();
+
+    let summary = SignatureDatabaseSummary {
+        sha256_hashes: stats.sha256_approved,
+        yara_rules: yara_active,
+        c2_ips: stats.c2_ips_approved,
+        total_protections,
+        last_updated,
+        active_feeds,
+        domains: stats.domains_approved,
+        urls: stats.urls_approved,
+        behavior_rules: stats.behavior_rules_approved,
+        loldrivers_count: stats.loldrivers_count,
+        connected_sources: stats.connected_sources,
+        yara_lab: stats.yara_lab,
+        yara_pending: stats.yara_observation,
+        yara_rejected: stats.yara_rejected,
+        yara_obsolete: stats.yara_obsolete,
+        fp_reported,
+        sources_detail: srcs,
+    };
+
+    let entries = page_res
+        .entries
+        .into_iter()
+        .map(|r| SignatureCatalogEntry {
+            kind: r.kind,
+            identifier: r.identifier,
+            family: r.family,
+            source: r.source,
+            added_at: r.added_at,
+            license: r.license,
+            source_url: r.source_url,
+            rule_author: r.rule_author,
+            validation_status: r.validation_status,
+            validation_score: r.validation_score,
+        })
+        .collect();
+
+    Some(SignatureCatalogPageResponse {
+        summary,
+        total_filtered: page_res.total_filtered,
+        page,
+        page_size: page_size.max(1),
+        entries,
+    })
+}
+
+/// Filtra y pagina el catálogo para enviar payloads ligeros (< 15 KB) al WebView.
+pub fn query_signatures_catalog(
+    catalog: &SignatureCatalogResponse,
+    kind: &str,
+    query: &str,
+    page: usize,
+    page_size: usize,
+) -> SignatureCatalogPageResponse {
+    let q = query.trim().to_lowercase();
+    let k = kind.trim();
+    let filtered: Vec<&SignatureCatalogEntry> = catalog
+        .entries
+        .iter()
+        .filter(|e| {
+            let match_kind = k.is_empty() || k == "ALL" || e.kind == k;
+            let match_q = q.is_empty()
+                || e.identifier.to_lowercase().contains(&q)
+                || e.family.to_lowercase().contains(&q)
+                || e.source.to_lowercase().contains(&q);
+            match_kind && match_q
+        })
+        .collect();
+
+    let total_filtered = filtered.len();
+    let effective_size = page_size.max(1);
+    let max_page = if total_filtered == 0 {
+        0
+    } else {
+        (total_filtered - 1) / effective_size
+    };
+    let safe_page = page.min(max_page);
+    let start = safe_page * effective_size;
+    let slice = filtered
+        .into_iter()
+        .skip(start)
+        .take(effective_size)
+        .cloned()
+        .collect();
+
+    SignatureCatalogPageResponse {
+        summary: catalog.summary.clone(),
+        total_filtered,
+        page: safe_page,
+        page_size: effective_size,
+        entries: slice,
     }
 }
 
@@ -896,7 +1558,7 @@ mod tests {
                 "La actualización debe reportar éxito con conexión disponible"
             );
             assert!(
-                report.total_signatures >= 19,
+                report.total_signatures >= 18,
                 "Debe sincronizar al menos las firmas base"
             );
             assert!(
@@ -913,6 +1575,100 @@ mod tests {
                 .join("MALW_Eicar.yar")
                 .exists());
         }
+
+        let _ = fs::remove_dir_all(&tmp_dir);
+    }
+
+    #[test]
+    fn test_malwarebazaar_sha256_parser_dedup_and_validation() {
+        let sample = "\
+# Abuse.ch MalwareBazaar recent SHA256
+275A021BBFB6489E54D471899F7DB9D1663FC695EC2FE2A2C4538AABF651FD0F
+275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f
+not_a_valid_sha256_hash
+84c82835a5d21bbcf75a61706d8ab5494030493ae1ab12f54cb07fb4b8e40d1e
+";
+        let parsed = ThreatIntelligenceManager::parse_malwarebazaar_sha256(sample);
+        assert_eq!(parsed.len(), 2);
+        assert!(parsed.contains_key("275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f"));
+        assert!(parsed.contains_key("84c82835a5d21bbcf75a61706d8ab5494030493ae1ab12f54cb07fb4b8e40d1e"));
+    }
+
+    #[test]
+    fn test_signature_catalog_consistency_and_breakdown() {
+        let tmp_dir = std::env::temp_dir().join("samulibre_sig_catalog_qa");
+        let _ = fs::remove_dir_all(&tmp_dir);
+        fs::create_dir_all(&tmp_dir).unwrap();
+
+        fs::write(
+            tmp_dir.join("feodo_c2_blocklist.txt"),
+            "# Feodo Tracker\n192.0.2.10\n198.51.100.25\n",
+        )
+        .unwrap();
+
+        let mut memory_hashes = HashMap::new();
+        memory_hashes.insert(
+            "275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f".to_string(),
+            "EICAR-Test-Signature.Standard".to_string(),
+        );
+        let rules = vec![PatternRule {
+            name: "QA.Test.Rule".to_string(),
+            description: "Regla QA".to_string(),
+            pattern: Regex::new("EICAR").unwrap(),
+            severity: "Alta".to_string(),
+        }];
+
+        let catalog = build_signatures_catalog(&tmp_dir, &memory_hashes, &rules);
+        assert_eq!(catalog.summary.sha256_hashes, 1);
+        assert_eq!(catalog.summary.yara_rules, 1);
+        assert_eq!(catalog.summary.c2_ips, 2);
+        assert_eq!(catalog.summary.total_protections, 4);
+        assert_eq!(catalog.entries.len(), 4);
+
+        let _ = fs::remove_dir_all(&tmp_dir);
+    }
+
+    #[test]
+    fn test_builtin_signatures_consistency() {
+        let builtins = crate::default_builtin_signatures();
+        assert!(builtins.len() >= 35);
+        let mut seen = std::collections::HashSet::new();
+        for &(hash, family) in builtins {
+            assert_eq!(hash.len(), 64, "Hash inválido para {}", family);
+            assert!(hash.bytes().all(|b| b.is_ascii_hexdigit()));
+            assert!(seen.insert(hash), "Hash duplicado en default_builtin_signatures: {}", hash);
+        }
+    }
+
+    #[test]
+    fn test_disk_catalog_and_query_pagination() {
+        let tmp_dir = std::env::temp_dir().join("samulibre_disk_catalog_qa");
+        let _ = fs::remove_dir_all(&tmp_dir);
+        fs::create_dir_all(tmp_dir.join("yara_rules")).unwrap();
+
+        fs::write(
+            tmp_dir.join("feodo_c2_blocklist.txt"),
+            "192.0.2.1\n192.0.2.2\n",
+        )
+        .unwrap();
+        fs::write(
+            tmp_dir.join("yara_rules").join("qa.yar"),
+            "rule QA_LockBit_Rule {\n    meta:\n        description = \"LockBit QA\"\n    strings:\n        $a = \"LockBit_Malware_Indicator\"\n    condition:\n        any of them\n}\n",
+        )
+        .unwrap();
+
+        let catalog = load_signatures_catalog_from_disk(&tmp_dir);
+        assert!(catalog.summary.sha256_hashes >= 35);
+        assert_eq!(catalog.summary.yara_rules, 1);
+        assert_eq!(catalog.summary.c2_ips, 2);
+
+        let page_yara = query_signatures_catalog(&catalog, "YARA", "LockBit", 0, 50);
+        assert_eq!(page_yara.total_filtered, 1);
+        assert_eq!(page_yara.entries[0].identifier, "YARA.QA_LockBit_Rule");
+
+        let page_c2 = query_signatures_catalog(&catalog, "C2_IP", "", 0, 1);
+        assert_eq!(page_c2.total_filtered, 2);
+        assert_eq!(page_c2.entries.len(), 1);
 
         let _ = fs::remove_dir_all(&tmp_dir);
     }

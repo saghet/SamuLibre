@@ -1,4 +1,4 @@
-# Uninstaller Script for SamuLibre Endpoint Protection Suite
+﻿# Uninstaller Script for SamuLibre Endpoint Protection Suite
 # Requires Administrator privileges
 
 $ErrorActionPreference = "Stop"
@@ -17,10 +17,11 @@ if (-not (Test-Administrator)) {
 $InstallDir = "$env:ProgramFiles\SamuLibre"
 Write-Host "─── Desinstalador de SamuLibre Endpoint Protection ───" -ForegroundColor Yellow
 
-# 1. Detener y desinstalar el servicio Windows SCM
-Write-Host "Deteniendo y eliminando Servicio SamuLibreWatcher..."
+# 1. Limpiar filtros WFP propios de SamuLibre y detener el servicio Windows SCM
+Write-Host "Limpiando filtros WFP propios de SamuLibre y deteniendo SamuLibreWatcher..."
 $CliExe = "$InstallDir\samulibre.exe"
 if (Test-Path $CliExe) {
+    & $CliExe netdefense cleanup 2>$null
     & $CliExe service stop
     & $CliExe service uninstall
 } else {

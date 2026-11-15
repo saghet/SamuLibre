@@ -414,6 +414,13 @@ pub fn run_service_dispatcher<F>(worker: F) -> Result<()>
 where
     F: FnOnce() -> Result<()> + Send + 'static,
 {
+    // Garantizar que el directorio de trabajo coincida con la ruta del binario instalado
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(parent) = exe_path.parent() {
+            let _ = std::env::set_current_dir(parent);
+        }
+    }
+
     #[cfg(target_os = "windows")]
     {
         use std::time::Duration;
@@ -430,6 +437,13 @@ where
         define_windows_service!(ffi_service_main, my_service_main);
 
         fn my_service_main(_arguments: Vec<std::ffi::OsString>) {
+            // Normalizar directorio de trabajo en Session 0 (LocalSystem)
+            if let Ok(exe_path) = std::env::current_exe() {
+                if let Some(parent) = exe_path.parent() {
+                    let _ = std::env::set_current_dir(parent);
+                }
+            }
+
             let event_handler = move |control_event| -> ServiceControlHandlerResult {
                 match control_event {
                     ServiceControl::Stop | ServiceControl::Interrogate => {
@@ -454,20 +468,103 @@ where
                 let _ = status_handle.set_service_status(running_status);
 
                 let _ = record_service_pid();
-                let quarantine_dir = Path::new("data").join("quarantine");
+                let data_dir = Path::new("data");
+                let quarantine_dir = data_dir.join("quarantine");
+                let netdefense = std::sync::Arc::new(std::sync::Mutex::new(
+                    samulibre_netdefense::NetworkDefenseEngine::new(data_dir),
+                ));
+                if let Ok(nd) = netdefense.lock() {
+                    if nd.dns_proxy.config.lock().map(|c| c.enabled).unwrap_or(false) {
+                        let _ = nd.dns_proxy.start();
+                    }
+                }
+                let netdefense_ipc = std::sync::Arc::clone(&netdefense);
+                std::thread::spawn(move || {
+                    if let Ok(listener) = std::net::TcpListener::bind("127.0.0.1:49791") {
+                        for stream in listener.incoming().flatten() {
+                            let nd_ref = std::sync::Arc::clone(&netdefense_ipc);
+                            std::thread::spawn(move || {
+                                use std::io::{BufRead, BufReader, Write};
+                                let mut reader = BufReader::new(&stream);
+                                let mut line = String::new();
+                                if reader.read_line(&mut line).is_ok() && !line.trim().is_empty() {
+                                    let resp = if let Ok(req) = serde_json::from_str::<serde_json::Value>(&line) {
+                                        let cmd = req["cmd"].as_str().unwrap_or("");
+                                        if cmd == "add_rule" {
+                                            if let Ok(rule) = serde_json::from_value::<samulibre_netdefense::FirewallRule>(req["rule"].clone()) {
+                                                if let Ok(mut nd) = nd_ref.lock() {
+                                                    match nd.add_rule(rule) {
+                                                        Ok(applied) => serde_json::json!({ "ok": true, "wfp_ids": applied.wfp_filter_ids }),
+                                                        Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
+                                                    }
+                                                } else {
+                                                    serde_json::json!({ "ok": false, "error": "Lock error" })
+                                                }
+                                            } else {
+                                                serde_json::json!({ "ok": false, "error": "Invalid rule payload" })
+                                            }
+                                        } else if cmd == "remove_rule" {
+                                            if let Some(id_str) = req["id"].as_str() {
+                                                if let Ok(uid) = id_str.parse::<uuid::Uuid>() {
+                                                    if let Ok(mut nd) = nd_ref.lock() {
+                                                        let _ = nd.remove_rule(uid);
+                                                    }
+                                                }
+                                            }
+                                            serde_json::json!({ "ok": true })
+                                        } else {
+                                            serde_json::json!({ "ok": false, "error": "Unknown cmd" })
+                                        }
+                                    } else {
+                                        serde_json::json!({ "ok": false, "error": "Invalid JSON" })
+                                    };
+                                    let mut writer = stream;
+                                    let _ = writeln!(writer, "{}", resp);
+                                }
+                            });
+                        }
+                    }
+                });
+                let netdefense_alert = std::sync::Arc::clone(&netdefense);
+
                 let scanner = std::sync::Arc::new(std::sync::Mutex::new(
                     samulibre_scanner::MultiEngineScanner::new(),
                 ));
                 let watcher = crate::RealTimeWatcher::new(scanner, &quarantine_dir);
-                let _ = watcher.start_background_watcher(|alert| {
+                let _ = watcher.start_background_watcher(move |alert| {
                     tracing::warn!(
                         "[SERVICE SYSTEM 24/7] Amenaza interceptada: {} {:?}",
                         alert.title,
                         alert.target_path
                     );
+                    if let Ok(mut nd) = netdefense_alert.lock() {
+                        let proc_name = alert
+                            .process_name
+                            .as_deref()
+                            .unwrap_or("unknown_process");
+                        let exe_str = alert.target_path.as_deref();
+                        let _ = nd.handle_av_threat_correlation(
+                            alert.process_id,
+                            proc_name,
+                            exe_str,
+                            &alert.title,
+                            "0.0.0.0",
+                        );
+                    }
                 });
 
                 loop {
+                    if let Ok(mut nd) = netdefense.lock() {
+                        let _ = nd.prune_expired_rules();
+                        if nd.tor_manager.config.enabled {
+                            let mut wfp_tmp = std::mem::replace(
+                                &mut nd.wfp,
+                                samulibre_netdefense::WfpController::new(),
+                            );
+                            let _ = nd.tor_manager.sync_policies(&mut wfp_tmp);
+                            nd.wfp = wfp_tmp;
+                        }
+                    }
                     std::thread::sleep(Duration::from_secs(2));
                 }
             }

@@ -9,6 +9,7 @@ license.workspace = true
 samulibre-types = { path = "../samulibre-types" }
 samulibre-scanner = { path = "../samulibre-scanner" }
 samulibre-shield = { path = "../samulibre-shield" }
+samulibre-netdefense = { path = "../samulibre-netdefense" }
 notify = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }

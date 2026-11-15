@@ -11,11 +11,13 @@ members = [
     "crates/samulibre-watcher",
     "crates/samulibre-ai",
     "crates/samulibre-android",
+    "crates/samulibre-netdefense",
+    "crates/samulibre-intel",
 ]
 resolver = "2"
 
 [workspace.package]
-version = "2.1.13"
+version = "2.0.20"
 edition = "2021"
 authors = ["SamuLibre Security Community <dev@samulibre.org>"]
 license = "GPL-3.0-or-later"
@@ -40,3 +42,5 @@ sysinfo = "0.31"
 notify = "6.1"
 uuid = { version = "1.10", features = ["v4", "serde"] }
 ureq = { version = "2.10", features = ["json"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+yara-x = "1.23"

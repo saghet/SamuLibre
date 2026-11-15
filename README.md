@@ -1,6 +1,6 @@
 # 🛡️ SamuLibre Endpoint Protection Suite
 
-[![Versión](https://img.shields.io/badge/version-2.1.13-blue.svg?style=flat-square)](VERSION)
+[![Versión](https://img.shields.io/badge/version-2.0.20-blue.svg?style=flat-square)](VERSION)
 [![Licencia](https://img.shields.io/badge/license-GPL--3.0--or--later-green.svg?style=flat-square)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.80%2B-orange.svg?style=flat-square&logo=rust)](https://www.rust-lang.org/)
 [![Plataforma](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011%20%7C%20Linux-blueviolet.svg?style=flat-square)](https://github.com/saghet/SamuLibre)
@@ -52,6 +52,14 @@ SamuLibre resuelve esto con un consumo inferior a **40 MB de RAM**, inspección 
   - Despliegue de señuelos señuelo estratégicos (*honeytokens*) con monitoreo diferencial de escrituras masivas.
 - **Health Manager de Protección:**
   - Monitoreo continuo de la salud operativa de los 9 subsistemas de defensa, auditables bajo demanda y verificables con el comando `samulibre health`.
+- **Ecosistema Avanzado de Threat Intelligence (`samulibre-intel` & `samulibre-netdefense`):**
+  - **Base SQLite Normalizada (`samulibre_intel.db`) + Caché Binaria YARA (`SAMUYAR2`):** Almacenamiento unificado con deduplicación, trazabilidad, licencias SBOM y manifiesto firmado HMAC-SHA256.
+  - **YARA Forge & Repositorios Especializados:** Selector de paquetes (*Core* en producción, *Extended* en evaluación, *Full* en laboratorio) junto con *Neo23x0 Signature-Base*, *Yara-Rules*, *ReversingLabs*, *Ditekshen* y *ATR*.
+  - **Promoción por Entornos (`YaraPromotionGate`) y Anti-Falsos Positivos:** Flujo estricto *Laboratorio → Observación → Producción* con pruebas de regresión y validación Authenticode + `AntiFalsePositiveEngine` (evitando bloqueos sobre herramientas legítimas firmadas).
+  - **Motor Comportamental Sigma / MITRE ATT&CK:** Adaptador para reglas *SigmaHQ* mapeadas a telemetría real de Windows.
+  - **Driver Security Intelligence (LOLDrivers / BYOVD):** Auditoría de drivers instalados frente a hashes vulnerables/maliciosos sin bloquear controladores críticos del sistema.
+  - **Conectores Live y Actualización Automática Diaria (24h):** Integración autenticada con **Abuse.ch** (*MalwareBazaar*, *ThreatFox*, *URLhaus*, *Feodo Tracker*, *YARAify*), **AlienVault OTX** (*Subscribed Pulses*) y **ClamAV**, con bóveda local segura (`data/secure/intel_keys.json`), botón dedicado de guardado y sincronización automática cada 24 horas.
+  - **Explorador de Base de Firmas Activas:** Paginación SQLite en tiempo real, filtros por tipo (*Hashes SHA-256*, *Reglas YARA*, *Sigma*, *LOLDrivers*, *IPs C2*, *Red C2/Dom/URL*, *Dominios*, *URLs*) y entorno.
 
 ---
 

@@ -1,0 +1,24 @@
+[package]
+name = "samulibre-intel"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "SamuLibre Threat Intelligence Engine: centralized SQLite intel store, YARA-X runtime & validator, and incremental repo/feed acquisition"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+regex = { workspace = true }
+chrono = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+ureq = { workspace = true }
+rusqlite = { workspace = true }
+yara-x = { workspace = true }
+rsa = { version = "0.10.0", features = ["pkcs1v15"] }
+zip = { version = "9.6", default-features = false, features = ["deflate"] }

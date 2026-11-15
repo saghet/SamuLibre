@@ -28,6 +28,22 @@ pub use reputation::*;
 pub mod scheduler;
 pub use scheduler::*;
 
+pub mod gpu_compute;
+pub mod shce;
+pub use shce::*;
+
+pub mod ssem;
+pub use ssem::*;
+
+pub mod performance;
+pub use performance::*;
+
+pub mod certification;
+pub use certification::*;
+
+pub mod wdhe;
+pub use wdhe::*;
+
 pub struct SamuLibreCore {
     pub patcher: Arc<Mutex<VirtualPatcher>>,
     pub shield: Arc<Mutex<EndpointShield>>,
@@ -39,6 +55,9 @@ pub struct SamuLibreCore {
     pub sandbox: Arc<Mutex<MicroSandbox>>,
     pub reputation: Arc<Mutex<CommunityReputationEngine>>,
     pub scheduler: Arc<Mutex<ScheduledScanManager>>,
+    pub shce: Arc<Mutex<ShceEngine>>,
+    pub ssem: Arc<Mutex<SsemEngine>>,
+    pub wdhe: Arc<WdheOrchestrator>,
     alerts_history: Arc<Mutex<Vec<ThreatAlert>>>,
     _active_watcher: Arc<Mutex<Option<samulibre_watcher::RecommendedWatcher>>>,
 }
@@ -66,6 +85,9 @@ impl SamuLibreCore {
         let scheduler = Arc::new(Mutex::new(ScheduledScanManager::new(
             Path::new("data").join("scheduled_scans.json"),
         )));
+        let shce = Arc::new(Mutex::new(ShceEngine::new()));
+        let ssem = Arc::new(Mutex::new(SsemEngine::new("data")));
+        let wdhe = Arc::new(WdheOrchestrator::new("data"));
 
         Self {
             patcher,
@@ -78,6 +100,9 @@ impl SamuLibreCore {
             sandbox,
             reputation,
             scheduler,
+            shce,
+            ssem,
+            wdhe,
             alerts_history: Arc::new(Mutex::new(Vec::new())),
             _active_watcher: Arc::new(Mutex::new(None)),
         }
@@ -201,7 +226,10 @@ impl SamuLibreCore {
             }
         }
 
-        // Guardar en historial
+        // Guardar en historial y emitir eventos a SSEM (SIEM / SOC)
+        for alert in &new_alerts {
+            self.record_security_event(alert);
+        }
         if let Ok(mut hist) = self.alerts_history.lock() {
             hist.extend(new_alerts.clone());
         }
@@ -457,6 +485,7 @@ impl SamuLibreCore {
                 country_name: None,
                 country_flag: None,
                 assigned_ip: None,
+                tunnel_ip: None,
                 protocol: "WireGuard".to_string(),
                 dns_active: "ISP".to_string(),
                 kill_switch_active: false,
@@ -464,9 +493,14 @@ impl SamuLibreCore {
                 encryption_cipher: "Ninguno (Inactivo)".to_string(),
                 multi_hop_route: None,
                 connected_at: None,
+                duration_seconds: 0,
                 bytes_sent_mb: 0.0,
                 bytes_received_mb: 0.0,
+                download_speed_kbps: 0.0,
+                upload_speed_kbps: 0.0,
                 ping_ms: 0,
+                ipv6_protection_active: false,
+                auto_reconnect_enabled: false,
             }
         }
     }
@@ -487,11 +521,143 @@ impl SamuLibreCore {
         }
     }
 
+    pub fn run_vpn_diagnostics(&self) -> samulibre_types::VpnDiagnosticResult {
+        if let Ok(vpn) = self.vpn.lock() {
+            vpn.run_diagnostics()
+        } else {
+            samulibre_types::VpnDiagnosticResult {
+                timestamp: chrono::Utc::now().to_rfc3339(),
+                is_connected: false,
+                public_ip: "N/A".to_string(),
+                tunnel_interface_ip: "N/A".to_string(),
+                ping_latency_ms: 0,
+                dns_leak_detected: false,
+                dns_servers_responding: Vec::new(),
+                ipv6_leak_detected: false,
+                kill_switch_active: false,
+                tunnel_integrity_verified: false,
+                proxy_clean: true,
+                diagnostic_verdict: "Error accediendo al gestor VPN".to_string(),
+                recommendations: vec!["Reinicie el servicio VPN".to_string()],
+            }
+        }
+    }
+
+    pub fn emergency_recover_vpn_network(&self) -> Result<()> {
+        if let Ok(mut vpn) = self.vpn.lock() {
+            vpn.emergency_recover_network()
+        } else {
+            anyhow::bail!("Error accediendo al gestor VPN para recuperación")
+        }
+    }
+
+    pub fn toggle_vpn_ipv6_protection(&self, enabled: bool) -> Result<bool> {
+        if let Ok(mut vpn) = self.vpn.lock() {
+            vpn.toggle_ipv6_protection(enabled)
+        } else {
+            anyhow::bail!("Error adquiriendo lock de VPN")
+        }
+    }
+
+    pub fn reconnect_vpn(&self) -> Result<samulibre_vpn::VpnConnectionState> {
+        if let Ok(mut vpn) = self.vpn.lock() {
+            vpn.reconnect()
+        } else {
+            anyhow::bail!("Error adquiriendo lock de VPN")
+        }
+    }
+
+    pub fn get_vpn_history(&self) -> Vec<samulibre_types::VpnHistoryEntry> {
+        if let Ok(vpn) = self.vpn.lock() {
+            vpn.get_history()
+        } else {
+            Vec::new()
+        }
+    }
+
+    pub fn set_vpn_auto_reconnect(&self, enabled: bool) {
+        if let Ok(mut vpn) = self.vpn.lock() {
+            vpn.set_auto_reconnect(enabled);
+        }
+    }
+
+    pub fn get_windows_patch_summary(&self, force_refresh: bool) -> samulibre_types::WindowsPatchIntelligenceSummary {
+        let mut summary = if let Ok(patcher) = self.patcher.lock() {
+            patcher.get_patch_summary(force_refresh)
+        } else {
+            samulibre_types::WindowsPatchIntelligenceSummary::default()
+        };
+
+        // Enriquecer alertas con el estado vivo de la VPN
+        let (is_vpn_conn, is_ks) = if let Ok(vpn) = self.vpn.lock() {
+            let st = vpn.get_state();
+            (st.is_connected, st.kill_switch_active)
+        } else {
+            (false, false)
+        };
+
+        summary.active_alerts = samulibre_patcher::alerts::SmartAlertEngine::generate_alerts(
+            &summary.pending_kbs,
+            &summary.correlations,
+            summary.pending_reboot_detected,
+            &summary.pending_reboot_reasons,
+            is_vpn_conn,
+            is_ks,
+        );
+
+        summary
+    }
+
+    pub fn get_cve_correlations(&self) -> Vec<samulibre_types::CveKbCorrelation> {
+        if let Ok(patcher) = self.patcher.lock() {
+            patcher.get_cve_correlations()
+        } else {
+            Vec::new()
+        }
+    }
+
+    pub fn install_pending_kb(&self, kb_id: &str, require_consent: bool) -> Result<String> {
+        if let Ok(mut patcher) = self.patcher.lock() {
+            patcher.install_kb(kb_id, require_consent)
+        } else {
+            anyhow::bail!("Error adquiriendo lock del gestor de parches")
+        }
+    }
+
+    pub fn get_virtual_patch_incidents(&self) -> Vec<samulibre_types::VirtualPatchIncident> {
+        if let Ok(patcher) = self.patcher.lock() {
+            patcher.get_incidents().to_vec()
+        } else {
+            Vec::new()
+        }
+    }
+
     pub fn get_signature_update_history(&self) -> Vec<samulibre_scanner::UpdateHistoryEntry> {
         if let Ok(scanner) = self.scanner.lock() {
             scanner.get_update_history()
         } else {
             Vec::new()
+        }
+    }
+
+    pub fn get_installed_version_sequence(&self) -> u64 {
+        if let Ok(scanner) = self.scanner.lock() {
+            scanner.get_installed_version_sequence()
+        } else {
+            2026110101
+        }
+    }
+
+    pub fn install_update_package(
+        &self,
+        manifest: &samulibre_types::UpdatePackageManifest,
+        files_data: &HashMap<String, Vec<u8>>,
+        signing_key: &[u8],
+    ) -> Result<()> {
+        if let Ok(mut scanner) = self.scanner.lock() {
+            scanner.install_update_package(manifest, files_data, signing_key)
+        } else {
+            anyhow::bail!("Error adquiriendo lock del motor de escaneo")
         }
     }
 
@@ -508,6 +674,40 @@ impl SamuLibreCore {
                 intact_count: 0,
                 total_canaries: 0,
                 monitored_processes_count: 0,
+            }
+        }
+    }
+
+    pub fn get_anti_ransomware_incidents(&self) -> Vec<samulibre_types::RansomwareIncident> {
+        if let Ok(shield) = self.shield.lock() {
+            if let Ok(ar) = shield.anti_ransomware.lock() {
+                return ar.get_incidents();
+            }
+        }
+        Vec::new()
+    }
+
+    pub fn get_controlled_folder_config(&self) -> samulibre_types::ControlledFolderConfig {
+        if let Ok(shield) = self.shield.lock() {
+            if let Ok(ar) = shield.anti_ransomware.lock() {
+                return ar.get_config();
+            }
+        }
+        samulibre_types::ControlledFolderConfig::default()
+    }
+
+    pub fn add_controlled_folder(&self, folder: impl AsRef<Path>) {
+        if let Ok(shield) = self.shield.lock() {
+            if let Ok(mut ar) = shield.anti_ransomware.lock() {
+                ar.add_protected_folder(folder);
+            }
+        }
+    }
+
+    pub fn add_trusted_ransomware_process(&self, proc_name: &str) {
+        if let Ok(shield) = self.shield.lock() {
+            if let Ok(mut ar) = shield.anti_ransomware.lock() {
+                ar.add_trusted_process(proc_name);
             }
         }
     }
@@ -643,6 +843,7 @@ impl SamuLibreCore {
                 detection_name: Some("Lock Error".to_string()),
                 engine: "SamuLibre Core".to_string(),
                 scan_time_ms: 0,
+                ..Default::default()
             }
         }
     }
@@ -658,6 +859,7 @@ impl SamuLibreCore {
                 detection_name: Some("Lock Error".to_string()),
                 engine: "SamuLibre Core".to_string(),
                 scan_time_ms: 0,
+                ..Default::default()
             }
         }
     }
@@ -778,6 +980,26 @@ impl SamuLibreCore {
         };
 
         Ok((details, quarantined))
+    }
+
+    pub fn pause_realtime_protection(&self, duration_secs: u64) {
+        if let Ok(w) = self.watcher.lock() {
+            w.pause_protection(std::time::Duration::from_secs(duration_secs));
+        }
+    }
+
+    pub fn resume_realtime_protection(&self) {
+        if let Ok(w) = self.watcher.lock() {
+            w.resume_protection();
+        }
+    }
+
+    pub fn is_realtime_protection_paused(&self) -> bool {
+        if let Ok(w) = self.watcher.lock() {
+            w.is_protection_paused()
+        } else {
+            false
+        }
     }
 
     // --- Cazador de Persistencia (Autoruns Hunter) ---
@@ -1142,6 +1364,248 @@ impl SamuLibreCore {
                     .to_string(),
             }
         }
+    }
+
+    // --- SamuLibre Hybrid Computing Engine (SHCE) ---
+    pub fn get_hardware_topology(&self) -> samulibre_types::HardwareTopology {
+        if let Ok(shce) = self.shce.lock() {
+            shce.get_topology()
+        } else {
+            ShceEngine::detect_hardware()
+        }
+    }
+
+    pub fn get_shce_selection(&self) -> samulibre_types::BackendSelection {
+        if let Ok(shce) = self.shce.lock() {
+            shce.get_selection()
+        } else {
+            samulibre_types::BackendSelection {
+                active_backend: samulibre_types::ComputeBackend::CpuOnly,
+                is_gpu_active: false,
+                fallback_active: true,
+                fallback_reason: Some("Lock contention en SHCE".to_string()),
+                gpu_utilization_limit_pct: 70,
+            }
+        }
+    }
+
+    pub fn set_shce_backend(
+        &self,
+        backend: samulibre_types::ComputeBackend,
+    ) -> Result<samulibre_types::BackendSelection> {
+        if let Ok(shce) = self.shce.lock() {
+            shce.set_backend(backend)
+        } else {
+            anyhow::bail!("Error adquiriendo lock de SHCE")
+        }
+    }
+
+    pub fn run_shce_benchmark(&self) -> samulibre_types::ShceBenchmarkResult {
+        if let Ok(shce) = self.shce.lock() {
+            shce.run_benchmark()
+        } else {
+            samulibre_types::ShceBenchmarkResult {
+                cpu_throughput_mb_s: 0.0,
+                gpu_throughput_mb_s: None,
+                speedup_ratio: 1.0,
+                recommended_backend: samulibre_types::ComputeBackend::CpuOnly,
+                parity_verified: false,
+                latency_us_per_item: 0.0,
+                timestamp: chrono::Utc::now().to_rfc3339(),
+            }
+        }
+    }
+
+    pub fn inject_shce_gpu_failure(&self, enable: bool) {
+        if let Ok(shce) = self.shce.lock() {
+            shce.inject_simulated_gpu_failure(enable);
+        }
+    }
+
+    pub fn set_shce_gpu_utilization_limit(&self, pct: u8) {
+        if let Ok(shce) = self.shce.lock() {
+            shce.set_gpu_utilization_limit(pct);
+        }
+    }
+
+    pub fn set_shce_gpu_preference(
+        &self,
+        pref: crate::gpu_compute::GpuPreference,
+    ) -> Result<samulibre_types::BackendSelection> {
+        if let Ok(shce) = self.shce.lock() {
+            shce.set_gpu_preference(pref)
+        } else {
+            anyhow::bail!("Error adquiriendo lock de SHCE")
+        }
+    }
+
+    pub fn get_shce_gpu_preference(&self) -> crate::gpu_compute::GpuPreference {
+        if let Ok(shce) = self.shce.lock() {
+            shce.get_gpu_preference()
+        } else {
+            crate::gpu_compute::GpuPreference::HybridAuto
+        }
+    }
+
+    pub fn get_shce_gpu_status(&self) -> Option<crate::gpu_compute::GpuPoolStatus> {
+        if let Ok(shce) = self.shce.lock() {
+            shce.gpu_status()
+        } else {
+            None
+        }
+    }
+
+    // --- SamuLibre Security Event Manager (SSEM) ---
+    pub fn get_ssem_config(&self) -> samulibre_types::SsemConfig {
+        if let Ok(ssem) = self.ssem.lock() {
+            ssem.get_config()
+        } else {
+            samulibre_types::SsemConfig::default()
+        }
+    }
+
+    pub fn set_ssem_config(&self, config: samulibre_types::SsemConfig) {
+        if let Ok(ssem) = self.ssem.lock() {
+            ssem.set_config(config);
+        }
+    }
+
+    pub fn get_ssem_metrics(&self) -> SsemMetrics {
+        if let Ok(ssem) = self.ssem.lock() {
+            ssem.get_metrics()
+        } else {
+            SsemMetrics::default()
+        }
+    }
+
+    pub fn export_ssem_csv(&self, path: impl AsRef<Path>) -> Result<usize> {
+        if let Ok(ssem) = self.ssem.lock() {
+            ssem.export_to_csv(path.as_ref())
+        } else {
+            Err(anyhow::anyhow!("Error adquiriendo lock de SSEM"))
+        }
+    }
+
+    pub fn export_ssem_json(&self, path: impl AsRef<Path>) -> Result<usize> {
+        if let Ok(ssem) = self.ssem.lock() {
+            ssem.export_to_json(path.as_ref())
+        } else {
+            Err(anyhow::anyhow!("Error adquiriendo lock de SSEM"))
+        }
+    }
+
+    pub fn flush_ssem_buffer(&self) -> Result<usize> {
+        if let Ok(ssem) = self.ssem.lock() {
+            ssem.flush_offline_buffer()
+        } else {
+            Err(anyhow::anyhow!("Error adquiriendo lock de SSEM"))
+        }
+    }
+
+    pub fn record_security_event(&self, alert: &ThreatAlert) {
+        if let Ok(ssem) = self.ssem.lock() {
+            let ev = ssem.alert_to_ssem_event(alert, "2.1.14");
+            let _ = ssem.record_event(ev);
+        }
+    }
+
+    // --- Certificación AMTSO y AV-TEST ---
+    pub fn run_amtso_certification_battery(&self) -> samulibre_types::AmtsoSuiteReport {
+        let cert = certification::CertificationHarnessEngine::new("data");
+        cert.run_amtso_test_suite()
+    }
+
+    pub fn run_certification_audit(&self) -> samulibre_types::CertificationAuditReport {
+        let cert = certification::CertificationHarnessEngine::new("data");
+        cert.run_full_audit()
+    }
+
+    // =========================================================================
+    // MÓDULO DARK WEB & TOR PROTECTION EN SAMULIBRE CORE
+    // =========================================================================
+
+    pub fn get_tor_shield_snapshot(&self) -> samulibre_types::TorShieldDashboardSnapshot {
+        if let Ok(shield) = self.shield.lock() {
+            if let Ok(mut tor) = shield.tor_shield.lock() {
+                return tor.get_dashboard_snapshot();
+            }
+        }
+        samulibre_types::TorShieldDashboardSnapshot {
+            active_profile: samulibre_types::TorProtectionProfile::Normal,
+            process_state: samulibre_types::TorProcessState::default(),
+            web_shield_active: true,
+            exploit_shield_active: true,
+            sandbox_isolation_active: true,
+            ransomware_tripwire_active: true,
+            stealer_protection_active: true,
+            kill_switch_armed: true,
+            downloads_scanned_count: 0,
+            threats_blocked_count: 0,
+            privacy_leaks_count: 0,
+            recent_alerts: Vec::new(),
+            suspicious_processes: Vec::new(),
+            privacy_alerts: Vec::new(),
+            vulnerabilities: Vec::new(),
+            recent_downloads: Vec::new(),
+            session_history: Vec::new(),
+            threat_feed_count: 0,
+            threat_feed_last_update: "Sin datos".to_string(),
+        }
+    }
+
+    pub fn set_tor_protection_profile(&self, profile: samulibre_types::TorProtectionProfile) {
+        if let Ok(shield) = self.shield.lock() {
+            if let Ok(mut tor) = shield.tor_shield.lock() {
+                tor.set_protection_profile(profile);
+            }
+        }
+    }
+
+    pub fn analyze_tor_download(
+        &self,
+        path: impl AsRef<std::path::Path>,
+        origin: Option<&str>,
+    ) -> samulibre_types::TorDownloadReport {
+        if let Ok(shield) = self.shield.lock() {
+            if let Ok(mut tor) = shield.tor_shield.lock() {
+                return tor.analyze_and_sandbox_download(path, origin);
+            }
+        }
+        samulibre_types::TorDownloadReport {
+            id: uuid::Uuid::new_v4(),
+            file_name: path.as_ref().file_name().unwrap_or_default().to_string_lossy().to_string(),
+            source_origin: origin.unwrap_or("Unknown").to_string(),
+            target_path: path.as_ref().to_string_lossy().to_string(),
+            sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855".to_string(),
+            size_bytes: 0,
+            quarantine_path: None,
+            signature_threat: None,
+            heuristic_score: 0.0,
+            document_analysis: samulibre_types::TorDocumentRiskAnalysis::default(),
+            sandbox_verdict: "Error adquiriendo lock de Tor Shield".to_string(),
+            reputation_verdict: "Sin analizar".to_string(),
+            final_verdict: samulibre_types::TorDownloadVerdict::Suspicious,
+            reasoning: "Error adquiriendo lock de Tor Shield".to_string(),
+            analyzed_at: chrono::Utc::now(),
+        }
+    }
+
+    pub fn trigger_tor_kill_switch(&self, pid: u32, process_name: &str, reason: &str) -> bool {
+        if let Ok(shield) = self.shield.lock() {
+            if let Ok(mut tor) = shield.tor_shield.lock() {
+                return tor.trigger_containment_kill_switch(pid, process_name, reason);
+            }
+        }
+        false
+    }
+
+    pub fn audit_tor_vulnerabilities(&self, installed_version: Option<&str>) -> Vec<samulibre_types::TorVulnerabilityAdvisory> {
+        if let Ok(shield) = self.shield.lock() {
+            if let Ok(mut tor) = shield.tor_shield.lock() {
+                return tor.audit_vulnerabilities(installed_version);
+            }
+        }
+        Vec::new()
     }
 }
 

@@ -8,6 +8,17 @@ data/test_samples/*
 !data/test_samples/.gitkeep
 data/quarantine/*
 !data/quarantine/.gitkeep
+data/secure/
+data/intel/
+data/audit/
+data/ssem/
+data/reputation/
+data/netdefense/
+data/smart_scan_cache.json
+data/threat_history.pre_fp_cleanup.bak.json
+data/vt_policy.json
+data/wdhe_config.json
+data/kbs/kb_intelligence_cache.json
 data/app_error.log
 data/threat_history.json
 data/threat_history.json.bk

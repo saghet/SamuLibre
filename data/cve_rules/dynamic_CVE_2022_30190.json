@@ -17,7 +17,7 @@
     }
   },
   "status": "Unmitigated",
-  "detected_at": "2026-11-07T16:48:56.353519200Z",
+  "detected_at": "2026-11-15T18:42:47.797007500Z",
   "patched_at": null,
   "unpatched_at": null,
   "status_reason": "Generado por IA local (SamuLibre-CyberGuard-NeuroSymbolic-SLM) con confianza 94.0%"

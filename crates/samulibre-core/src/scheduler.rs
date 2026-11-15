@@ -259,13 +259,19 @@ impl ScheduledScanManager {
                                 threat_name,
                                 engine: result.engine,
                                 sha256: result.sha256,
-                                severity: "Alta".to_string(),
+                                severity: result.confidence_level.severity_label().to_string(),
                                 action_taken: "Escaneo Programado (Neutralizado)".to_string(),
                                 quarantine_id: None,
                                 origin_source,
                                 origin_url,
                                 human_explanation,
                                 suggested_action,
+                                confidence_level: result.confidence_level,
+                                calibrated_score: result.calibrated_score,
+                                evidences: result.evidences,
+                                classification: result.classification,
+                                validation_status: samulibre_types::ValidationStatus::Pendiente,
+                                authenticode: result.authenticode,
                             });
                         }
                     }
@@ -302,29 +308,32 @@ impl ScheduledScanManager {
     pub fn sync_native_os_scheduler(&self) {
         #[cfg(target_os = "windows")]
         {
+            use std::os::windows::process::CommandExt;
             if self.config.enabled {
                 let time_str = &self.config.scheduled_time;
                 let current_exe =
                     std::env::current_exe().unwrap_or_else(|_| PathBuf::from("samulibre-cli.exe"));
                 let cmd_str = format!("\"{}\" schedule run-now", current_exe.display());
-                let _ = std::process::Command::new("schtasks")
-                    .args(&[
-                        "/create",
-                        "/tn",
-                        "SamuLibreScan",
-                        "/tr",
-                        &cmd_str,
-                        "/sc",
-                        "daily",
-                        "/st",
-                        time_str,
-                        "/f",
-                    ])
-                    .output();
+                let mut cmd = std::process::Command::new("schtasks");
+                cmd.args(&[
+                    "/create",
+                    "/tn",
+                    "SamuLibreScan",
+                    "/tr",
+                    &cmd_str,
+                    "/sc",
+                    "daily",
+                    "/st",
+                    time_str,
+                    "/f",
+                ]);
+                cmd.creation_flags(0x08000000);
+                let _ = cmd.output();
             } else {
-                let _ = std::process::Command::new("schtasks")
-                    .args(&["/delete", "/tn", "SamuLibreScan", "/f"])
-                    .output();
+                let mut cmd = std::process::Command::new("schtasks");
+                cmd.args(&["/delete", "/tn", "SamuLibreScan", "/f"]);
+                cmd.creation_flags(0x08000000);
+                let _ = cmd.output();
             }
         }
 

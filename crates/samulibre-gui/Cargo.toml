@@ -15,9 +15,11 @@ samulibre-core = { path = "../samulibre-core" }
 samulibre-patcher = { path = "../samulibre-patcher" }
 samulibre-shield = { path = "../samulibre-shield" }
 samulibre-scanner = { path = "../samulibre-scanner" }
+samulibre-intel = { path = "../samulibre-intel" }
 samulibre-vpn = { path = "../samulibre-vpn" }
 samulibre-watcher = { path = "../samulibre-watcher" }
 samulibre-ai = { path = "../samulibre-ai" }
+samulibre-netdefense = { path = "../samulibre-netdefense" }
 walkdir = "2.5"
 rayon = "1.10"
 wry = "0.57"
@@ -34,6 +36,7 @@ chrono = { workspace = true }
 uuid = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
+sysinfo = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

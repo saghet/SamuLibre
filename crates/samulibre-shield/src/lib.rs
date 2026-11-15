@@ -10,23 +10,32 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{Arc, Mutex};
 use sysinfo::{Pid, ProcessesToUpdate, System};
 use tracing::{info, warn};
 use uuid::Uuid;
 
 pub mod adaptive_firewall;
 pub mod anti_tamper;
+pub mod behavior_monitor;
 pub mod browser_shield;
 pub mod credentials;
 pub mod fileless;
 pub mod ransomware_predictive;
+pub mod anti_ransomware;
+pub mod web_shield;
+pub mod tor_shield;
 
 pub use adaptive_firewall::*;
 pub use anti_tamper::*;
+pub use behavior_monitor::*;
 pub use browser_shield::*;
 pub use credentials::*;
 pub use fileless::*;
 pub use ransomware_predictive::*;
+pub use anti_ransomware::*;
+pub use web_shield::*;
+pub use tor_shield::*;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -81,6 +90,10 @@ pub struct EndpointShield {
     pub adaptive_firewall: AdaptiveFirewall,
     pub credential_shield: CredentialShield,
     pub anti_tamper: AntiTamperShield,
+    pub behavior_monitor: BehaviorMonitor,
+    pub anti_ransomware: Arc<Mutex<AntiRansomwareEngine>>,
+    pub web_shield: Arc<Mutex<WebShieldEngine>>,
+    pub tor_shield: Arc<Mutex<TorShieldEngine>>,
 }
 
 impl EndpointShield {
@@ -105,6 +118,10 @@ impl EndpointShield {
         let mut anti_tamper = AntiTamperShield::new();
         anti_tamper.add_protected_path(&closed_ports_file);
 
+        let anti_ransomware = Arc::new(Mutex::new(AntiRansomwareEngine::new(&dir)));
+        let web_shield = Arc::new(Mutex::new(WebShieldEngine::new(&data_root)));
+        let tor_shield = Arc::new(Mutex::new(TorShieldEngine::new(&data_root)));
+
         Self {
             canaries: HashMap::new(),
             system: sys,
@@ -118,6 +135,10 @@ impl EndpointShield {
             adaptive_firewall: AdaptiveFirewall::new(),
             credential_shield: CredentialShield::new(),
             anti_tamper,
+            behavior_monitor: BehaviorMonitor::new(),
+            anti_ransomware,
+            web_shield,
+            tor_shield,
         }
     }
 
@@ -680,6 +701,9 @@ impl EndpointShield {
     /// Ciclo continuo de auditoría de seguridad de ultra-bajo consumo (Single-Pass Process Scan)
     pub fn run_continuous_check(&mut self) -> Vec<ThreatAlert> {
         let mut alerts = self.check_canary_integrity();
+        if let Ok(mut ar) = self.anti_ransomware.lock() {
+            alerts.extend(ar.check_canaries_and_rotate());
+        }
         if self.lsass_protection_enabled || self.cookie_shield_enabled {
             alerts.extend(self.scan_processes_unified());
         }

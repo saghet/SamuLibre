@@ -1,4 +1,4 @@
-# Packaging Script for SamuLibre Windows Distribution
+﻿# Packaging Script for SamuLibre Windows Distribution
 param (
     [string]$Version = "2.1.13"
 )
@@ -35,6 +35,7 @@ Copy-Item -Recurse "data\ui" "$distDir\data\ui"
 Copy-Item -Recurse "data\signatures" "$distDir\data\signatures"
 Copy-Item -Recurse "data\cve_rules" "$distDir\data\cve_rules"
 Copy-Item -Recurse "assets\*" "$distDir\assets\"
+Copy-Item -Recurse "docs" "$distDir\docs" -ErrorAction SilentlyContinue
 
 # Incluir script de instalación con UAC y desinstalador
 Copy-Item "scripts\install_windows.ps1" "$distDir\install.ps1" -ErrorAction SilentlyContinue

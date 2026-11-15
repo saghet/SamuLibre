@@ -113,31 +113,33 @@ pub struct PolymorphicProfile {
     pub reason: Option<String>,
 }
 
-/// Analiza un archivo en bloques de 1024 bytes en busca de secciones de alta entropía
-/// intercaladas con código ofuscador característico de troyanos polimórficos.
-pub fn analyze_polymorphic_entropy(data: &[u8], file_name: &str) -> PolymorphicProfile {
-    if data.len() < 1024 {
-        return PolymorphicProfile {
-            is_likely_polymorphic: false,
-            overall_entropy: calculate_shannon_entropy(data),
-            high_entropy_blocks: 0,
-            total_blocks: 1,
-            reason: None,
-        };
-    }
-
-    let overall = calculate_shannon_entropy(data);
+/// Evalúa el perfil polimórfico a partir de histogramas ya calculados (p. ej. por lotes en Dual-GPU).
+pub fn polymorphic_profile_from_histograms(
+    data: &[u8],
+    file_name: &str,
+    global_hist: &[u32; 256],
+    chunk_hists: &[[u32; 256]],
+) -> PolymorphicProfile {
     let mut high_entropy_blocks = 0usize;
     let mut total_blocks = 0usize;
-
-    for chunk in data.chunks(1024) {
+    for (chunk, hist) in data.chunks(1024).zip(chunk_hists.iter()) {
         total_blocks += 1;
-        let e = calculate_shannon_entropy(chunk);
+        let e = crate::gpu_hook::entropy_from_histogram(hist, chunk.len());
         if e > 7.15 {
             high_entropy_blocks += 1;
         }
     }
+    let overall = crate::gpu_hook::entropy_from_histogram(global_hist, data.len());
+    finalize_polymorphic_profile(data, file_name, overall, high_entropy_blocks, total_blocks)
+}
 
+fn finalize_polymorphic_profile(
+    data: &[u8],
+    file_name: &str,
+    overall: f64,
+    high_entropy_blocks: usize,
+    total_blocks: usize,
+) -> PolymorphicProfile {
     // Un archivo binario (.exe, .dll, .so, .bin) con más del 65% de bloques con entropía > 7.15
     // suele ser un payload empaquetado o cifrado polimórficamente.
     let is_exec = file_name.ends_with(".exe")
@@ -168,6 +170,42 @@ pub fn analyze_polymorphic_entropy(data: &[u8], file_name: &str) -> PolymorphicP
         total_blocks,
         reason,
     }
+}
+
+/// Analiza un archivo en bloques de 1024 bytes en busca de secciones de alta entropía
+/// intercaladas con código ofuscador característico de troyanos polimórficos.
+pub fn analyze_polymorphic_entropy(data: &[u8], file_name: &str) -> PolymorphicProfile {
+    if data.len() < 1024 {
+        return PolymorphicProfile {
+            is_likely_polymorphic: false,
+            overall_entropy: calculate_shannon_entropy(data),
+            high_entropy_blocks: 0,
+            total_blocks: 1,
+            reason: None,
+        };
+    }
+
+    // SHCE: lote de 1 segmento global + N bloques de 1 KB → un único Dispatch en GPU
+    // (Direct3D 11 Compute Shader). Fallback transparente a CPU si la GPU no está disponible.
+    let mut segments: Vec<&[u8]> = Vec::with_capacity(data.len() / 1024 + 2);
+    segments.push(data);
+    segments.extend(data.chunks(1024));
+
+    if let Some(hists) = crate::gpu_hook::gpu_histograms(&segments) {
+        return polymorphic_profile_from_histograms(data, file_name, &hists[0], &hists[1..]);
+    }
+
+    let mut high_entropy_blocks = 0usize;
+    let mut total_blocks = 0usize;
+    for chunk in data.chunks(1024) {
+        total_blocks += 1;
+        let e = calculate_shannon_entropy(chunk);
+        if e > 7.15 {
+            high_entropy_blocks += 1;
+        }
+    }
+    let overall = calculate_shannon_entropy(data);
+    finalize_polymorphic_profile(data, file_name, overall, high_entropy_blocks, total_blocks)
 }
 
 #[cfg(test)]

@@ -12,6 +12,13 @@ use std::path::Path;
 use std::process::Command;
 use tracing::info;
 
+pub mod alerts;
+pub mod correlation;
+pub mod patch_installer;
+pub mod windows_inventory;
+pub mod windows_kb_service;
+pub mod win_reg;
+
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 
@@ -57,6 +64,8 @@ pub struct VirtualPatcher {
     pub next_daily_check: Option<String>,
     pub daily_check_log: Vec<String>,
     ai_analyst: LocalAiAnalyst,
+    pub patch_service: windows_kb_service::WindowsPatchIntelligenceService,
+    pub incidents: Vec<samulibre_types::VirtualPatchIncident>,
 }
 
 /// KBs conocidos de definiciones antivirus, componentes de plataforma y herramientas que NO son vulnerabilidades (CVEs)
@@ -70,6 +79,7 @@ pub const KNOWN_NON_CVE_KBS: &[&str] = &[
 
 impl VirtualPatcher {
     pub fn new(dry_run: bool) -> Self {
+        let patch_service = windows_kb_service::WindowsPatchIntelligenceService::new("data/kbs");
         let mut patcher = Self {
             rules: Vec::new(),
             dry_run,
@@ -85,6 +95,8 @@ impl VirtualPatcher {
             next_daily_check: None,
             daily_check_log: Vec::new(),
             ai_analyst: LocalAiAnalyst::new(),
+            patch_service,
+            incidents: Vec::new(),
         };
         patcher.load_default_cve_catalog();
         patcher.load_default_kb_advisories();
@@ -768,34 +780,26 @@ impl VirtualPatcher {
         self.rules.clone()
     }
 
-    /// Obtiene las KBs (HotFixes) instaladas en el sistema operativo Windows
+    /// Obtiene las KBs (HotFixes) instaladas en el sistema operativo Windows consultando CBS, WUA y WMI
     pub fn get_installed_kbs(&self) -> HashSet<String> {
+        if let Some(cached) = self.patch_service.load_cache() {
+            if !cached.installed_kbs.is_empty() {
+                return cached.installed_kbs.into_iter().map(|r| r.kb_id.to_uppercase()).collect();
+            }
+        }
         let mut installed = HashSet::new();
-
         #[cfg(target_os = "windows")]
         {
-            let mut cmd = Command::new("powershell");
-            cmd.args([
-                "-NoProfile",
-                "-Command",
-                "Get-HotFix | Select-Object -ExpandProperty HotFixID",
-            ]);
-            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-            let output = cmd.output();
-
-            if let Ok(out) = output {
-                if out.status.success() {
-                    let text = String::from_utf8_lossy(&out.stdout);
-                    for line in text.lines() {
-                        let trimmed = line.trim();
-                        if trimmed.starts_with("KB") || trimmed.starts_with("kb") {
-                            installed.insert(trimmed.to_uppercase());
-                        }
+            let cbs_list = win_reg::native::read_cbs_packages_direct();
+            let kb_regex = regex::Regex::new(r"(?i)KB\d+").ok();
+            for (pkg_name, _state, _client) in cbs_list {
+                if let Some(ref re) = kb_regex {
+                    if let Some(m) = re.find(&pkg_name) {
+                        installed.insert(m.as_str().to_uppercase());
                     }
                 }
             }
         }
-
         installed
     }
 
@@ -960,6 +964,51 @@ impl VirtualPatcher {
         }
     }
 
+    /// Obtiene el resumen de inteligencia de parches de Windows con correlación y alertas
+    pub fn get_patch_summary(&self, force_refresh: bool) -> samulibre_types::WindowsPatchIntelligenceSummary {
+        let mut summary = self.patch_service.generate_summary(force_refresh);
+        summary.correlations = correlation::PatchCorrelationEngine::correlate_all(
+            &summary.inventory,
+            &summary.installed_kbs,
+            &summary.pending_kbs,
+            &self.rules,
+        );
+        summary.active_alerts = alerts::SmartAlertEngine::generate_alerts(
+            &summary.pending_kbs,
+            &summary.correlations,
+            summary.pending_reboot_detected,
+            &summary.pending_reboot_reasons,
+            false,
+            false,
+        );
+        summary
+    }
+
+    /// Obtiene la matriz de correlación completa CVE <-> KB <-> Parche Virtual
+    pub fn get_cve_correlations(&self) -> Vec<samulibre_types::CveKbCorrelation> {
+        let summary = self.get_patch_summary(false);
+        summary.correlations
+    }
+
+    /// Instala una actualización KB específica a través de Windows Update Agent (WUA)
+    pub fn install_kb(&mut self, kb_id: &str, require_consent: bool) -> Result<String> {
+        let res = patch_installer::WindowsPatchInstaller::install_kb(kb_id, require_consent)?;
+        self.incidents.push(samulibre_types::VirtualPatchIncident {
+            timestamp: Utc::now().to_rfc3339(),
+            cve: "N/A (KB Rollup)".to_string(),
+            rule_id: kb_id.to_string(),
+            action: "InstallKB".to_string(),
+            result: "Success".to_string(),
+            details: res.clone(),
+        });
+        Ok(res)
+    }
+
+    /// Retorna el historial de incidentes y acciones del motor de parcheado virtual
+    pub fn get_incidents(&self) -> &[samulibre_types::VirtualPatchIncident] {
+        &self.incidents
+    }
+
     /// Alterna manualmente el parche virtual de una vulnerabilidad específica (desde la App o CLI)
     pub fn toggle_patch(&mut self, cve: &str, enable: bool) -> Result<VirtualPatchRule> {
         let dry_run = self.dry_run;
@@ -982,6 +1031,14 @@ impl VirtualPatcher {
             rule.patched_at = Some(now);
             rule.status_reason =
                 Some("Parche virtual aplicado manualmente y activo desde SamuLibre.".to_string());
+            self.incidents.push(samulibre_types::VirtualPatchIncident {
+                timestamp: now.to_rfc3339(),
+                cve: rule.cve.clone(),
+                rule_id: rule.id.clone(),
+                action: "EnforceVirtualPatch".to_string(),
+                result: "Success".to_string(),
+                details: format!("Mitigación activada: {}", rule.title),
+            });
         } else {
             let strategy = self.rules[rule_idx].strategy.clone();
             info!(
@@ -992,6 +1049,14 @@ impl VirtualPatcher {
             let installed_kbs = self.get_installed_kbs();
             let rule = &mut self.rules[rule_idx];
             rule.unpatched_at = Some(now);
+            self.incidents.push(samulibre_types::VirtualPatchIncident {
+                timestamp: now.to_rfc3339(),
+                cve: rule.cve.clone(),
+                rule_id: rule.id.clone(),
+                action: "RevertVirtualPatch".to_string(),
+                result: "Success".to_string(),
+                details: format!("Mitigación desactivada: {}", rule.title),
+            });
 
             let os_info = {
                 #[cfg(target_os = "windows")]
@@ -1280,11 +1345,15 @@ impl VirtualPatcher {
         {
             let mut cmd = Command::new("powershell");
             cmd.args([
+                "-WindowStyle",
+                "Hidden",
+                "-NoLogo",
+                "-NonInteractive",
                 "-NoProfile",
                 "-Command",
                 r#"$searcher = (New-Object -ComObject Microsoft.Update.Session).CreateUpdateSearcher(); $res = $searcher.Search("IsInstalled=0 and Type='Software'"); foreach ($u in $res.Updates) { $cats = ($u.Categories | Select-Object -ExpandProperty Name) -join ', '; $isDef = $cats -match 'Definition|Security platform|Platform Update|Driver|Language|Tools'; $isTitleExcluded = $u.Title -match 'Defender|Intelligence|Malicious Software Removal|Security platform|Platform Update|Antivirus|Definition|Edge|OneDrive|LanguagePack|Driver'; if (-not $isDef -and -not $isTitleExcluded) { foreach ($kb in $u.KBArticleIDs) { "KB$kb" } } }"#,
             ]);
-            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+            cmd.creation_flags(0x08000000 | 0x00000008); // CREATE_NO_WINDOW | DETACHED_PROCESS
             if let Ok(output) = cmd.output() {
                 if output.status.success() {
                     let text = String::from_utf8_lossy(&output.stdout);
